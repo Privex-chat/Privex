@@ -70,7 +70,7 @@ We welcome contributions! Please read [CONTRIBUTING.md](docs/CONTRIBUTING.md) be
 
 Privex is founded and maintained by **Hemansh**. 
 - 🔗 **LinkedIn:** [Hemansh](https://www.linkedin.com/in/sonixaep/)
-- 🔗 **GitHub Repo:** [Privex-chat/Privex-dev](https://github.com/Privex-chat/Privex-dev)
+- 🔗 **GitHub Repo:** [Privex-chat/Privex](https://github.com/Privex-chat/Privex)
 
 ### Support the Project
 Currently, Privex is running on temporary infrastructure without external funding. If you believe in absolute privacy and want to support the development of Privex, please consider donating:
