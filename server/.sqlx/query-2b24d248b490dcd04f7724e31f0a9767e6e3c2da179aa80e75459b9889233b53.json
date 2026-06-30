@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO kt_log (user_id, bundle_hash, operation, timestamp, prev_hash)\n           VALUES ($1, $2, 'register', $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b24d248b490dcd04f7724e31f0a9767e6e3c2da179aa80e75459b9889233b53"
+}

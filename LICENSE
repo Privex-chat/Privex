@@ -1,0 +1,29 @@
+Privex Source Code License (Custom EULA)
+Copyright (c) 2026 Hemansh (Founder of Privex)
+
+1. Purpose
+This license governs the use, modification, and distribution of the Privex source code and its underlying architectural design (the "Software"). The purpose of this public release is to provide transparency, allow public code audits to build trust, and accept community contributions, while strictly protecting the intellectual property of the founder.
+
+2. Permitted Uses
+You are granted a non-exclusive, non-transferable, revocable license to:
+a. Download, view, and read the Software for educational purposes and personal security auditing.
+b. Run the Software locally on your own machine solely for the purpose of testing or developing contributions.
+c. Fork the repository and modify the Software strictly for the purpose of submitting Pull Requests back to the official Privex repository.
+
+3. Prohibited Uses
+Unless you have obtained prior explicit written permission from the copyright holder, you are STRICTLY PROHIBITED from:
+a. Reusing, copying, or incorporating any portion of the Software (codebase, architectural design, cryptographic implementation structure, or UI/UX) into any other project, product, or service.
+b. Selling, sublicensing, distributing, or commercializing the Software or any derivatives thereof.
+c. Hosting a public or private instance of the Software for users other than yourself for testing purposes.
+d. Creating derivative works based on the Software or its specific architectural patterns.
+e. Claiming ownership or authorship over the Software or its concepts.
+
+4. Contributions
+By submitting a Pull Request, issue, or any form of contribution to this repository, you agree that:
+a. You are granting Hemansh an irrevocable, perpetual, worldwide, royalty-free, transferable license to use, modify, and distribute your contribution as part of Privex.
+b. Your contribution becomes part of the Software and is subject to this license.
+
+5. No Warranty
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For permissions beyond the scope of this license, or for business inquiries, please reach out to the founder directly via LinkedIn: https://www.linkedin.com/in/sonixaep/

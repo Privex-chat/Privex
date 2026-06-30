@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT chunk_id, storage_path FROM blob_index WHERE expires_at < $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chunk_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "storage_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f51aed18a300131c2358e24622fd2083cdbb386f792bb523422a7868aac40756"
+}

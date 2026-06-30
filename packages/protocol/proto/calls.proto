@@ -1,0 +1,36 @@
+syntax = "proto3";
+package privex;
+
+// Call signaling (docs 4.8). Every field that carries SDP/ICE is already
+// encrypted to the peer's identity key before it goes on the wire.
+
+enum CallType {
+  CALL_TYPE_UNSPECIFIED = 0;
+  CALL_TYPE_AUDIO       = 1;
+  CALL_TYPE_VIDEO       = 2;
+}
+
+message CallInvite {
+  bytes    call_id   = 1;
+  CallType call_type = 2;
+  bytes    sdp_offer = 3; // encrypted SDP offer
+  repeated bytes ice_candidates = 4;
+  uint64   timestamp = 5;
+}
+
+message CallAccept {
+  bytes call_id    = 1;
+  bytes sdp_answer = 2; // encrypted SDP answer
+  repeated bytes ice_candidates = 3;
+}
+
+message IceCandidate {
+  bytes call_id   = 1;
+  bytes candidate = 2; // encrypted ICE candidate
+}
+
+message CallHangup {
+  bytes  call_id   = 1;
+  uint64 timestamp = 2;
+  string reason    = 3;
+}

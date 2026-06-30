@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT user_id, ik_ed25519, ik_dilithium3, ik_x25519, spk_x25519,\n                  spk_sig_ed, spk_sig_dil, kyber1024_pub, spk_created_at, created_at\n           FROM key_directory WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "ik_ed25519",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "ik_dilithium3",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "ik_x25519",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "spk_x25519",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "spk_sig_ed",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 6,
+        "name": "spk_sig_dil",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 7,
+        "name": "kyber1024_pub",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 8,
+        "name": "spk_created_at",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f68db34ea1c0020185bbba63983f0472006ff208faab7df40364cf738f4d84cc"
+}

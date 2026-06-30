@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE blob_index SET downloaded = TRUE WHERE chunk_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6c5c4fcd20a7ec91ead24337f11bbd6d12155020231871766bd2687aa6677136"
+}

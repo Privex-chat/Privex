@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE blob_index\n           SET downloaded = TRUE, expires_at = LEAST(expires_at, $2)\n           WHERE chunk_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3140a4f1dc7bd1b11d28a8e07d5a7e46675e9796e04fee1a381ec3559e1e8c78"
+}

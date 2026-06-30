@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO opaque_records\n           (user_id, oprf_record, envelope, envelope_mac, created_at, updated_at)\n           VALUES ($1, $2, $3, $4, $5, $5)\n           ON CONFLICT (user_id) DO UPDATE SET\n               oprf_record  = EXCLUDED.oprf_record,\n               envelope     = EXCLUDED.envelope,\n               envelope_mac = EXCLUDED.envelope_mac,\n               updated_at   = EXCLUDED.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a2ad47ba47bf3de2813d5085f816db097eaed47945499152a6301b72e047ced"
+}

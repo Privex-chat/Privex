@@ -1,0 +1,87 @@
+[package]
+name = "privex-server"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "privex_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "privex-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "test_cors"
+path = "src/bin/test_cors.rs"
+
+[dependencies]
+axum = { version = "0.7.9", features = ["ws"] }
+tokio = { version = "1.42.0", features = ["full"] }
+sqlx = { version = "0.7.4", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "migrate",
+    "chrono",
+    "uuid",
+] }
+tower-http = { version = "0.6", features = ["cors"] }
+deadpool-redis = "0.16.0"
+rustls = "0.23.18"
+serde = { version = "1.0.215", features = ["derive"] }
+serde_json = "1.0.133"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+anyhow = "1.0.93"
+secrecy = "0.10.3"
+prost = "0.13.4"
+
+# Server-side auth crypto (no OpenSSL - pure Rust)
+hmac          = "0.12.1"
+sha2          = "0.10.8"
+ed25519-dalek = "2.1.1"
+fips204       = "0.4.6"
+fips203       = "0.4.3"
+base64        = "0.22.1"
+hex           = "0.4.3"
+getrandom     = "0.2.15"
+
+# Object storage (S3-compatible: MinIO locally, Cloudflare R2 in prod). Uses
+# aws-lc-rs/rustls - no OpenSSL.
+aws-sdk-s3 = "1.65.0"
+
+# OPAQUE server-side (same suite as packages/crypto-wasm: Ristretto255 + Argon2id)
+opaque-ke = { version = "3.0.0", features = ["ristretto255", "argon2"] }
+argon2    = "0.5.3"
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+
+# WebSocket online map + stream combinators
+dashmap      = "6.1.0"
+futures-util = { version = "0.3.31", default-features = false }
+
+[build-dependencies]
+prost-build = "0.13.4"
+
+[dev-dependencies]
+reqwest = { version = "0.12.9", default-features = false, features = ["json"] }
+tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread"] }
+serde_json = "1.0.133"
+ed25519-dalek = "2.1.1"
+fips204 = "0.4.6"
+fips203 = "0.4.3"
+sha2 = "0.10.8"
+hex = "0.4.3"
+getrandom = "0.2.15"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+sqlx = { version = "0.7.4", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+base64 = "0.22.1"
+tokio-tungstenite = { version = "0.24.0", default-features = false, features = ["connect", "handshake"] }
+futures-util = { version = "0.3.31", default-features = false }
+opaque-ke = { version = "3.0.0", features = ["ristretto255", "argon2"] }
+rand_core = { version = "0.6.4", features = ["getrandom"] }
+
+[profile.release]
+debug = false
+strip = "symbols"

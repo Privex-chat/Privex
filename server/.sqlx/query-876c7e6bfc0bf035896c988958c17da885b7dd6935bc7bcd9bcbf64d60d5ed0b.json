@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE key_directory\n           SET spk_x25519 = $2, spk_sig_ed = $3, spk_sig_dil = $4, spk_created_at = $5\n           WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "876c7e6bfc0bf035896c988958c17da885b7dd6935bc7bcd9bcbf64d60d5ed0b"
+}

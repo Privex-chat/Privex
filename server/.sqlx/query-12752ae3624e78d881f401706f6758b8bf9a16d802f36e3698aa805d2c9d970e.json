@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM pow_challenges WHERE expires_at < $1 OR used = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "12752ae3624e78d881f401706f6758b8bf9a16d802f36e3698aa805d2c9d970e"
+}

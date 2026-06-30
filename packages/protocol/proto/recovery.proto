@@ -1,0 +1,27 @@
+syntax = "proto3";
+package privex;
+
+// Account recovery (docs 4.2, 6). Every blob here is opaque to the server.
+
+// OPAQUE record stored server-side. The server can never decrypt the envelope.
+message OpaqueRecord {
+  bytes oprf_record  = 1;
+  bytes envelope     = 2; // AES-256-GCM(export_key, key material)
+  bytes envelope_mac = 3; // HMAC-SHA256(auth_key, envelope)
+}
+
+// Shamir share for social recovery (path 3). Encrypted to a contact's key.
+message ShamirShare {
+  uint32 index           = 1;
+  bytes  encrypted_share = 2;
+}
+
+// Device-to-device key transfer (path 2). The server routes the blob only.
+message DeviceLinkPayload {
+  bytes master_seed           = 1;
+  bytes ik_ed_priv            = 2;
+  bytes ik_dil_priv           = 3;
+  bytes kyber_priv            = 4;
+  bytes x25519_priv           = 5;
+  bytes contacts_db_encrypted = 6;
+}

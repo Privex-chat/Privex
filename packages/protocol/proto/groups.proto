@@ -1,0 +1,26 @@
+syntax = "proto3";
+package privex;
+
+// MLS group messaging (docs 4.6, RFC 9420). Server stores only encrypted group
+// state; it cannot read membership or content.
+
+message MLSMessage {
+  bytes  group_id       = 1;
+  uint64 epoch          = 2;
+  bytes  mls_ciphertext = 3; // application message
+  uint64 sent_at        = 4;
+}
+
+message GroupState {
+  bytes  group_id        = 1;
+  uint64 epoch           = 2;
+  bytes  encrypted_state = 3;
+  uint32 member_count    = 4;
+  uint64 updated_at      = 5;
+}
+
+message MLSWelcome {
+  bytes group_id     = 1;
+  bytes welcome      = 2; // encrypted group state for the new member
+  bytes ratchet_tree = 3;
+}

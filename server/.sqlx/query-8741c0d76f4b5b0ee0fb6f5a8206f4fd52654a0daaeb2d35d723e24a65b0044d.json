@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO kt_log (user_id, bundle_hash, operation, timestamp, prev_hash)\n           VALUES ($1, $2, $3, $4, $5)\n           RETURNING seq",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "seq",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8741c0d76f4b5b0ee0fb6f5a8206f4fd52654a0daaeb2d35d723e24a65b0044d"
+}

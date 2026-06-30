@@ -1,0 +1,17 @@
+# Privex reverse proxy - stub. Full config (IP stripping, security headers,
+# real upstream) lands in Session 26.
+#
+# Access logs are NEVER created. Not "deleted" - discarded at the sink.
+
+:80 {
+	log {
+		output discard
+	}
+
+	respond /health 200 {
+		body "{\"status\":\"ok\"}"
+		close
+	}
+
+	respond "privex caddy stub" 200
+}

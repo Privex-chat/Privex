@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO blob_index (chunk_id, storage_path, size_bytes, expires_at)\n           VALUES ($1, $2, $3, $4)\n           ON CONFLICT (chunk_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "316c2ddfb5332d5637a4e099f9b443c6b49f7433c847aec944440572ce8798d4"
+}

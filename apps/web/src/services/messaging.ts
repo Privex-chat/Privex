@@ -1,0 +1,345 @@
+// Core message service (docs 4.4/4.5/11). Send: ratchet-encrypt the protobuf
+// plaintext → wrap in a MessageEnvelope → Sealed Sender → POST /messages/send.
+// Receive: open the sealed blob → decode envelope → (PQXDH respond on a new
+// session) → ratchet-decrypt → persist + ack. All key material stays in the
+// crypto worker; this module only moves opaque bytes and talks to IndexedDB/API.
+import * as api from "../api/client";
+import { cryptoCall } from "../workers/crypto-client";
+import { useAuth } from "../store/auth";
+import { loadBundle } from "../onboarding/store";
+import type { IdentityBundle } from "../crypto/onboarding-crypto";
+import { EncryptedMessages } from "../db/encrypted-db";
+import { db } from "../db";
+import { getContact, isKeyChanged, upsertInboundContact } from "../data/contacts";
+import {
+  clearPqxdhInit,
+  createInboundSession,
+  loadSession,
+  saveRatchetState,
+} from "../data/sessions";
+import {
+  decodeContent,
+  decodeEnvelope,
+  encodeContactHello,
+  encodeEnvelope,
+  encodeFile,
+  encodeText,
+} from "./envelope";
+import { emitContactsChanged, emitMessage } from "./events";
+import { enqueue } from "./outbox";
+import { backupMessage } from "./history-backup";
+import { b64decode, b64encode } from "./bytes";
+import { encryptAndUpload, materializeIncoming, type FileMeta } from "./files";
+import type {
+  RatchetDecrypted,
+  RatchetEncrypted,
+  PqxdhInitFields,
+  SealedOpened,
+} from "../crypto/message-crypto";
+
+const CERT_VALID_SECONDS = 24 * 3600;
+
+// --- crypto API (worker-backed; injectable for tests) ---
+
+export interface MessageCryptoApi {
+  ratchetEncrypt(state: Uint8Array, plaintext: Uint8Array): Promise<RatchetEncrypted>;
+  ratchetDecrypt(state: Uint8Array, ct: Uint8Array, header: Uint8Array): Promise<RatchetDecrypted>;
+  ratchetInitBob(shared: Uint8Array, spkPriv: Uint8Array, spkPub: Uint8Array): Promise<Uint8Array>;
+  generateSenderCert(
+    senderId: string,
+    edPriv: Uint8Array,
+    edPub: Uint8Array,
+    dilPriv: Uint8Array,
+    dilPub: Uint8Array,
+    now: number,
+    validSeconds: number,
+  ): Promise<Uint8Array>;
+  sealedSenderEncrypt(message: Uint8Array, cert: Uint8Array, recipientIkPub: Uint8Array): Promise<Uint8Array>;
+  sealedSenderDecrypt(blob: Uint8Array, ikPriv: Uint8Array, now: number): Promise<SealedOpened>;
+  pqxdhRespond(
+    init: PqxdhInitFields,
+    ikPriv: Uint8Array,
+    spkPriv: Uint8Array,
+    opkPriv: Uint8Array,
+    kyberPriv: Uint8Array,
+  ): Promise<Uint8Array>;
+}
+
+export const workerMessageCrypto: MessageCryptoApi = {
+  ratchetEncrypt: (s, p) => cryptoCall("ratchet_encrypt", [s, p]),
+  ratchetDecrypt: (s, c, h) => cryptoCall("ratchet_decrypt", [s, c, h]),
+  ratchetInitBob: (sh, sp, pub) => cryptoCall("ratchet_init_bob", [sh, sp, pub]),
+  generateSenderCert: (id, ep, eP, dp, dP, n, v) =>
+    cryptoCall("generate_sender_cert", [id, ep, eP, dp, dP, n, v]),
+  sealedSenderEncrypt: (m, c, r) => cryptoCall("sealed_sender_encrypt", [m, c, r]),
+  sealedSenderDecrypt: (b, k, n) => cryptoCall("sealed_sender_decrypt", [b, k, n]),
+  pqxdhRespond: (i, ik, sp, op, ky) => cryptoCall("pqxdh_respond", [i, ik, sp, op, ky]),
+};
+
+const now = () => Math.floor(Date.now() / 1000);
+const messages = () => new EncryptedMessages(db);
+
+// --- identity + sender cert caches ---
+
+let bundleCache: IdentityBundle | null = null;
+async function myBundle(): Promise<IdentityBundle> {
+  if (bundleCache) return bundleCache;
+  const b = await loadBundle();
+  if (!b) throw new Error("identity not loaded");
+  bundleCache = b;
+  return b;
+}
+
+let certCache: { cert: Uint8Array; expiresAt: number } | null = null;
+async function myCert(crypto: MessageCryptoApi, me: IdentityBundle): Promise<Uint8Array> {
+  const t = now();
+  if (certCache && certCache.expiresAt - 300 > t) return certCache.cert;
+  const cert = await crypto.generateSenderCert(
+    me.userId,
+    me.identity.ed25519_priv,
+    me.identity.ed25519_pub,
+    me.identity.dilithium3_priv,
+    me.identity.dilithium3_pub,
+    t,
+    CERT_VALID_SECONDS,
+  );
+  certCache = { cert, expiresAt: t + CERT_VALID_SECONDS };
+  return cert;
+}
+
+/** Reset cached identity/cert (call on sign-out). */
+export function resetMessaging(): void {
+  bundleCache = null;
+  certCache = null;
+}
+
+function token(): string {
+  const t = useAuth.getState().sessionToken;
+  if (!t) throw new Error("not authenticated");
+  return t;
+}
+
+// --- send ---
+
+/** Ratchet-encrypt an already-encoded Content, wrap + Sealed-Sender it, POST, and
+ *  persist the local copy. Shared by text + file sends. Returns the server msg id. */
+async function sealAndSend(
+  peerId: string,
+  contentBytes: Uint8Array,
+  store: { content: string; kind: "text" | "file" } | null,
+  crypto: MessageCryptoApi,
+): Promise<string> {
+  const me = await myBundle();
+  const contact = await getContact(peerId);
+  if (!contact || contact.ik_x25519.length === 0) {
+    throw new Error("no recipient key - add this contact first");
+  }
+  const session = await loadSession(peerId);
+  if (!session) throw new Error("no session - add this contact first");
+
+  const ts = now();
+  const enc = await crypto.ratchetEncrypt(session.ratchetState, contentBytes);
+  const envelope = encodeEnvelope(enc.header, enc.ciphertext, session.pqxdhInit);
+  const cert = await myCert(crypto, me);
+  const sealed = await crypto.sealedSenderEncrypt(envelope, cert, contact.ik_x25519);
+
+  // Persist the advanced ratchet BEFORE the network call - the encrypt consumed a
+  // ratchet step regardless of whether the POST succeeds; `sealed` is that step's
+  // only ciphertext, so an offline send is parked verbatim and re-POSTed later.
+  await saveRatchetState(peerId, enc.newState);
+  if (session.pqxdhInit) await clearPqxdhInit(peerId);
+
+  const localId = globalThis.crypto.randomUUID(); // `crypto` here is the injected API
+  const sealedB64 = b64encode(sealed);
+  let msgId: string = localId;
+  let status = "sent";
+  try {
+    const resp = await api.sendMessage(peerId, sealedB64, token());
+    msgId = resp.message_id;
+  } catch (e) {
+    // A real server error (auth, rate-limit) should surface. A bare network failure
+    // (offline) → queue the sealed blob for background-sync delivery on reconnect.
+    if (e instanceof api.ApiError) throw e;
+    status = "queued";
+    await enqueue(peerId, sealedB64, store ? localId : "");
+  }
+
+  // store === null → a control message (e.g. contact hello): no visible row.
+  if (store) {
+    const row = {
+      msg_id: msgId,
+      session_id: peerId,
+      content: store.content,
+      timestamp: ts,
+      status,
+      direction: "out" as const,
+      kind: store.kind,
+    };
+    await messages().add(row);
+    void backupMessage(row); // best-effort history backup (no-op unless enabled)
+    emitMessage({ peerId });
+  }
+  return msgId;
+}
+
+/** Silent "I added you" announcement so the peer auto-adds us back. Best-effort:
+ *  on the first send it also delivers our PQXDH handshake, establishing the session. */
+export async function sendContactHello(
+  peerId: string,
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  await sealAndSend(peerId, encodeContactHello(now()), null, crypto);
+}
+
+export async function sendMessage(
+  peerId: string,
+  plaintext: string,
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  await sealAndSend(peerId, encodeText(plaintext, now()), { content: plaintext, kind: "text" }, crypto);
+}
+
+/** Encrypt + upload a file's chunks, then send its manifest as a file message. */
+export async function sendFile(
+  peerId: string,
+  file: File,
+  onProgress?: (done: number, total: number) => void,
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  const contact = await getContact(peerId);
+  if (!contact || contact.ik_x25519.length === 0) {
+    throw new Error("no recipient key - add this contact first");
+  }
+  const { fields, meta } = await encryptAndUpload(file, contact.ik_x25519, onProgress);
+  await sealAndSend(peerId, encodeFile(fields), { content: JSON.stringify(meta), kind: "file" }, crypto);
+}
+
+// --- receive ---
+
+export interface WSMessage {
+  message_id: string;
+  content: string; // base64 sealed blob
+  queued_at: number;
+}
+
+export async function receiveMessage(
+  ws: WSMessage,
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  const me = await myBundle();
+  const blob = b64decode(ws.content);
+  const opened = await crypto.sealedSenderDecrypt(blob, me.identity.x25519_priv, now());
+  const senderId = opened.senderId;
+  const env = decodeEnvelope(opened.plaintext);
+
+  // Pin the cert's signing key to any identity key we already hold for this
+  // sender (docs 8.2 key-change detection on receive). A mismatch means the
+  // sender's key changed (or someone is impersonating them via px_id collision) -
+  // never silently trust it. The px_id binding inside sealed_sender_decrypt
+  // already guarantees senderId is derived from this same ed key.
+  const keyChanged = await isKeyChanged(senderId, opened.senderEdPub);
+  const verified = opened.senderVerified && !keyChanged;
+
+  // Pick the session. Use an EXISTING session only if it's already established
+  // (no pending initiator stash). When a handshake-bearing message arrives, decide
+  // whether to ADOPT it (respond as bob) vs. use our own session. Glare resolution
+  // for "both added each other": adopt the sender's handshake if we have no
+  // established session (the common case - we only initiated, never sent), OR if
+  // the sender is the canonical initiator (smaller px_id). Both sides apply the
+  // same rule, so they converge on one ratchet. (In a simultaneous double-send the
+  // non-canonical party's very first message may be lost; everything after converges.)
+  const existing = await loadSession(senderId);
+  const established = !!existing && !existing.pqxdhInit;
+  const adoptHandshake = !!env.pqxdh && (!established || senderId < me.userId);
+
+  let plaintextBytes: Uint8Array;
+  if (!adoptHandshake) {
+    if (!existing) throw new Error("first message from new peer lacks PQXDH init");
+    let dec;
+    try {
+      dec = await crypto.ratchetDecrypt(existing.ratchetState, env.ciphertext, env.header);
+    } catch (e) {
+      // Glare: the sender also initiated, but we're the canonical initiator (smaller
+      // px_id), so we kept our session. Their pre-convergence message can't be
+      // decrypted with it - drop it (acked, no redelivery loop). They re-send once
+      // they adopt our handshake.
+      if (env.pqxdh) {
+        await api.ackMessages([ws.message_id], token());
+        return;
+      }
+      throw e;
+    }
+    await saveRatchetState(senderId, dec.newState);
+    plaintextBytes = dec.plaintext;
+  } else {
+    const pq = env.pqxdh!; // adoptHandshake implies a handshake is present
+    const opkPriv =
+      pq.opk_used && pq.opk_id
+        ? me.opks.find((o) => o.id === pq.opk_id)?.priv ?? new Uint8Array(0)
+        : new Uint8Array(0);
+    const shared = await crypto.pqxdhRespond(
+      {
+        alice_ik_pub: pq.alice_ik_pub,
+        alice_ek_pub: pq.alice_ek_pub,
+        kyber_ciphertext: pq.kyber_ciphertext,
+        opk_used: pq.opk_used,
+      },
+      me.identity.x25519_priv,
+      me.spk.priv,
+      opkPriv,
+      me.identity.kyber1024_priv,
+    );
+    const bobState = await crypto.ratchetInitBob(shared, me.spk.priv, me.spk.pub);
+    const dec = await crypto.ratchetDecrypt(bobState, env.ciphertext, env.header);
+    await createInboundSession(senderId, dec.newState);
+    // Store the reply target (Alice's X25519 IK) + the cert's authentic identity
+    // key (px_id is bound to it), unless it conflicts with one we already hold.
+    await upsertInboundContact(
+      senderId,
+      keyChanged ? new Uint8Array(0) : opened.senderEdPub,
+      pq.alice_ik_pub,
+    );
+    emitContactsChanged(); // a new contact just appeared in our list
+    plaintextBytes = dec.plaintext;
+  }
+
+  const content = decodeContent(plaintextBytes);
+
+  // Silent contact announcement: the sender just added us. The contact was
+  // auto-added above; ack it but show no chat message.
+  if (content.contactHello) {
+    await api.ackMessages([ws.message_id], token());
+    emitContactsChanged();
+    return;
+  }
+
+  let stored: string;
+  let kind: "text" | "file";
+  let sentAt: number;
+  if (content.file) {
+    const meta: FileMeta = await materializeIncoming(content.file, me.identity.x25519_priv);
+    stored = JSON.stringify(meta);
+    kind = "file";
+    sentAt = content.file.sentAt;
+  } else if (content.text) {
+    stored = content.text.body;
+    kind = "text";
+    sentAt = content.text.sentAt;
+  } else {
+    throw new Error("unsupported message content");
+  }
+
+  const row = {
+    msg_id: ws.message_id,
+    session_id: senderId,
+    content: stored,
+    timestamp: sentAt || ws.queued_at || now(),
+    status: keyChanged ? "received-key-changed" : verified ? "received" : "received-unverified",
+    direction: "in" as const,
+    kind,
+  };
+  await messages().add(row);
+  void backupMessage(row); // best-effort history backup (no-op unless enabled)
+  await api.ackMessages([ws.message_id], token());
+  emitMessage({ peerId: senderId });
+}

@@ -1,0 +1,24 @@
+syntax = "proto3";
+package privex;
+
+// Sealed Sender (docs 4.5). The sender's identity is encrypted inside the
+// payload; the server only ever sees the recipient id and ciphertext size.
+
+message SenderCertificate {
+  string sender_id      = 1; // px_[hex]
+  bytes  sender_ed_pub  = 2; // Ed25519 identity public key
+  bytes  sender_dil_pub = 3; // Dilithium3 identity public key
+  uint64 valid_until    = 4; // unix seconds
+  bytes  cert_sig_ed    = 5; // Ed25519 signature over the certificate
+  bytes  cert_sig_dil   = 6; // Dilithium3 signature over the certificate
+}
+
+message SealedEnvelope {
+  string recipient_id    = 1; // px_[hex] - only routing info the server sees
+  bytes  ephemeral_pub   = 2; // X25519 ephemeral, lets recipient open the cert
+  bytes  enc_sender_cert = 3; // XChaCha20-Poly1305(SenderCertificate)
+  bytes  ciphertext      = 4; // Double Ratchet message (already encrypted)
+
+  optional bytes csam_proof       = 5; // Groth16 ZK proof, only if image
+  optional bytes image_commitment = 6; // commitment, only if image
+}

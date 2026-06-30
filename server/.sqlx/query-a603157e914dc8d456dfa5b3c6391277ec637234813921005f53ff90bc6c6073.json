@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM message_queue\n           WHERE message_id = ANY($1) AND recipient_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a603157e914dc8d456dfa5b3c6391277ec637234813921005f53ff90bc6c6073"
+}

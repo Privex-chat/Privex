@@ -1,0 +1,51 @@
+syntax = "proto3";
+package privex;
+
+// Key directory types (docs 4.1, 4.3, 11 key endpoints).
+
+message SignedPreKey {
+  bytes  x25519_pub = 1;
+  bytes  sig_ed     = 2; // SPK signed by Ed25519 IK
+  bytes  sig_dil    = 3; // SPK signed by Dilithium3 IK
+  uint64 created_at = 4; // unix seconds
+}
+
+message OneTimePreKey {
+  uint32 id         = 1;
+  bytes  x25519_pub = 2;
+}
+
+// Key Transparency log inclusion proof (docs 8.2, 11 GET /keys/kt/proof).
+message KTProof {
+  bytes  leaf         = 1;
+  repeated bytes merkle_path = 2;
+  bytes  root         = 3;
+  bytes  root_sig_ed  = 4;
+  bytes  root_sig_dil = 5;
+  uint64 timestamp    = 6;
+}
+
+// Full bundle published to the key directory at registration (docs 4.1).
+message KeyBundle {
+  string user_id             = 1;
+  bytes  ed25519_ik          = 2;
+  bytes  dilithium3_ik       = 3;
+  SignedPreKey signed_prekey = 4;
+  bytes  kyber1024_pub       = 5;
+  repeated OneTimePreKey one_time_prekeys = 6;
+  uint64 created_at          = 7;
+}
+
+// Bundle fetched to start a session; server returns exactly ONE opk and marks
+// it deleted (docs 11 GET /keys/{user_id}).
+message PreKeyBundle {
+  string  user_id        = 1;
+  bytes   ed25519_ik     = 2;
+  bytes   dilithium3_ik  = 3;
+  bytes   spk_x25519_pub = 4;
+  bytes   spk_sig_ed     = 5;
+  bytes   spk_sig_dil    = 6;
+  bytes   kyber1024_pub  = 7;
+  bytes   one_time_prekey = 8; // single OPK
+  KTProof kt_proof       = 9;
+}

@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Builds
+dist/
+build/
+target/
+packages/crypto-wasm/pkg/
+packages/protocol/src/proto.js
+packages/protocol/src/proto.d.ts
+*.tsbuildinfo
+
+# Turbo
+.turbo/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.keystore
+
+# Rust
+**/target/
+Cargo.lock.orig
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Docker / data volumes
+infra/data/
+ecosystem.config.js

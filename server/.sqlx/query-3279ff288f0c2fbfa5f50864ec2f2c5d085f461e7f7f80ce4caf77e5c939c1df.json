@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE opaque_records\n           SET oprf_record = $2, envelope = $3, envelope_mac = $4, updated_at = $5\n           WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3279ff288f0c2fbfa5f50864ec2f2c5d085f461e7f7f80ce4caf77e5c939c1df"
+}

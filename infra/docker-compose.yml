@@ -1,0 +1,50 @@
+# Local dev stack - stubs only (Session 1). Server image build + env wiring,
+# UNLOGGED tables, and network isolation land in Sessions 7–9, 26.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: privex
+      POSTGRES_PASSWORD: privex
+      POSTGRES_DB: privex
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    volumes:
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - ./redis/redis.conf:/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: privex
+      MINIO_ROOT_PASSWORD: privexprivex
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  caddy:
+    image: caddy:2-alpine
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+
+volumes:
+  postgres_data:
+  minio_data:
+  caddy_data:

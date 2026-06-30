@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO one_time_prekeys (user_id, opk_id, opk_x25519_pub)\n               VALUES ($1, $2, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Int4",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "09ca206294c46cdeddf24f7ba1b83da97f879f49ef224385b8de78ad39d2ff6e"
+}

@@ -1,0 +1,27 @@
+syntax = "proto3";
+package privex;
+
+import "envelope.proto";
+
+// Top-level wrapper for everything on the wire. Control frames mirror the
+// WebSocket protocol in docs 11.
+
+message Ack            { repeated string message_ids = 1; }
+message PrekeyLow      { uint32 remaining = 1; }
+message KeyChangeAlert { string user_id  = 1; }
+message Ping {}
+message Pong {}
+
+message WireMessage {
+  uint32 version   = 1;
+  uint64 timestamp = 2; // unix seconds
+
+  oneof payload {
+    SealedEnvelope sealed_envelope  = 10;
+    Ack            ack              = 11;
+    PrekeyLow      prekey_low       = 12;
+    KeyChangeAlert key_change_alert = 13;
+    Ping           ping             = 14;
+    Pong           pong             = 15;
+  }
+}

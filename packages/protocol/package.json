@@ -1,0 +1,19 @@
+{
+  "name": "@privex/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "pbjs -t static-module -w es6 -o src/proto.js proto/envelope.proto proto/keys.proto proto/calls.proto proto/groups.proto proto/recovery.proto proto/messages.proto proto/wire.proto && pbts -o src/proto.d.ts src/proto.js",
+    "test": "node test/textmessage.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "protobufjs": "^7.4.0"
+  },
+  "devDependencies": {
+    "protobufjs-cli": "^1.1.3",
+    "typescript": "^5.6.3"
+  }
+}

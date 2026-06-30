@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT oprf_record, envelope, envelope_mac\n           FROM opaque_records WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "oprf_record",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 1,
+        "name": "envelope",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 2,
+        "name": "envelope_mac",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1981062bae26a51402fe485537cab78f975af575c90ef89da52bcb983d4e05d1"
+}

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO message_queue\n           (recipient_id, content, csam_proof, queued_at, expires_at, size_bytes)\n           VALUES ($1, $2, $3, $4, $5, $6)\n           RETURNING message_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "message_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bytea",
+        "Bytea",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "de2ea84ad9450318ea1e297ae502e361b90e41a317d85fcd62a6e39e78c15472"
+}

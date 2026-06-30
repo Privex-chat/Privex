@@ -1,0 +1,76 @@
+syntax = "proto3";
+package privex;
+
+import "calls.proto";
+import "groups.proto";
+
+// Double Ratchet message (docs 4.4). Padding is applied to the plaintext
+// before encryption and is not modeled here.
+message RatchetMessage {
+  uint32 version      = 1;
+  bytes  ratchet_key  = 2; // current DH ratchet public key
+  uint32 counter      = 3;
+  uint32 prev_counter = 4; // for out-of-order delivery
+  bytes  ciphertext   = 5; // AES-256-GCM output
+  bytes  mac          = 6; // HMAC-SHA256 over header + ciphertext
+}
+
+message TextMessage {
+  string body                  = 1;
+  uint64 sent_at               = 2; // unix seconds
+  uint64 expires_after_seconds = 3; // disappearing messages; 0 = off
+}
+
+// File manifest (docs 4.7). Sent inside an encrypted message, never uploaded.
+message FileMessage {
+  bytes  filename_encrypted  = 1;
+  bytes  mime_type_encrypted = 2;
+  uint64 total_size          = 3;
+  bytes  sha256_plaintext    = 4; // integrity check over the plaintext file
+  repeated string chunk_ids  = 5; // content-addressed chunk ids (hex SHA-256)
+  bytes  wrapped_cek         = 6; // Content Encryption Key wrapped for recipient
+  bytes  cek_eph_pub         = 7; // X25519 ephemeral for CEK unwrap
+  bytes  thumbnail_encrypted = 8; // optional preview
+  uint64 sent_at             = 9;
+}
+
+// Silent contact announcement (docs 4.1). Sent automatically when you add someone
+// so they auto-add you back - rides Sealed Sender, so the server still learns no
+// social graph. Carries no visible message.
+message ContactHello {
+  uint64 sent_at = 1;
+}
+
+// The plaintext payload that gets sealed-sender encrypted. Exactly one type.
+message Content {
+  oneof body {
+    TextMessage  text          = 1;
+    FileMessage  file          = 2;
+    CallInvite   call_invite   = 3;
+    CallAccept   call_accept   = 4;
+    IceCandidate ice           = 5;
+    CallHangup   call_hangup   = 6;
+    MLSMessage   mls           = 7;
+    ContactHello contact_hello = 8;
+  }
+}
+
+// PQXDH initial-handshake fields carried on the FIRST message of a new session so
+// the recipient can complete X3DH (docs 4.3). `alice_ik_pub` is the initiator's
+// X25519 identity key - also the Sealed-Sender target for replies.
+message PqxdhInit {
+  bytes  alice_ik_pub     = 1;
+  bytes  alice_ek_pub     = 2;
+  bytes  kyber_ciphertext = 3;
+  bool   opk_used         = 4;
+  uint32 opk_id           = 5; // which of the recipient's OPKs was consumed (0 = none)
+}
+
+// The payload that Sealed Sender wraps: the opaque Double Ratchet header +
+// ciphertext, plus the PQXDH handshake on a new session's first message. The
+// ratchet header is wasm-internal (bincode) and treated as opaque bytes here.
+message MessageEnvelope {
+  bytes ratchet_header     = 1;
+  bytes ratchet_ciphertext = 2;
+  optional PqxdhInit pqxdh  = 3;
+}

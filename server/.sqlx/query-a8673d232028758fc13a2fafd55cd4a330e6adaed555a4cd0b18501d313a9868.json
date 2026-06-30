@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH claimed AS (\n               SELECT user_id, opk_id FROM one_time_prekeys\n               WHERE user_id = $1\n               ORDER BY opk_id\n               FOR UPDATE SKIP LOCKED\n               LIMIT 1\n           )\n           DELETE FROM one_time_prekeys o\n           USING claimed c\n           WHERE o.user_id = c.user_id AND o.opk_id = c.opk_id\n           RETURNING o.opk_id, o.opk_x25519_pub",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "opk_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "opk_x25519_pub",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a8673d232028758fc13a2fafd55cd4a330e6adaed555a4cd0b18501d313a9868"
+}
