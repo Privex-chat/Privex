@@ -1,7 +1,6 @@
 use axum::{routing::post, Router};
 use tower_http::cors::{CorsLayer, Any, AllowOrigin};
 use axum::http::HeaderValue;
-use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
