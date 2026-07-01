@@ -42,6 +42,12 @@ impl ApiError {
             msg: "not found",
         }
     }
+    pub fn forbidden() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            msg: "forbidden",
+        }
+    }
     pub fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,

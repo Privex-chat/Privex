@@ -26,6 +26,9 @@ pub struct Config {
     pub r2_secret_key: SecretString,
     pub turn_secret: SecretString,
     pub cors_origins: Vec<String>,
+    /// Allowed WebSocket `Origin` headers. Empty = allow all (local dev default).
+    /// In production, set to the client origin(s), e.g. `https://privex.dpdns.org`.
+    pub ws_allowed_origins: Vec<String>,
 }
 
 fn req(key: &str) -> Result<String> {
@@ -91,6 +94,12 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.trim().to_string())
                 .collect(),
+            ws_allowed_origins: std::env::var("WS_ALLOWED_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.trim().to_string())
+                .collect(),
         })
     }
 
@@ -128,6 +137,7 @@ impl Config {
             r2_secret_key: SecretString::from(String::new()),
             turn_secret: SecretString::from(String::new()),
             cors_origins: vec!["http://localhost:3000".to_string()],
+            ws_allowed_origins: Vec::new(), // allow all in tests
         }
     }
 }

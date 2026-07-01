@@ -26,6 +26,8 @@ pub struct PowChallengeResp {
 }
 
 pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallengeResp>, ApiError> {
+    // Endpoint-wide cap: unauthenticated Redis write per call.
+    crate::routes::rate_limit(&st, "powchal", "global", 60, 60).await?;
     let mut data = [0u8; 32];
     getrandom::getrandom(&mut data).map_err(|_| ApiError::internal())?;
     let mut id_raw = [0u8; 16];
@@ -35,7 +37,7 @@ pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallen
     let id = Uuid::from_bytes(id_raw);
 
     let now = now_unix();
-    let expires_at = now + 30 * 60;
+    let expires_at = now + 10 * 60;
 
     record_challenge_request(&st.redis)
         .await
@@ -51,7 +53,7 @@ pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallen
         &data,
         difficulty,
         unix_ts_ms(),
-        30 * 60,
+        10 * 60,
     )
     .await
     .map_err(|_| ApiError::internal())?;

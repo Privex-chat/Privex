@@ -28,6 +28,9 @@ pub async fn ws_route(
     State(st): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    // Origin validation: reject WebSocket upgrades from disallowed origins.
+    check_ws_origin(&st, &headers)?;
+
     // Sec-WebSocket-Protocol: "privex, <ticket>"
     let proto = headers
         .get("sec-websocket-protocol")
@@ -49,6 +52,24 @@ pub async fn ws_route(
     Ok(ws
         .protocols(["privex"])
         .on_upgrade(move |socket| handle_socket(socket, st2, user_id)))
+}
+
+/// Validate the `Origin` header against the configured allowlist. When the
+/// allowlist is empty (local dev default) all origins are accepted. Checked
+/// BEFORE consuming the single-use ticket so a rejected request doesn't burn it.
+pub(crate) fn check_ws_origin(st: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+    if st.config.ws_allowed_origins.is_empty() {
+        return Ok(());
+    }
+    let origin = headers
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if st.config.ws_allowed_origins.iter().any(|o| o == origin) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden())
+    }
 }
 
 async fn handle_socket(socket: WebSocket, st: AppState, user_id: String) {

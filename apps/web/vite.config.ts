@@ -6,12 +6,14 @@ import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import { VitePWA } from "vite-plugin-pwa";
 
-// Strict Content Security Policy (docs 9.5). Injected into the PRODUCTION HTML
-// only - the dev server needs a relaxed policy for HMR.
+// Strict Content Security Policy (docs 9.5). Delivered as an HTTP response
+// header (never a <meta> tag — meta silently ignores frame-ancestors, sandbox,
+// and report-to). In production Caddy sets the header; in dev/preview Vite's
+// server.headers does it.
 const CSP = [
   "default-src 'none'",
   "script-src 'self' 'wasm-unsafe-eval'", // WASM, no inline JS
-  "connect-src 'self' wss://nym-gateway-*.privex.dpdns.org",
+  "connect-src 'self' wss://*.privex.dpdns.org",
   "img-src 'self' blob: data:",
   "style-src 'self'",
   "font-src 'self'",
@@ -23,21 +25,9 @@ const CSP = [
   "upgrade-insecure-requests",
 ].join("; ");
 
-function cspPlugin() {
-  return {
-    name: "privex-csp",
-    apply: "build" as const,
-    transformIndexHtml(html: string) {
-      return html.replace(
-        "</head>",
-        `  <meta http-equiv="Content-Security-Policy" content="${CSP}" />\n  </head>`,
-      );
-    },
-  };
-}
-
 // docs 9.5 HTTP security headers (dev server + preview; production is set by Caddy).
 const securityHeaders = {
+  "Content-Security-Policy": CSP,
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
   "X-Content-Type-Options": "nosniff",
@@ -59,7 +49,7 @@ export default defineConfig(({ mode }) => {
       react(),
       wasm(),
       topLevelAwait(),
-      cspPlugin(),
+
       VitePWA({
         // injectManifest: our hand-written src/sw.ts (background sync + push) is the
         // SW; Workbox only stamps the precache manifest into it. generateSW can't host

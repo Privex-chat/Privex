@@ -96,6 +96,9 @@ pub async fn devlink_route(
     if !valid_rid(&rid) {
         return Err(ApiError::bad_request());
     }
+    // Origin validation: reject WebSocket upgrades from disallowed origins.
+    crate::ws::handler::check_ws_origin(&st, &headers)?;
+
     // Same browser-safe ticket auth as /v1/ws. Any authenticated user may connect;
     // the rendezvous_id (a QR secret) is what pairs the two devices.
     let proto = headers
