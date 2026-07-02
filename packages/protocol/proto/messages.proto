@@ -41,18 +41,41 @@ message ContactHello {
   uint64 sent_at = 1;
 }
 
+// Delivery/read confirmation (docs 4.10). Rides Content exactly like any other
+// message — same ratchet, same Sealed Sender, same padding — so the server cannot
+// distinguish it. Deliberately carries NO timestamp (timing correlation) and no
+// message/conversation reference beyond the random token.
+message ReceiptMessage {
+  bytes  token_id     = 1; // 32 bytes, matches the sender's ReceiptRequest token
+  string receipt_type = 2; // "delivered" | "read"
+}
+
+// Attached inside the encrypted payload when the sender wants receipts (docs 4.10).
+// token_id is CSPRNG(32) — the server never sees it; only the recipient does after
+// decryption. NOTE (deviation from docs wire sketch): no return_address field —
+// Sealed Sender already authenticates the sender's px_id, and trusting an inner
+// unauthenticated address would let a forger redirect receipts at a third party.
+message ReceiptRequest {
+  bytes token_id         = 1;
+  bool  request_delivery = 2;
+  bool  request_read     = 3;
+}
+
 // The plaintext payload that gets sealed-sender encrypted. Exactly one type.
 message Content {
   oneof body {
-    TextMessage  text          = 1;
-    FileMessage  file          = 2;
-    CallInvite   call_invite   = 3;
-    CallAccept   call_accept   = 4;
-    IceCandidate ice           = 5;
-    CallHangup   call_hangup   = 6;
-    MLSMessage   mls           = 7;
-    ContactHello contact_hello = 8;
+    TextMessage    text          = 1;
+    FileMessage    file          = 2;
+    CallInvite     call_invite   = 3;
+    CallAccept     call_accept   = 4;
+    IceCandidate   ice           = 5;
+    CallHangup     call_hangup   = 6;
+    MLSMessage     mls           = 7;
+    ContactHello   contact_hello = 8;
+    ReceiptMessage receipt       = 9;
   }
+  // Set on text/file when the sender requests delivery/read receipts.
+  ReceiptRequest receipt_request = 10;
 }
 
 // PQXDH initial-handshake fields carried on the FIRST message of a new session so

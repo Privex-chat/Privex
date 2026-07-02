@@ -7,6 +7,7 @@ import { useAuth } from "./store/auth";
 import { restoreSession } from "./services/auth-session";
 import { connectWebSocket, disconnectWebSocket } from "./services/websocket";
 import { flushOutbox } from "./services/outbox";
+import { startCoverTraffic, stopCoverTraffic } from "./services/cover-traffic";
 import Onboarding from "./screens/Onboarding";
 import ConversationList from "./screens/ConversationList";
 import Chat from "./screens/Chat";
@@ -96,11 +97,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Open the realtime socket whenever we hold a live token (restore or onboarding).
+  // Open the realtime socket whenever we hold a live token (restore or onboarding),
+  // and run the Poisson cover-traffic ticks that drain queued receipts (docs 4.10/5.3).
   useEffect(() => {
     if (authenticated && token) {
       void connectWebSocket(token);
-      return () => disconnectWebSocket();
+      void startCoverTraffic();
+      return () => {
+        stopCoverTraffic();
+        disconnectWebSocket();
+      };
     }
   }, [authenticated, token]);
 

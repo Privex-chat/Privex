@@ -36,6 +36,15 @@ export interface MessageRow {
   // "text" (default) or "file". For files, the decrypted content is a JSON
   // FileMeta (download manifest + display fields). Not sensitive → no _enc.
   kind?: "text" | "file";
+  // Receipts (docs 4.10). A 32-byte random token that lives ONLY on the two
+  // devices (the server never sees it). Outgoing rows: OUR token — an incoming
+  // ReceiptMessage matching it flips status sent→delivered→read. Incoming rows:
+  // the SENDER's token, kept so the read receipt can be queued when the message
+  // is actually viewed. Random + local-only → no _enc needed; not indexed → no
+  // schema version bump for these fields.
+  receipt_token?: Uint8Array;
+  receipt_read_wanted?: boolean; // incoming: sender asked for a read receipt
+  receipt_read_done?: boolean; // incoming: read receipt already queued (dedup)
 }
 
 export interface ContactRow {
@@ -97,6 +106,19 @@ export interface OutboxRow {
   attempts: number;
 }
 
+// Queued delivery/read receipts (docs 4.10). NOT sent immediately — drained at the
+// next Poisson cover-traffic tick (services/cover-traffic.ts) so receipt timing is
+// decoupled from receive/read timing. Persisted so a closed tab still confirms on
+// the next session. token_hex is random and local-only (never a server-visible id).
+export interface ReceiptOutboxRow {
+  id?: number;
+  to: string; // peer px_id (the original sender)
+  token_hex: string;
+  receipt_type: "delivered" | "read";
+  queued_at: number;
+  not_before: number; // 0, or a future time when Receipt Privacy Delay is on
+}
+
 export class PrivexDB extends Dexie {
   identity!: Table<IdentityRow, string>;
   sessions!: Table<SessionRow, string>;
@@ -106,6 +128,7 @@ export class PrivexDB extends Dexie {
   blobs!: Table<BlobRow, string>;
   settings!: Table<SettingRow, string>;
   outbox!: Table<OutboxRow, number>;
+  receipt_outbox!: Table<ReceiptOutboxRow, number>;
 
   constructor(name = "privex") {
     super(name);
@@ -121,6 +144,10 @@ export class PrivexDB extends Dexie {
     // v2: offline outbox for background-sync resend.
     this.version(2).stores({
       outbox: "++id, created_at",
+    });
+    // v3: queued delivery/read receipts (drained on Poisson cover-traffic ticks).
+    this.version(3).stores({
+      receipt_outbox: "++id, not_before",
     });
   }
 }

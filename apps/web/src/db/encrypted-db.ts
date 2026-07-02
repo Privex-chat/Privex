@@ -94,6 +94,10 @@ export interface PlainMessage {
   status: string;
   direction: "in" | "out";
   kind: "text" | "file";
+  // Receipt fields (docs 4.10) — see MessageRow for semantics.
+  receipt_token?: Uint8Array;
+  receipt_read_wanted?: boolean;
+  receipt_read_done?: boolean;
 }
 
 /** Message store that transparently encrypts content on write / decrypts on read. */
@@ -110,10 +114,7 @@ export class EncryptedMessages {
     await this.db.messages.put(row);
   }
 
-  async get(msgId: string): Promise<PlainMessage | undefined> {
-    const key = await this.keyPromise;
-    const row = await this.db.messages.get(msgId);
-    if (!row) return undefined;
+  private async rowToPlain(row: MessageRow, key: CryptoKey): Promise<PlainMessage> {
     return {
       msg_id: row.msg_id,
       session_id: row.session_id,
@@ -121,8 +122,18 @@ export class EncryptedMessages {
       status: row.status,
       direction: row.direction,
       kind: row.kind ?? "text",
+      receipt_token: row.receipt_token,
+      receipt_read_wanted: row.receipt_read_wanted,
+      receipt_read_done: row.receipt_read_done,
       content: await decryptString(key, row.content_enc),
     };
+  }
+
+  async get(msgId: string): Promise<PlainMessage | undefined> {
+    const key = await this.keyPromise;
+    const row = await this.db.messages.get(msgId);
+    if (!row) return undefined;
+    return this.rowToPlain(row, key);
   }
 
   /** Most-recent `limit` messages for a conversation, oldest-first for display. */
@@ -131,17 +142,7 @@ export class EncryptedMessages {
     const rows = await this.db.messages.where("session_id").equals(sessionId).toArray();
     rows.sort((a, b) => a.timestamp - b.timestamp || a.msg_id.localeCompare(b.msg_id));
     const recent = rows.slice(-limit);
-    return Promise.all(
-      recent.map(async (row) => ({
-        msg_id: row.msg_id,
-        session_id: row.session_id,
-        timestamp: row.timestamp,
-        status: row.status,
-        direction: row.direction,
-        kind: row.kind ?? "text",
-        content: await decryptString(key, row.content_enc),
-      })),
-    );
+    return Promise.all(recent.map((row) => this.rowToPlain(row, key)));
   }
 }
 

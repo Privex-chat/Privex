@@ -12,6 +12,8 @@ let ws: WebSocket | null = null;
 let token: string | null = null;
 let stopped = false;
 let retry = 0;
+// Sequential frame queue (see sock.onmessage) - one receiveMessage at a time.
+let frameChain: Promise<void> = Promise.resolve();
 // Bumped on every connect/disconnect so a superseded attempt (e.g. StrictMode's
 // mount→unmount→mount) can't open or reconnect a stale second socket.
 let gen = 0;
@@ -58,7 +60,14 @@ async function open(myGen: number): Promise<void> {
     // Connectivity is back → deliver anything queued while offline.
     void flushOutbox();
   };
-  sock.onmessage = (ev) => void handleFrame(String(ev.data));
+  // Process frames SEQUENTIALLY. Concurrent receiveMessage calls race the shared
+  // Double Ratchet state (both load the same session, last save wins) and the
+  // receipt status upgrade (a late "delivered" could clobber "read"). Receipts
+  // made this real: a Poisson drain sends delivered+read back-to-back, so two
+  // frames routinely arrive within milliseconds.
+  sock.onmessage = (ev) => {
+    frameChain = frameChain.then(() => handleFrame(String(ev.data))).catch(() => {});
+  };
   sock.onerror = () => sock.close();
   sock.onclose = () => {
     if (ws === sock) {

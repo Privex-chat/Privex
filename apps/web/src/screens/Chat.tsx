@@ -4,16 +4,27 @@
 // file onto the window - or use the paperclip - to send it.
 // ponytail: renders the bounded last-50 in a scroll container; true windowed
 // virtualization can wait until conversations are huge.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { EncryptedMessages, type PlainContact, type PlainMessage } from "../db/encrypted-db";
 import { db } from "../db";
 import { acceptContact, getContact, removeContact } from "../data/contacts";
 import { onContactsChanged, onMessage } from "../services/events";
 import { sendMessage, sendFile } from "../services/messaging";
+import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { AttachIcon, DownloadIcon, FileIcon } from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
+
+/** Outgoing status ticks (docs 4.10): ◷ in flight, ✓ at server, ✓✓ delivered,
+ *  ✓✓ (highlighted) read. Incoming messages show nothing - receipts are outgoing-only. */
+function StatusTicks({ status }: { status: string }) {
+  if (status === "queued") return <span title="Waiting for connection">◷</span>;
+  if (status === "delivered") return <span title="Delivered">✓✓</span>;
+  if (status === "read") return <span className="text-sky-300" title="Read">✓✓</span>;
+  if (status === "failed") return <span className="text-red-300" title="Failed">!</span>;
+  return <span title="Sent">✓</span>; // "sent"
+}
 
 function formatSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -64,6 +75,59 @@ export default function Chat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [msgs]);
+
+  // Read receipts (docs 4.10): a message counts as "read" only after its bubble
+  // has been in the viewport for >1 s. Queues the receipt (sent at the next
+  // Poisson tick, never inline); queueReadReceipt is a no-op when read receipts
+  // are off (mutual) or already fired for this message.
+  const readObserver = useRef<IntersectionObserver | null>(null);
+  const readTimers = useRef(new Map<Element, ReturnType<typeof setTimeout>>());
+  const msgByEl = useRef(new Map<Element, PlainMessage>());
+  useEffect(() => {
+    const timers = readTimers.current;
+    const byEl = msgByEl.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const en of entries) {
+          const m = byEl.get(en.target);
+          if (!m) continue;
+          if (en.isIntersecting) {
+            if (!timers.has(en.target)) {
+              timers.set(
+                en.target,
+                setTimeout(() => {
+                  timers.delete(en.target);
+                  obs.unobserve(en.target);
+                  byEl.delete(en.target);
+                  void queueReadReceipt(m);
+                }, 1000),
+              );
+            }
+          } else {
+            const t = timers.get(en.target);
+            if (t) {
+              clearTimeout(t);
+              timers.delete(en.target);
+            }
+          }
+        }
+      },
+      { threshold: 0.5 },
+    );
+    readObserver.current = obs;
+    return () => {
+      obs.disconnect();
+      for (const t of timers.values()) clearTimeout(t);
+      timers.clear();
+      byEl.clear();
+    };
+  }, [peerId]);
+
+  const observeForRead = useCallback((el: HTMLDivElement | null, m: PlainMessage) => {
+    if (!el || m.direction !== "in" || !m.receipt_read_wanted || m.receipt_read_done) return;
+    msgByEl.current.set(el, m);
+    readObserver.current?.observe(el);
+  }, []);
 
   async function send() {
     if (!peerId || !draft.trim()) return;
@@ -182,7 +246,11 @@ export default function Chat() {
           const meta = m.kind === "file" ? parseFileMeta(m.content) : null;
           const dl = downloads[m.msg_id];
           return (
-            <div key={m.msg_id} className={out ? "flex justify-end" : "flex justify-start"}>
+            <div
+              key={m.msg_id}
+              ref={(el) => observeForRead(el, m)}
+              className={out ? "flex justify-end" : "flex justify-start"}
+            >
               <div className={"max-w-[75%] rounded-2xl px-3 py-2 text-sm " + (out ? "bg-indigo-600" : "bg-neutral-800")}>
                 {meta ? (
                   <div className="space-y-2">
@@ -215,7 +283,7 @@ export default function Chat() {
                 )}
                 <div className="mt-1 flex items-center gap-1 text-[10px] text-neutral-300/70">
                   <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                  {out && <span>· {m.status}</span>}
+                  {out && <StatusTicks status={m.status} />}
                   {m.status === "received-unverified" && <span title="Sender not verified">· ⚠ unverified</span>}
                   {m.status === "received-key-changed" && (
                     <span className="text-red-300" title="This contact's key changed - re-verify">· ⚠ key changed</span>

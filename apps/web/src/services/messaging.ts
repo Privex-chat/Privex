@@ -23,10 +23,12 @@ import {
   encodeContactHello,
   encodeEnvelope,
   encodeFile,
+  encodeReceipt,
   encodeText,
 } from "./envelope";
 import { emitContactsChanged, emitMessage } from "./events";
 import { enqueue } from "./outbox";
+import { applyIncomingReceipt, buildReceiptRequest, queueDeliveryReceipt } from "./receipts";
 import { backupMessage } from "./history-backup";
 import { b64decode, b64encode } from "./bytes";
 import { encryptAndUpload, materializeIncoming, type FileMeta } from "./files";
@@ -126,7 +128,7 @@ function token(): string {
 async function sealAndSend(
   peerId: string,
   contentBytes: Uint8Array,
-  store: { content: string; kind: "text" | "file" } | null,
+  store: { content: string; kind: "text" | "file"; receiptToken?: Uint8Array } | null,
   crypto: MessageCryptoApi,
 ): Promise<string> {
   const me = await myBundle();
@@ -170,7 +172,7 @@ async function sealAndSend(
     await enqueue(peerId, sealedB64, store ? localId : "");
   }
 
-  // store === null → a control message (e.g. contact hello): no visible row.
+  // store === null → a control message (contact hello / receipt): no visible row.
   if (store) {
     const row = {
       msg_id: msgId,
@@ -180,6 +182,9 @@ async function sealAndSend(
       status,
       direction: "out" as const,
       kind: store.kind,
+      // Our receipt token (docs 4.10): an incoming ReceiptMessage matching it
+      // upgrades this row's status to delivered/read.
+      receipt_token: store.receiptToken,
     };
     await messages().add(row);
     void backupMessage(row); // best-effort history backup (no-op unless enabled)
@@ -197,12 +202,29 @@ export async function sendContactHello(
   await sealAndSend(peerId, encodeContactHello(now()), null, crypto);
 }
 
+/** Send a queued delivery/read receipt (docs 4.10). Same path, same padding, same
+ *  Sealed Sender as a text message - the server cannot tell it apart. No local row. */
+export async function sendReceipt(
+  to: string,
+  tokenId: Uint8Array,
+  type: "delivered" | "read",
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  await sealAndSend(to, encodeReceipt(tokenId, type), null, crypto);
+}
+
 export async function sendMessage(
   peerId: string,
   plaintext: string,
   crypto: MessageCryptoApi = workerMessageCrypto,
 ): Promise<void> {
-  await sealAndSend(peerId, encodeText(plaintext, now()), { content: plaintext, kind: "text" }, crypto);
+  const receipt = await buildReceiptRequest(); // undefined when receipts are off (mutual)
+  await sealAndSend(
+    peerId,
+    encodeText(plaintext, now(), receipt?.wire),
+    { content: plaintext, kind: "text", receiptToken: receipt?.token },
+    crypto,
+  );
 }
 
 /** Encrypt + upload a file's chunks, then send its manifest as a file message. */
@@ -222,7 +244,13 @@ export async function sendFile(
     throw new Error("Accept this contact's request before messaging them.");
   }
   const { fields, meta } = await encryptAndUpload(file, contact.ik_x25519, onProgress);
-  await sealAndSend(peerId, encodeFile(fields), { content: JSON.stringify(meta), kind: "file" }, crypto);
+  const receipt = await buildReceiptRequest();
+  await sealAndSend(
+    peerId,
+    encodeFile(fields, receipt?.wire),
+    { content: JSON.stringify(meta), kind: "file", receiptToken: receipt?.token },
+    crypto,
+  );
 }
 
 // --- receive ---
@@ -324,6 +352,15 @@ export async function receiveMessage(
     return;
   }
 
+  // Delivery/read receipt (docs 4.10): upgrade OUR outgoing message's status.
+  // senderId is Sealed-Sender-authenticated, so the token can only act on
+  // messages we sent to exactly this peer. No chat row, no timestamps kept.
+  if (content.receipt) {
+    await applyIncomingReceipt(senderId, content.receipt.tokenId, content.receipt.type);
+    await api.ackMessages([ws.message_id], token());
+    return;
+  }
+
   let stored: string;
   let kind: "text" | "file";
   let sentAt: number;
@@ -340,6 +377,10 @@ export async function receiveMessage(
     throw new Error("unsupported message content");
   }
 
+  // Receipt request (docs 4.10): keep the sender's token so the read receipt can
+  // fire when the message is actually viewed, and queue the delivery receipt NOW
+  // (it still only leaves at the next Poisson cover-traffic tick, never inline).
+  const rr = content.receiptRequest;
   const row = {
     msg_id: ws.message_id,
     session_id: senderId,
@@ -348,9 +389,13 @@ export async function receiveMessage(
     status: keyChanged ? "received-key-changed" : verified ? "received" : "received-unverified",
     direction: "in" as const,
     kind,
+    receipt_token: rr?.tokenId,
+    receipt_read_wanted: rr?.requestRead ?? false,
+    receipt_read_done: false,
   };
   await messages().add(row);
   void backupMessage(row); // best-effort history backup (no-op unless enabled)
+  if (rr?.requestDelivery) await queueDeliveryReceipt(senderId, rr.tokenId);
   await api.ackMessages([ws.message_id], token());
   emitMessage({ peerId: senderId });
 }

@@ -33,6 +33,14 @@ import {
   isBackupEnabled,
   restoreHistory,
 } from "../services/history-backup";
+import {
+  deliveryReceiptsEnabled,
+  readReceiptsEnabled,
+  receiptPrivacyDelayEnabled,
+  setDeliveryReceipts,
+  setReadReceipts,
+  setReceiptPrivacyDelay,
+} from "../services/receipts";
 import * as api from "../api/client";
 
 const HISTORY_WARNING =
@@ -122,6 +130,9 @@ export default function Settings() {
               <span className="text-sm text-neutral-300">Connection mode</span>
               <span className="text-sm text-neutral-500">Direct (onion routing soon)</span>
             </div>
+          </Row>
+          <Row>
+            <MessageStatusSettings />
           </Row>
           <Row>
             <HistoryBackup />
@@ -472,6 +483,85 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Message Status (docs 4.10). Both receipt toggles are MUTUAL: turning one off
+ *  means you neither send that receipt type nor receive it (your outgoing messages
+ *  stop carrying a receipt request, so peers have nothing to confirm). */
+function MessageStatusSettings() {
+  const [delivery, setDelivery] = useState(true);
+  const [read, setRead] = useState(true);
+  const [delay, setDelay] = useState(false);
+
+  useEffect(() => {
+    void deliveryReceiptsEnabled().then(setDelivery);
+    void readReceiptsEnabled().then(setRead);
+    void receiptPrivacyDelayEnabled().then(setDelay);
+  }, []);
+
+  const Toggle = ({
+    label,
+    hint,
+    value,
+    onChange,
+  }: {
+    label: string;
+    hint: string;
+    value: boolean;
+    onChange: (v: boolean) => void;
+  }) => (
+    <label className="flex items-start justify-between gap-3 py-1.5 cursor-pointer">
+      <span>
+        <span className="block text-sm text-neutral-300">{label}</span>
+        <span className="block text-xs text-neutral-500">{hint}</span>
+      </span>
+      <input
+        type="checkbox"
+        checked={value}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1 h-4 w-4 accent-indigo-500"
+      />
+    </label>
+  );
+
+  return (
+    <div>
+      <div className="text-sm text-neutral-300">Message status</div>
+      <p className="text-xs text-neutral-500">
+        Receipts are end-to-end encrypted, carry no timestamps, and are mutual - each
+        toggle applies to both sending and receiving.
+      </p>
+      <div className="mt-2">
+        <Toggle
+          label="Delivery receipts"
+          hint="Show ✓✓ when your message reaches the recipient's device."
+          value={delivery}
+          onChange={(v) => {
+            setDelivery(v);
+            void setDeliveryReceipts(v);
+          }}
+        />
+        <Toggle
+          label="Read receipts"
+          hint="Show when your message has been viewed. Delivered ≠ read."
+          value={read}
+          onChange={(v) => {
+            setRead(v);
+            void setReadReceipts(v);
+          }}
+        />
+        <Toggle
+          label="Receipt privacy delay"
+          hint="Extra random delay (avg 5 min) before your receipts send. For high-threat use."
+          value={delay}
+          onChange={(v) => {
+            setDelay(v);
+            void setReceiptPrivacyDelay(v);
+          }}
+        />
+      </div>
     </div>
   );
 }
