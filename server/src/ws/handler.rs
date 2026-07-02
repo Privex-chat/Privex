@@ -82,6 +82,7 @@ async fn handle_socket(socket: WebSocket, st: AppState, user_id: String) {
     if let Ok(queued) = message_queue::dequeue_for_recipient(&st.db, &user_id).await {
         for m in queued {
             let _ = tx.send(message_json(
+                &st.config.time_signing_key,
                 &m.message_id.to_string(),
                 base64_content(&m.content),
                 m.queued_at as i64,

@@ -93,6 +93,10 @@ interface ServerFrame {
   message_id?: string;
   content?: string;
   queued_at?: number;
+  // Signed delivery timestamp (docs 9.6) - verified in receiveMessage against
+  // the pinned TIME_SIGNING_PUB.
+  server_ts?: number;
+  server_ts_sig?: string;
 }
 
 async function handleFrame(data: string): Promise<void> {
@@ -110,6 +114,8 @@ async function handleFrame(data: string): Promise<void> {
             message_id: frame.message_id,
             content: frame.content,
             queued_at: frame.queued_at ?? 0,
+            server_ts: frame.server_ts,
+            server_ts_sig: frame.server_ts_sig,
           });
         } catch {
           // Never log message contents. Undecryptable frames are left un-acked so

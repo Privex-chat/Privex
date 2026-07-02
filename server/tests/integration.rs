@@ -873,6 +873,32 @@ async fn server_end_to_end() {
     assert_eq!(frame["message_id"].as_str().unwrap(), online_mid);
     assert_eq!(frame["content"].as_str().unwrap(), online_b64);
 
+    // Docs 9.6: every delivery carries a signed timestamp pair. Verify with the
+    // for_test time signer pub ([11u8;32] seed) over be64(server_ts)||be64(queued_at)||id.
+    {
+        let server_ts = frame["server_ts"].as_i64().expect("server_ts present");
+        let queued_at = frame["queued_at"].as_i64().expect("queued_at present");
+        let now = now_unix();
+        assert!((now - server_ts).abs() <= 5, "server_ts should be ~now");
+        let sig64: [u8; 64] = hex::decode(frame["server_ts_sig"].as_str().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let vk = SigningKey::from_bytes(&[11u8; 32]).verifying_key();
+        let input = privex_server::crypto::time_signing::signing_input(
+            server_ts, queued_at, &online_mid,
+        );
+        assert!(
+            vk.verify(&input, &Signature::from_bytes(&sig64)).is_ok(),
+            "delivery timestamp signature must verify against the pinned time pub"
+        );
+        // Tampered timestamp → signature must fail.
+        let bad = privex_server::crypto::time_signing::signing_input(
+            server_ts + 1, queued_at, &online_mid,
+        );
+        assert!(vk.verify(&bad, &Signature::from_bytes(&sig64)).is_err());
+    }
+
     // Bob ACKs over WS → DB row hard-deleted.
     bob_ws
         .send(WsMessage::Text(

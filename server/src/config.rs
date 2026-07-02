@@ -12,6 +12,10 @@ pub struct Config {
     pub session_hmac_key: [u8; 32],
     /// Ed25519 seed for signing published KT roots. 32 bytes.
     pub kt_signing_key: [u8; 32],
+    /// Ed25519 seed for signing WS delivery timestamps (docs 9.6). 32 bytes,
+    /// DEDICATED key (separate from KT + session HMAC); public half pinned in
+    /// the client binary.
+    pub time_signing_key: [u8; 32],
     /// Serialized OPAQUE ServerSetup (the server's long-term OPAQUE key). Loaded
     /// from env in production - NEVER generated fresh on startup.
     pub opaque_server_setup: Vec<u8>,
@@ -57,6 +61,14 @@ impl Config {
             .try_into()
             .map_err(|_| anyhow!("KT_SIGNING_KEY must be exactly 32 bytes (64 hex chars)"))?;
 
+        let ts_hex = req("TIME_SIGNING_KEY")?;
+        let ts_bytes =
+            hex::decode(ts_hex.trim()).context("TIME_SIGNING_KEY must be hex (Ed25519 seed)")?;
+        let time_signing_key: [u8; 32] = ts_bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| anyhow!("TIME_SIGNING_KEY must be exactly 32 bytes (64 hex chars)"))?;
+
         use base64::Engine as _;
         let opaque_b64 = req("OPAQUE_SERVER_SETUP")?;
         let opaque_server_setup = base64::engine::general_purpose::STANDARD
@@ -78,6 +90,7 @@ impl Config {
             redis_url: req("REDIS_URL")?,
             session_hmac_key,
             kt_signing_key,
+            time_signing_key,
             opaque_server_setup,
             pow_difficulty,
             ws_ping_secs,
@@ -112,6 +125,15 @@ impl Config {
         hex::encode(vk.to_bytes())
     }
 
+    /// Ed25519 PUBLIC key (hex) for the delivery-timestamp signer (docs 9.6).
+    /// Safe to log - clients pin it in the binary, never trusting it from the
+    /// same server that signs the timestamps.
+    pub fn time_signing_pub_hex(&self) -> String {
+        use ed25519_dalek::SigningKey;
+        let vk = SigningKey::from_bytes(&self.time_signing_key).verifying_key();
+        hex::encode(vk.to_bytes())
+    }
+
     /// Construct a config directly (used by integration tests - avoids mutating
     /// process-global env).
     pub fn for_test(
@@ -126,6 +148,7 @@ impl Config {
             redis_url,
             session_hmac_key,
             kt_signing_key: [9u8; 32], // deterministic test KT signer
+            time_signing_key: [11u8; 32], // deterministic test time signer
             opaque_server_setup: crate::crypto::opaque::new_setup(),
             pow_difficulty,
             ws_ping_secs: 2, // fast heartbeat for tests

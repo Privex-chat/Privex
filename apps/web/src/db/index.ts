@@ -45,6 +45,12 @@ export interface MessageRow {
   receipt_token?: Uint8Array;
   receipt_read_wanted?: boolean; // incoming: sender asked for a read receipt
   receipt_read_done?: boolean; // incoming: read receipt already queued (dedup)
+  // Signed server time anchor (docs 9.6): the server-observed arrival time,
+  // verified against the pinned TIME_SIGNING pub. Used for ORDERING (a sender's
+  // manipulated clock can't reorder a conversation); `timestamp` stays the
+  // sender-claimed display time. Absent on outgoing rows / unsigned deliveries.
+  // Not indexed → no schema version bump.
+  server_anchor?: number;
 }
 
 export interface ContactRow {

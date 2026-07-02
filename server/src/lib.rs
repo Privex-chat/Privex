@@ -244,6 +244,8 @@ pub async fn run() -> anyhow::Result<()> {
     // build / distribute it out-of-band so clients can verify KT roots without
     // trusting the signing server. Logging a public key is not a PII/secret leak.
     tracing::info!(kt_signing_pub = %config.kt_signing_pub_hex(), "kt_signer");
+    // Delivery-timestamp signer (docs 9.6) - also a PUBLIC key, pinned client-side.
+    tracing::info!(time_signing_pub = %config.time_signing_pub_hex(), "time_signer");
     let state = build_state(config).await?;
     tracing::info!("migrations_applied");
 

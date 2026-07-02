@@ -98,6 +98,8 @@ export interface PlainMessage {
   receipt_token?: Uint8Array;
   receipt_read_wanted?: boolean;
   receipt_read_done?: boolean;
+  // Signed server time anchor (docs 9.6): ORDERING key; `timestamp` is display.
+  server_anchor?: number;
 }
 
 /** Message store that transparently encrypts content on write / decrypts on read. */
@@ -125,6 +127,7 @@ export class EncryptedMessages {
       receipt_token: row.receipt_token,
       receipt_read_wanted: row.receipt_read_wanted,
       receipt_read_done: row.receipt_read_done,
+      server_anchor: row.server_anchor,
       content: await decryptString(key, row.content_enc),
     };
   }
@@ -136,11 +139,15 @@ export class EncryptedMessages {
     return this.rowToPlain(row, key);
   }
 
-  /** Most-recent `limit` messages for a conversation, oldest-first for display. */
+  /** Most-recent `limit` messages for a conversation, oldest-first for display.
+   *  Ordering key = the SIGNED server anchor when present (docs 9.6 - a sender's
+   *  manipulated clock can't reorder the conversation), falling back to the
+   *  sender-claimed/local timestamp. */
   async listBySession(sessionId: string, limit = 50): Promise<PlainMessage[]> {
     const key = await this.keyPromise;
     const rows = await this.db.messages.where("session_id").equals(sessionId).toArray();
-    rows.sort((a, b) => a.timestamp - b.timestamp || a.msg_id.localeCompare(b.msg_id));
+    const orderKey = (r: MessageRow) => r.server_anchor ?? r.timestamp;
+    rows.sort((a, b) => orderKey(a) - orderKey(b) || a.msg_id.localeCompare(b.msg_id));
     const recent = rows.slice(-limit);
     return Promise.all(recent.map((row) => this.rowToPlain(row, key)));
   }

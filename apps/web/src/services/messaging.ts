@@ -38,6 +38,7 @@ import {
   syncTargets,
   type SyncRecord,
 } from "./device-sync";
+import { checkDeliveryTime, type VerifyEd25519 } from "./time-sync";
 import { fromHex, toHex } from "../crypto/onboarding-crypto";
 import { backupMessage } from "./history-backup";
 import { b64decode, b64encode } from "./bytes";
@@ -306,12 +307,21 @@ export interface WSMessage {
   message_id: string;
   content: string; // base64 sealed blob
   queued_at: number;
+  // Signed delivery timestamp (docs 9.6); absent on old servers/synthetic frames.
+  server_ts?: number;
+  server_ts_sig?: string; // hex
 }
 
 export async function receiveMessage(
   ws: WSMessage,
   crypto: MessageCryptoApi = workerMessageCrypto,
+  verifyTime?: VerifyEd25519,
 ): Promise<void> {
+  // Time anchor first (docs 9.6): verify the signed delivery timestamp against
+  // the pinned key + local clock. Runs on EVERY frame (more drift samples); an
+  // invalid/absent signature yields no anchor but never drops the message.
+  const time = await checkDeliveryTime(ws, verifyTime);
+
   const me = await myBundle();
   const blob = b64decode(ws.content);
   const opened = await crypto.sealedSenderDecrypt(blob, me.identity.x25519_priv, now());
@@ -456,8 +466,11 @@ export async function receiveMessage(
   const row = {
     msg_id: ws.message_id,
     session_id: senderId,
-    content: stored,
+    // timestamp = sender-claimed time, DISPLAY only (docs 9.6); ordering uses the
+    // signed server_anchor below, so a manipulated sender clock can't reorder.
     timestamp: sentAt || ws.queued_at || now(),
+    server_anchor: time.anchor,
+    content: stored,
     status: keyChanged ? "received-key-changed" : verified ? "received" : "received-unverified",
     direction: "in" as const,
     kind,

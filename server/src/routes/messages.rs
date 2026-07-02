@@ -115,8 +115,12 @@ pub async fn send(
 
     // Always enqueued (above). If the recipient is online, also push now - the
     // row stays in the DB until the recipient ACKs.
-    let pushed =
-        crate::ws::messages::message_json(&message_id.to_string(), STANDARD.encode(&content), now);
+    let pushed = crate::ws::messages::message_json(
+        &st.config.time_signing_key,
+        &message_id.to_string(),
+        STANDARD.encode(&content),
+        now,
+    );
     st.online.send(&body.recipient_id, pushed);
 
     Ok(Json(SendResp {
