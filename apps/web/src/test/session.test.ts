@@ -5,9 +5,10 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { keyRef, wipeSpy } = vi.hoisted(() => ({
+const { keyRef, wipeSpy, lockNowSpy } = vi.hoisted(() => ({
   keyRef: { key: null as CryptoKey | null },
   wipeSpy: { called: 0 },
+  lockNowSpy: { called: 0 },
 }));
 vi.mock("../crypto/keystore", () => ({
   getMasterKey: async () => keyRef.key,
@@ -15,6 +16,9 @@ vi.mock("../crypto/keystore", () => ({
   clearMasterKey: async () => {},
   wipeKeystore: async () => {
     wipeSpy.called += 1;
+  },
+  lockNow: () => {
+    lockNowSpy.called += 1;
   },
 }));
 
@@ -26,7 +30,9 @@ import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
 import { db } from "../db";
 import * as api from "../api/client";
-import { eraseThisDevice, logoutEverywhere, type SessionCryptoApi } from "../services/session";
+import { eraseThisDevice, lockApp, logoutEverywhere, type SessionCryptoApi } from "../services/session";
+import * as ws from "../services/websocket";
+import * as cover from "../services/cover-traffic";
 
 beforeAll(async () => {
   await initCrypto({
@@ -49,6 +55,7 @@ beforeEach(async () => {
     db.sessions.clear(),
   ]);
   wipeSpy.called = 0;
+  lockNowSpy.called = 0;
   useAuth.setState({ sessionToken: null, userId: null, authenticated: false });
 });
 
@@ -136,6 +143,30 @@ describe("log out everywhere (16E)", () => {
     );
     expect(rotateSpy).not.toHaveBeenCalled();
     rotateSpy.mockRestore();
+  });
+});
+
+describe("app lock teardown", () => {
+  it("lockApp drops the key AND the live session (WS, cover traffic, token)", () => {
+    useAuth.getState().setSession("live-token", "px_" + "aa".repeat(16));
+    useAuth.getState().setAuthenticated("px_" + "aa".repeat(16));
+    expect(useAuth.getState().authenticated).toBe(true);
+
+    const disc = vi.spyOn(ws, "disconnectWebSocket").mockImplementation(() => {});
+    const stopCover = vi.spyOn(cover, "stopCoverTraffic").mockImplementation(() => {});
+
+    lockApp();
+
+    expect(lockNowSpy.called).toBe(1); // in-memory data key dropped
+    expect(disc).toHaveBeenCalled(); // WebSocket torn down
+    expect(stopCover).toHaveBeenCalled(); // cover traffic stopped
+    // Session dropped → the App WS effect can't reconnect while locked, and outbox
+    // flush (gated on `authenticated`) stays inert.
+    expect(useAuth.getState().authenticated).toBe(false);
+    expect(useAuth.getState().sessionToken).toBe(null);
+
+    disc.mockRestore();
+    stopCover.mockRestore();
   });
 });
 

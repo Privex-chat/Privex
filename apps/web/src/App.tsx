@@ -111,13 +111,17 @@ export default function App() {
   }, [authenticated, token]);
 
   // Drain the offline outbox when the network returns, or when the Service Worker's
-  // background-sync/push wakes us (it can't send itself - no key/token).
+  // background-sync/push wakes us (it can't send itself - no key/token). Gated on an
+  // authenticated (i.e. NOT locked) session: a locked app must stay inert - no sends.
   useEffect(() => {
-    const onOnline = () => void flushOutbox();
+    const flushIfActive = () => {
+      if (useAuth.getState().authenticated) void flushOutbox();
+    };
+    const onOnline = () => flushIfActive();
     window.addEventListener("online", onOnline);
     const sw = navigator.serviceWorker;
     const onMsg = (e: MessageEvent) => {
-      if ((e.data as { type?: string } | null)?.type === "flush-outbox") void flushOutbox();
+      if ((e.data as { type?: string } | null)?.type === "flush-outbox") flushIfActive();
     };
     sw?.addEventListener("message", onMsg);
     return () => {

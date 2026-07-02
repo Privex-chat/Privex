@@ -19,7 +19,7 @@ import * as api from "../api/client";
 import { db } from "../db";
 import { useAuth } from "../store/auth";
 import { cryptoCall } from "../workers/crypto-client";
-import { wipeKeystore } from "../crypto/keystore";
+import { lockNow, wipeKeystore } from "../crypto/keystore";
 import { loadBundle, finalizeIdentity } from "../onboarding/store";
 import { toHex, type SignedSpk } from "../crypto/onboarding-crypto";
 import { disconnectWebSocket } from "./websocket";
@@ -82,6 +82,29 @@ export async function logoutEverywhere(crypto: SessionCryptoApi = workerSessionC
  * Does NOT contact the server (nothing to tell it - the data was only ever local).
  * The caller reloads afterwards so all in-memory module caches are dropped too.
  */
+/**
+ * Lock the app: drop the in-memory data key AND fully tear down the live session,
+ * so a locked device is INERT - no WebSocket, no cover traffic, no session token,
+ * and no decrypted identity keys in memory. Fixes the leak where the socket + token
+ * stayed live behind the lock screen (inbound messages then hit getMasterKey()→
+ * "locked" and were silently dropped).
+ *
+ * Non-destructive: nothing on disk is deleted. Unlocking re-derives the key from the
+ * passphrase/biometric, and the app re-authenticates + reconnects (App.onUnlocked),
+ * at which point the server delivers everything that queued while locked.
+ *
+ * signOut() drops (token, authenticated); the App WS effect (keyed on those) also
+ * tears down the socket + cover traffic, but we do it directly here too so the
+ * teardown is immediate and deterministic, not deferred to the next React commit.
+ */
+export function lockApp(): void {
+  lockNow(); // in-memory data key gone → getMasterKey() throws "locked"
+  stopCoverTraffic(); // stop the Poisson decoy/receipt ticks
+  disconnectWebSocket(); // no inbound (no silent-drop), no acks, no flush-on-open
+  resetMessaging(); // drop the cached decrypted identity bundle + sender cert
+  useAuth.getState().signOut(); // drop the session token + authenticated flag
+}
+
 export async function eraseThisDevice(): Promise<void> {
   // 1. Stop anything that could re-write IndexedDB mid-wipe.
   stopCoverTraffic();
