@@ -47,6 +47,10 @@ export function expSample(meanMs: number, random: () => number = Math.random): n
 
 const PRIVACY_DELAY_MEAN_MS = 5 * 60 * 1000; // docs 4.10: Poisson avg 5 min ...
 const PRIVACY_DELAY_MAX_MS = 20 * 60 * 1000; // ... capped at 20 min
+// docs 5.7 M3: a receipt must NEVER go out less than 5 s after the message arrives
+// (a tick can otherwise fire almost immediately), so receipt timing can't be
+// tied back to receive/read timing. Applied as a floor on every receipt.
+const MIN_RECEIPT_DELAY_MS = 5_000;
 
 // --- sender side: attach a receipt request to outgoing messages ---
 
@@ -86,12 +90,13 @@ async function queueReceipt(
   const extra = (await receiptPrivacyDelayEnabled())
     ? Math.min(expSample(PRIVACY_DELAY_MEAN_MS), PRIVACY_DELAY_MAX_MS)
     : 0;
+  // Always at least the 5 s floor; the privacy delay (avg 5 min) layers on top.
   await db.receipt_outbox.add({
     to,
     token_hex: tokenHex,
     receipt_type: type,
     queued_at: now,
-    not_before: extra > 0 ? now + extra : 0,
+    not_before: now + Math.max(MIN_RECEIPT_DELAY_MS, extra),
   });
 }
 

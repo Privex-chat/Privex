@@ -120,7 +120,11 @@ export default function Settings() {
         <Section title="Privacy">
           <Row>
             <label className="text-sm text-neutral-300">Cover traffic</label>
-            <p className="text-xs text-neutral-500">Decoy messages that hide when you&rsquo;re really active.</p>
+            <p className="text-xs text-neutral-500">
+              Sends steady fixed-size decoy messages so an observer can&rsquo;t tell from your
+              traffic when you&rsquo;re really active (docs 5.3/5.7). Higher = more protection,
+              more battery/data. Off = no decoys (for metered data).
+            </p>
             <select
               value={cover}
               onChange={(e) => setCoverLevel(e.target.value)}

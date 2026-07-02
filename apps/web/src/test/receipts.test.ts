@@ -178,13 +178,24 @@ describe("receiving a message with a receipt request", () => {
     expect(queued).toHaveLength(1);
     expect(queued[0].receipt_type).toBe("delivered");
     expect(queued[0].to).toBe(peer.userId);
-    expect(queued[0].not_before).toBe(0);
+    // docs 5.7 M3: never due less than 5 s after receipt (the floor).
+    expect(queued[0].not_before).toBeGreaterThanOrEqual(queued[0].queued_at + 5000);
+
+    // A drain BEFORE the 5 s floor sends nothing (not due yet).
+    let early = 0;
+    await drainReceipts(async () => {
+      early += 1;
+    });
+    expect(early).toBe(0);
+    expect(await db.receipt_outbox.count()).toBe(1);
 
     // Redelivery dedup: queuing the same token+type again is a no-op.
     await queueDeliveryReceipt(peer.userId, TOKEN);
     expect(await db.receipt_outbox.count()).toBe(1);
 
-    // Drain = the cover-traffic tick: sends through the injected sender, clears the queue.
+    // Simulate the floor elapsing, then drain (the cover-traffic tick): sends
+    // through the injected sender, clears the queue.
+    await db.receipt_outbox.toCollection().modify({ not_before: 0 });
     const sent: Array<[string, string, string]> = [];
     await drainReceipts(async (to, tok, type) => {
       sent.push([to, toHex(tok), type]);

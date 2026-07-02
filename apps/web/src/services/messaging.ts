@@ -261,6 +261,28 @@ export async function sendReceipt(
   await sealAndSend(to, encodeReceipt(tokenId, type), null, crypto);
 }
 
+/** Cover traffic (docs 5.3 / 5.7): a fixed-size sealed blob addressed to a random
+ *  NON-EXISTENT px_id. The server finds no mailbox and silently drops it (already
+ *  wired), storing nothing; a network observer sees a POST indistinguishable from a
+ *  real send. Fired on the Poisson tick (cover-traffic.ts) so the transmit stream
+ *  is constant regardless of real activity. Best-effort - never throws. */
+export async function sendCoverMessage(crypto: MessageCryptoApi = workerMessageCrypto): Promise<void> {
+  try {
+    const me = await myBundle();
+    const cert = await myCert(crypto, me);
+    // Random recipient id + random recipient key: the blob can't be decrypted by
+    // anyone (astronomically unlikely to collide with a real px_id), and the server
+    // drops it before content is ever looked at.
+    const fakeRid = "px_" + toHex(globalThis.crypto.getRandomValues(new Uint8Array(16)));
+    const fakeKey = globalThis.crypto.getRandomValues(new Uint8Array(32));
+    const payload = globalThis.crypto.getRandomValues(new Uint8Array(1024)); // 1024-byte law
+    const sealed = await crypto.sealedSenderEncrypt(payload, cert, fakeKey);
+    await api.sendMessage(fakeRid, b64encode(sealed), token());
+  } catch {
+    // offline / rate-limited / identity not loaded → skip this tick's cover send
+  }
+}
+
 export async function sendMessage(
   peerId: string,
   plaintext: string,
