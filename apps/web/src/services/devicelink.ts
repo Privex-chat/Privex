@@ -21,6 +21,7 @@ import { aesDecrypt, aesEncrypt } from "../db/encrypted-db";
 import { fromHex, toHex } from "../crypto/onboarding-crypto";
 import { b64decode, b64encode } from "./bytes";
 import { collectLocalRecords, importRecord, type HistoryRecord } from "./history-records";
+import { deviceSyncEnabled, myDeviceId, storeLinkedDevice } from "./device-sync";
 
 // --- crypto API (worker-backed; injectable for tests) ---
 
@@ -134,11 +135,40 @@ export interface TransferHandle {
   done: Promise<number>; // # records transferred
 }
 
+// --- cross-device sync linking (docs 4.11 Mode C) ---
+// After the SAS is confirmed, each side that has the OPT-IN "cross-device sync"
+// setting on sends an encrypted {t:"link", id, label} frame. A side that is ALSO
+// opted in stores the peer as a linked device, deriving pairwise sync keys from
+// this channel's secret. Mutual: both off (or either off) → no link, no keys.
+
+interface LinkFrame {
+  t: "link";
+  id: string; // sender's device_id (16-byte hex)
+  label: string;
+}
+
+async function sendLinkFrame(t: Transport, key: CryptoKey): Promise<void> {
+  if (!(await deviceSyncEnabled())) return;
+  const link: LinkFrame = {
+    t: "link",
+    id: await myDeviceId(),
+    label: `Web device (${new Date().toISOString().slice(0, 10)})`,
+  };
+  t.send(frame("enc", { d: await seal(key, link) }));
+}
+
+async function handleLinkFrame(inner: LinkFrame, channelSecret: Uint8Array): Promise<void> {
+  if (!(await deviceSyncEnabled())) return; // mutual opt-in
+  if (!/^[0-9a-f]{32}$/.test(inner.id)) return;
+  await storeLinkedDevice(channelSecret, inner.id, String(inner.label ?? "Linked device"));
+}
+
 /** Exporter (the existing device): shows the QR, waits for the peer, streams local
  *  history once both sides confirm the SAS. */
 export function runExport(t: Transport, rid: string, cb: TransferCallbacks, dc: DevlinkCryptoApi = workerDevlinkCrypto): TransferHandle {
   const done = deferred<number>();
   let key: CryptoKey | null = null;
+  let secret: Uint8Array | null = null; // raw channel secret (sync-key HKDF input)
   let confirmed = false;
   let sentReady = false;
   let peerReady = false;
@@ -157,6 +187,7 @@ export function runExport(t: Transport, rid: string, cb: TransferCallbacks, dc: 
     if (!key || !confirmed || sentReady) return;
     sentReady = true;
     t.send(frame("enc", { d: await seal(key, { t: "ready" }) }));
+    await sendLinkFrame(t, key).catch(() => {}); // best-effort; sync is opt-in
     void maybeStream();
   };
 
@@ -196,7 +227,8 @@ export function runExport(t: Transport, rid: string, cb: TransferCallbacks, dc: 
       if (m.t === "hello" && typeof m.pk === "string") {
         try {
           const theirPub = fromHex(m.pk);
-          key = await importChannelKey(await dc.channelKey(eph.priv, theirPub));
+          secret = await dc.channelKey(eph.priv, theirPub);
+          key = await importChannelKey(secret);
           cb.onSas?.(await computeSAS(eph.pub, theirPub));
           cb.onStatus?.("confirm");
           await trySendReady();
@@ -204,7 +236,7 @@ export function runExport(t: Transport, rid: string, cb: TransferCallbacks, dc: 
           fail("handshake failed");
         }
       } else if (m.t === "enc" && typeof m.d === "string" && key) {
-        let inner: { t?: string };
+        let inner: { t?: string; id?: string; label?: string };
         try {
           inner = await open(key, m.d);
         } catch {
@@ -213,6 +245,8 @@ export function runExport(t: Transport, rid: string, cb: TransferCallbacks, dc: 
         if (inner.t === "ready") {
           peerReady = true;
           await maybeStream();
+        } else if (inner.t === "link" && secret) {
+          await handleLinkFrame(inner as LinkFrame, secret).catch(() => {});
         }
       } else if (m.t === "peer_left") {
         fail("the other device disconnected");
@@ -246,6 +280,7 @@ export function runExport(t: Transport, rid: string, cb: TransferCallbacks, dc: 
 export function runImport(t: Transport, qr: QrPayload, cb: TransferCallbacks, dc: DevlinkCryptoApi = workerDevlinkCrypto): TransferHandle {
   const done = deferred<number>();
   let key: CryptoKey | null = null;
+  let secret: Uint8Array | null = null; // raw channel secret (sync-key HKDF input)
   let total = 0;
   let imported = 0;
   let finished = false;
@@ -266,12 +301,14 @@ export function runImport(t: Transport, qr: QrPayload, cb: TransferCallbacks, dc
     if (!key || !confirmed || sentReady || finished) return;
     sentReady = true;
     t.send(frame("enc", { d: await seal(key, { t: "ready" }) }));
+    await sendLinkFrame(t, key).catch(() => {}); // best-effort; sync is opt-in
   };
 
   void (async () => {
     const eph = await dc.keypair();
     const theirPub = fromHex(qr.pk);
-    key = await importChannelKey(await dc.channelKey(eph.priv, theirPub));
+    secret = await dc.channelKey(eph.priv, theirPub);
+    key = await importChannelKey(secret);
     cb.onSas?.(await computeSAS(theirPub, eph.pub));
     cb.onStatus?.("confirm");
     t.onClose(() => fail("disconnected"));
@@ -280,13 +317,15 @@ export function runImport(t: Transport, qr: QrPayload, cb: TransferCallbacks, dc
       const m = parse(f);
       if (!m || !key) return;
       if (m.t === "enc" && typeof m.d === "string") {
-        let inner: { t?: string; count?: number; rec?: HistoryRecord };
+        let inner: { t?: string; count?: number; rec?: HistoryRecord; id?: string; label?: string };
         try {
           inner = await open(key, m.d);
         } catch {
           return fail("secure channel failed (codes did not match)");
         }
-        if (inner.t === "manifest") {
+        if (inner.t === "link" && secret) {
+          await handleLinkFrame(inner as LinkFrame, secret).catch(() => {});
+        } else if (inner.t === "manifest") {
           total = inner.count ?? 0;
           cb.onStatus?.("transferring");
           cb.onProgress?.(0, total);

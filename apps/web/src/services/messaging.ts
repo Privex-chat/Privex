@@ -21,6 +21,7 @@ import {
   decodeContent,
   decodeEnvelope,
   encodeContactHello,
+  encodeDeviceSyncEnvelope,
   encodeEnvelope,
   encodeFile,
   encodeReceipt,
@@ -29,6 +30,15 @@ import {
 import { emitContactsChanged, emitMessage } from "./events";
 import { enqueue } from "./outbox";
 import { applyIncomingReceipt, buildReceiptRequest, queueDeliveryReceipt } from "./receipts";
+import {
+  applySyncRecord,
+  encryptSyncRecord,
+  myDeviceId,
+  openSyncBlob,
+  syncTargets,
+  type SyncRecord,
+} from "./device-sync";
+import { fromHex, toHex } from "../crypto/onboarding-crypto";
 import { backupMessage } from "./history-backup";
 import { b64decode, b64encode } from "./bytes";
 import { encryptAndUpload, materializeIncoming, type FileMeta } from "./files";
@@ -188,9 +198,46 @@ async function sealAndSend(
     };
     await messages().add(row);
     void backupMessage(row); // best-effort history backup (no-op unless enabled)
+    // Cross-device sync (docs 4.11 Mode C, OPT-IN): fan the sent message out to
+    // linked devices as self-addressed Sealed Sender copies. Best-effort - a sync
+    // failure must never fail or delay the user's actual send.
+    void fanOutDeviceSync(me, crypto, {
+      v: 1,
+      msg_id: msgId,
+      peer_id: peerId,
+      kind: store.kind,
+      content: store.content,
+      ts,
+      token_hex: store.receiptToken ? toHex(store.receiptToken) : undefined,
+    }).catch(() => {});
     emitMessage({ peerId });
   }
   return msgId;
+}
+
+/** Send one re-encrypted copy of a just-sent message to each linked device
+ *  (docs 4.11 Mode C). No-op unless the opt-in is on AND devices are linked.
+ *  Each copy is AES-GCM under the pairwise sync key, padded to 1024, then Sealed
+ *  Sender to OUR OWN px_id - on the wire it looks like any other message. */
+async function fanOutDeviceSync(
+  me: IdentityBundle,
+  crypto: MessageCryptoApi,
+  rec: SyncRecord,
+): Promise<void> {
+  const targets = await syncTargets();
+  if (targets.length === 0) return;
+  const myId = await myDeviceId();
+  const cert = await myCert(crypto, me);
+  for (const t of targets) {
+    const blob = await encryptSyncRecord(rec, t.send_key);
+    const env = encodeDeviceSyncEnvelope({
+      toDevice: fromHex(t.device_id),
+      fromDevice: fromHex(myId),
+      blob,
+    });
+    const sealed = await crypto.sealedSenderEncrypt(env, cert, me.identity.x25519_pub);
+    await api.sendMessage(me.userId, b64encode(sealed), token());
+  }
 }
 
 /** Silent "I added you" announcement so the peer auto-adds us back. Best-effort:
@@ -278,6 +325,31 @@ export async function receiveMessage(
   // already guarantees senderId is derived from this same ed key.
   const keyChanged = await isKeyChanged(senderId, opened.senderEdPub);
   const verified = opened.senderVerified && !keyChanged;
+
+  // Cross-device sync copy (docs 4.11 Mode C). Handled BEFORE session logic - it
+  // carries no ratchet fields. Only OUR OWN other device may inject sent-history:
+  // the Sealed Sender cert binds senderId to its signing key, so senderId ===
+  // me.userId is only producible with our own identity key.
+  if (env.deviceSync) {
+    if (senderId !== me.userId || !opened.senderVerified) {
+      await api.ackMessages([ws.message_id], token()); // forged/garbage - drop
+      return;
+    }
+    if (toHex(env.deviceSync.toDevice) !== (await myDeviceId())) {
+      // Addressed to a DIFFERENT linked device. The account shares one mailbox, so
+      // leave it UN-ACKED: it stays queued and is delivered when that device next
+      // connects. (We will see it again on our own reconnects until then.)
+      return;
+    }
+    try {
+      const rec = await openSyncBlob(toHex(env.deviceSync.fromDevice), env.deviceSync.blob);
+      await applySyncRecord(rec);
+    } catch {
+      // Unlinked origin or undecryptable - ack anyway so it can't redeliver forever.
+    }
+    await api.ackMessages([ws.message_id], token());
+    return;
+  }
 
   // Pick the session. Use an EXISTING session only if it's already established
   // (no pending initiator stash). When a handshake-bearing message arrives, decide

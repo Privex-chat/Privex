@@ -89,11 +89,24 @@ message PqxdhInit {
   uint32 opk_id           = 5; // which of the recipient's OPKs was consumed (0 = none)
 }
 
+// Cross-device sync copy (docs 4.11 Mode C). A message SENT from one of the
+// user's linked devices, re-encrypted (AES-256-GCM under the pairwise sync key
+// from device linking, padded to 1024) and Sealed-Sender-addressed to the user's
+// OWN px_id. No Double Ratchet - the two devices share the link key, not a
+// ratchet. The server routes it like any message; it cannot tell self from peer.
+message DeviceSync {
+  bytes to_device   = 1; // target device_id (16 bytes)
+  bytes from_device = 2; // origin device_id (selects the pairwise key)
+  bytes blob        = 3; // AES-256-GCM(sync_key, padded payload)
+}
+
 // The payload that Sealed Sender wraps: the opaque Double Ratchet header +
 // ciphertext, plus the PQXDH handshake on a new session's first message. The
 // ratchet header is wasm-internal (bincode) and treated as opaque bytes here.
+// Exactly one of (ratchet fields | device_sync) is meaningful per message.
 message MessageEnvelope {
   bytes ratchet_header     = 1;
   bytes ratchet_ciphertext = 2;
   optional PqxdhInit pqxdh  = 3;
+  optional DeviceSync device_sync = 4;
 }

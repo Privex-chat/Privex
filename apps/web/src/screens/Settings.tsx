@@ -41,6 +41,13 @@ import {
   setReadReceipts,
   setReceiptPrivacyDelay,
 } from "../services/receipts";
+import {
+  deviceSyncEnabled,
+  listLinkedDevices,
+  removeLinkedDevice,
+  setDeviceSyncEnabled,
+  type LinkedDeviceInfo,
+} from "../services/device-sync";
 import * as api from "../api/client";
 
 const HISTORY_WARNING =
@@ -164,6 +171,9 @@ export default function Settings() {
               Send your chat history directly to a new device (or receive it here). End-to-end
               encrypted, both devices online - nothing is stored on the server.
             </p>
+          </Row>
+          <Row>
+            <DeviceSyncSettings />
           </Row>
         </Section>
 
@@ -481,6 +491,83 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
             </button>
             <button onClick={() => setOpen(false)} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm">Cancel</button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Cross-device sync (docs 4.11 Mode C). OPT-IN, default OFF: each sent message
+ *  also produces a self-addressed encrypted copy per linked device - the server
+ *  can't read it, but the extra self-traffic is an observable pattern, so the
+ *  user must choose it. Linking happens during a device transfer when BOTH
+ *  devices have this on. */
+function DeviceSyncSettings() {
+  const [enabled, setEnabled] = useState(false);
+  const [devices, setDevices] = useState<LinkedDeviceInfo[]>([]);
+
+  const reload = () => void listLinkedDevices().then(setDevices);
+  useEffect(() => {
+    void deviceSyncEnabled().then(setEnabled);
+    reload();
+  }, []);
+
+  async function toggle(on: boolean) {
+    setEnabled(on);
+    await setDeviceSyncEnabled(on);
+  }
+
+  async function unlink(id: string) {
+    if (!window.confirm("Unlink this device? It will stop receiving your sent messages.")) return;
+    await removeLinkedDevice(id);
+    reload();
+  }
+
+  return (
+    <div>
+      <label className="flex items-start justify-between gap-3 cursor-pointer">
+        <span>
+          <span className="block text-sm text-neutral-300">Cross-device sync</span>
+          <span className="block text-xs text-neutral-500">
+            Messages you send also appear on your linked devices, as end-to-end encrypted
+            copies routed through your own mailbox. Off by default: the extra self-addressed
+            traffic is visible to the server as a pattern (not content).
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => void toggle(e.target.checked)}
+          className="mt-1 h-4 w-4 accent-indigo-500"
+        />
+      </label>
+      {enabled && (
+        <div className="mt-2">
+          <div className="text-xs text-neutral-400">
+            Linked devices {devices.length === 0 && "- none yet"}
+          </div>
+          {devices.length === 0 ? (
+            <p className="text-xs text-neutral-500">
+              Run &ldquo;Transfer history&rdquo; with this setting ON on both devices to link them.
+            </p>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {devices.map((d) => (
+                <li key={d.device_id} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-neutral-300">
+                    {d.label}
+                    <span className="ml-2 font-mono text-neutral-600">{d.device_id.slice(0, 8)}…</span>
+                  </span>
+                  <button
+                    onClick={() => void unlink(d.device_id)}
+                    className="rounded px-2 py-0.5 text-red-400 hover:bg-neutral-800"
+                  >
+                    Unlink
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

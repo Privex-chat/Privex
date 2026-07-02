@@ -143,6 +143,14 @@ export interface PqxdhInitWire {
   opk_id: number;
 }
 
+/** Cross-device sync copy (docs 4.11 Mode C) - rides MessageEnvelope INSTEAD of
+ *  ratchet fields (the two devices share the link key, not a ratchet). */
+export interface DeviceSyncWire {
+  toDevice: Uint8Array;
+  fromDevice: Uint8Array;
+  blob: Uint8Array;
+}
+
 export function encodeEnvelope(
   header: Uint8Array,
   ciphertext: Uint8Array,
@@ -163,10 +171,19 @@ export function encodeEnvelope(
   }).finish();
 }
 
+export function encodeDeviceSyncEnvelope(sync: DeviceSyncWire): Uint8Array {
+  return proto.privex.MessageEnvelope.encode({
+    ratchetHeader: new Uint8Array(0),
+    ratchetCiphertext: new Uint8Array(0),
+    deviceSync: { toDevice: sync.toDevice, fromDevice: sync.fromDevice, blob: sync.blob },
+  }).finish();
+}
+
 export interface DecodedEnvelope {
   header: Uint8Array;
   ciphertext: Uint8Array;
   pqxdh?: PqxdhInitWire;
+  deviceSync?: DeviceSyncWire;
 }
 
 export function decodeEnvelope(bytes: Uint8Array): DecodedEnvelope {
@@ -179,6 +196,13 @@ export function decodeEnvelope(bytes: Uint8Array): DecodedEnvelope {
       kyber_ciphertext: u8(e.pqxdh.kyberCiphertext),
       opk_used: !!e.pqxdh.opkUsed,
       opk_id: e.pqxdh.opkId ?? 0,
+    };
+  }
+  if (e.deviceSync && (e.deviceSync.toDevice?.length ?? 0) > 0) {
+    out.deviceSync = {
+      toDevice: u8(e.deviceSync.toDevice),
+      fromDevice: u8(e.deviceSync.fromDevice),
+      blob: u8(e.deviceSync.blob),
     };
   }
   return out;

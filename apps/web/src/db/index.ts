@@ -106,6 +106,18 @@ export interface OutboxRow {
   attempts: number;
 }
 
+// A linked device for cross-device sync (docs 4.11 Mode C). Established over the
+// SAS-confirmed device-transfer channel; the pairwise sync keys are HKDF'd from
+// that channel's secret and stored AES-GCM-encrypted with the master key.
+// send_key encrypts sync copies TO this device; recv_key decrypts copies FROM it.
+export interface LinkedDeviceRow {
+  device_id: string; // peer device id, 16-byte hex
+  label: string; // peer's self-chosen display label (not sensitive)
+  send_key_enc: Uint8Array;
+  recv_key_enc: Uint8Array;
+  linked_at: number;
+}
+
 // Queued delivery/read receipts (docs 4.10). NOT sent immediately — drained at the
 // next Poisson cover-traffic tick (services/cover-traffic.ts) so receipt timing is
 // decoupled from receive/read timing. Persisted so a closed tab still confirms on
@@ -129,6 +141,7 @@ export class PrivexDB extends Dexie {
   settings!: Table<SettingRow, string>;
   outbox!: Table<OutboxRow, number>;
   receipt_outbox!: Table<ReceiptOutboxRow, number>;
+  linked_devices!: Table<LinkedDeviceRow, string>;
 
   constructor(name = "privex") {
     super(name);
@@ -148,6 +161,10 @@ export class PrivexDB extends Dexie {
     // v3: queued delivery/read receipts (drained on Poisson cover-traffic ticks).
     this.version(3).stores({
       receipt_outbox: "++id, not_before",
+    });
+    // v4: linked devices for cross-device sync (docs 4.11 Mode C).
+    this.version(4).stores({
+      linked_devices: "device_id",
     });
   }
 }
