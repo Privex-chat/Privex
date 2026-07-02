@@ -71,10 +71,13 @@ pub async fn upload(
 }
 
 pub async fn download(
-    AuthUser(_user): AuthUser,
+    AuthUser(user): AuthUser,
     State(st): State<AppState>,
     Path(chunk_id): Path<String>,
 ) -> Result<Response, ApiError> {
+    // Each hit streams up to 4 MiB from the object store → bound per user
+    // (120 chunks/min ≈ 480 MB/min, generous for legit file receives).
+    crate::routes::rate_limit(&st, "blobget", &user, 120, 60).await?;
     if !valid_chunk_id(&chunk_id) {
         return Err(ApiError::bad_request());
     }
@@ -106,10 +109,11 @@ pub async fn download(
 /// and are shared only inside E2E-encrypted file manifests, so this is
 /// acceptable; there is deliberately no owner to check against.
 pub async fn delete(
-    AuthUser(_user): AuthUser,
+    AuthUser(user): AuthUser,
     State(st): State<AppState>,
     Path(chunk_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    crate::routes::rate_limit(&st, "blobdel", &user, 60, 60).await?;
     if !valid_chunk_id(&chunk_id) {
         return Err(ApiError::bad_request());
     }

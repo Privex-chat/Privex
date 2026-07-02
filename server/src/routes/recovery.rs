@@ -322,6 +322,8 @@ pub async fn store_shares(
     State(st): State<AppState>,
     Json(body): Json<StoreSharesReq>,
 ) -> Result<Json<StoreSharesResp>, ApiError> {
+    // Setup-only endpoint (a few calls per lifetime) - bound DB row growth.
+    crate::routes::rate_limit(&st, "shares", &user_id, 10, 600).await?;
     if body.shares.is_empty() || body.shares.len() > 10 {
         return Err(ApiError::bad_request());
     }

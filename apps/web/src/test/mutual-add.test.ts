@@ -22,13 +22,18 @@ import * as mc from "../crypto/message-crypto";
 import { encodeContactHello, encodeEnvelope, encodeText } from "../services/envelope";
 import { b64encode } from "../services/bytes";
 import { onContactsChanged } from "../services/events";
-import { addVerifiedContact, getContact } from "../data/contacts";
+import { acceptContact, addVerifiedContact, getContact, removeContact } from "../data/contacts";
 import { persistGeneratedIdentity } from "../onboarding/store";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
 import { db } from "../db";
 import * as api from "../api/client";
-import { receiveMessage, resetMessaging, type MessageCryptoApi } from "../services/messaging";
+import {
+  receiveMessage,
+  resetMessaging,
+  sendMessage,
+  type MessageCryptoApi,
+} from "../services/messaging";
 
 beforeAll(async () => {
   await initCrypto({
@@ -166,6 +171,68 @@ describe("mutual add", () => {
     expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(0);
     expect(changed).toBeGreaterThan(0);
     expect(ackSpy).toHaveBeenCalledWith(["h1"], "test-token");
+    ackSpy.mockRestore();
+  });
+
+  it("blocks replying to a pending request until accepted (opt-in enforcement)", async () => {
+    resetMessaging();
+    await db.contacts.clear();
+    await db.sessions.clear();
+    await db.messages.clear();
+    await db.identity.clear();
+
+    const me = genIdentityBundle(wasm, entropy(0x81));
+    const peer = genIdentityBundle(wasm, entropy(0x82));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("test-token", me.userId);
+
+    const ackSpy = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+    await receiveMessage(
+      { message_id: "p1", content: sealedFirstMessage(peer, me, encodeText("hi, add me?", 0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect((await getContact(peer.userId))?.status).toBe("pending_inbound");
+
+    // Reply while pending → refused at the SERVICE layer (not just hidden UI).
+    await expect(sendMessage(peer.userId, "sure", wasmCrypto)).rejects.toThrow(/[Aa]ccept/);
+    expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(1); // only theirs
+
+    // Accept → the reply goes through.
+    await acceptContact(peer.userId);
+    const sendSpy = vi
+      .spyOn(api, "sendMessage")
+      .mockResolvedValue({ queued: true, message_id: "srv-1" });
+    await sendMessage(peer.userId, "sure", wasmCrypto);
+    expect(sendSpy).toHaveBeenCalledOnce();
+    expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(2);
+    sendSpy.mockRestore();
+    ackSpy.mockRestore();
+  });
+
+  it("declining a request purges its messages, session, and contact", async () => {
+    resetMessaging();
+    await db.contacts.clear();
+    await db.sessions.clear();
+    await db.messages.clear();
+    await db.identity.clear();
+
+    const me = genIdentityBundle(wasm, entropy(0x91));
+    const peer = genIdentityBundle(wasm, entropy(0x92));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("test-token", me.userId);
+
+    const ackSpy = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+    await receiveMessage(
+      { message_id: "d1", content: sealedFirstMessage(peer, me, encodeText("spam", 0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(1);
+
+    // Decline = removeContact → nothing readable is left behind.
+    await removeContact(peer.userId);
+    expect(await getContact(peer.userId)).toBeUndefined();
+    expect(await db.sessions.get(peer.userId)).toBeUndefined();
+    expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(0);
     ackSpy.mockRestore();
   });
 });

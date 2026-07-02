@@ -99,10 +99,17 @@ export async function setVerified(pxId: string, safetyCode: string): Promise<voi
   await db.contacts.update(pxId, { verified_fingerprint: safetyCode });
 }
 
+/** Remove a contact (also the DECLINE action for a pending request). Purges the
+ *  whole local conversation - contact, session, stored messages, queued outbox
+ *  rows - so declining leaves no orphaned readable rows behind (a bare
+ *  contact/session delete used to leave messages reachable via #/chat/<id>). */
 export async function removeContact(pxId: string): Promise<void> {
   await db.contacts.delete(pxId);
   await db.sessions.delete(pxId);
-  emitContactsChanged(); // also used to decline a pending request
+  await db.messages.where("session_id").equals(pxId).delete();
+  // peer_id isn't indexed on outbox → filter scan (the outbox is tiny).
+  await db.outbox.filter((r) => r.peer_id === pxId).delete();
+  emitContactsChanged();
 }
 
 /**

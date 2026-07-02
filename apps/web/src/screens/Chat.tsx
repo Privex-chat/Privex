@@ -8,8 +8,8 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { EncryptedMessages, type PlainContact, type PlainMessage } from "../db/encrypted-db";
 import { db } from "../db";
-import { getContact } from "../data/contacts";
-import { onMessage } from "../services/events";
+import { acceptContact, getContact, removeContact } from "../data/contacts";
+import { onContactsChanged, onMessage } from "../services/events";
 import { sendMessage, sendFile } from "../services/messaging";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { AttachIcon, DownloadIcon, FileIcon } from "../components/icons";
@@ -47,11 +47,18 @@ export default function Chat() {
     if (!peerId) return;
     const store = new EncryptedMessages(db);
     const reload = () => void store.listBySession(peerId).then(setMsgs);
-    void getContact(peerId).then(setContact);
+    const loadContact = () => void getContact(peerId).then(setContact);
+    loadContact();
     reload();
-    return onMessage((e) => {
+    const offMsg = onMessage((e) => {
       if (e.peerId === peerId) reload();
     });
+    // Status flips (accept here or from the Requests tab) re-gate the composer.
+    const offContacts = onContactsChanged(loadContact);
+    return () => {
+      offMsg();
+      offContacts();
+    };
   }, [peerId]);
 
   useEffect(() => {
@@ -74,8 +81,11 @@ export default function Chat() {
     }
   }
 
+  // Message request (opt-in): reading is informed consent, replying is gated.
+  const pending = contact?.status === "pending_inbound";
+
   async function upload_(file: File) {
-    if (!peerId) return;
+    if (!peerId || pending) return;
     setError(null);
     setUpload({ done: 0, total: 1 });
     try {
@@ -113,8 +123,21 @@ export default function Chat() {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
+    if (pending) return;
     const file = e.dataTransfer.files?.[0];
     if (file) void upload_(file);
+  }
+
+  async function acceptRequest() {
+    if (!peerId) return;
+    await acceptContact(peerId); // emits contactsChanged → contact reloads
+  }
+
+  async function declineRequest() {
+    if (!peerId) return;
+    // Purges contact + session + these messages + outbox rows (data/contacts).
+    await removeContact(peerId);
+    nav("/", { replace: true });
   }
 
   const title = contact?.name || peerId || "";
@@ -215,6 +238,31 @@ export default function Chat() {
       )}
       {error && <p className="px-4 text-sm text-red-400">{error}</p>}
 
+      {pending ? (
+        /* Message request: no composer until accepted. Declining deletes the
+           request AND its messages; the sender is never notified either way. */
+        <footer className="border-t border-neutral-800 p-4 space-y-3">
+          <p className="text-sm text-neutral-400">
+            <span className="font-mono text-neutral-300">{peerId}</span> wants to connect.
+            Accepting lets you reply; declining deletes this request and its messages.
+            They are not notified either way.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => void acceptRequest()}
+              className="flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 py-2 text-sm font-medium"
+            >
+              Accept
+            </button>
+            <button
+              onClick={() => void declineRequest()}
+              className="flex-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 py-2 text-sm text-red-400"
+            >
+              Decline &amp; delete
+            </button>
+          </div>
+        </footer>
+      ) : (
       <footer className="flex items-center gap-2 border-t border-neutral-800 p-3">
         <input
           ref={fileInput}
@@ -254,6 +302,7 @@ export default function Chat() {
           Send
         </button>
       </footer>
+      )}
     </main>
   );
 }

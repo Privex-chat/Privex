@@ -250,6 +250,8 @@ pub async fn logout_all(
     AuthUser(user_id): AuthUser,
     State(st): State<AppState>,
 ) -> Result<Json<LogoutAllResp>, ApiError> {
+    // Cheap Redis write, but bound it anyway (each call extends the rev: key TTL).
+    crate::routes::rate_limit(&st, "logoutall", &user_id, 10, 60).await?;
     // cutoff = now+1 so EVERY token issued in this second or earlier (incl. the
     // caller's) is revoked; a fresh login must wait until the next second.
     rds::set_revoke_cutoff(

@@ -134,6 +134,12 @@ async function sealAndSend(
   if (!contact || contact.ik_x25519.length === 0) {
     throw new Error("no recipient key - add this contact first");
   }
+  // Opt-in enforcement (service layer, not just UI): replying to a pending inbound
+  // request IS the acceptance decision - it must go through acceptContact first.
+  // Contacts we deliberately added are "accepted", so outbound hellos are unaffected.
+  if (contact.status === "pending_inbound") {
+    throw new Error("Accept this contact's request before messaging them.");
+  }
   const session = await loadSession(peerId);
   if (!session) throw new Error("no session - add this contact first");
 
@@ -209,6 +215,11 @@ export async function sendFile(
   const contact = await getContact(peerId);
   if (!contact || contact.ik_x25519.length === 0) {
     throw new Error("no recipient key - add this contact first");
+  }
+  // Fail BEFORE the chunk upload (sealAndSend would reject anyway, but only after
+  // the bytes already hit the blob store).
+  if (contact.status === "pending_inbound") {
+    throw new Error("Accept this contact's request before messaging them.");
   }
   const { fields, meta } = await encryptAndUpload(file, contact.ik_x25519, onProgress);
   await sealAndSend(peerId, encodeFile(fields), { content: JSON.stringify(meta), kind: "file" }, crypto);

@@ -313,9 +313,10 @@ pub async fn spk_rotate(
     State(st): State<AppState>,
     Json(body): Json<SpkRotateReq>,
 ) -> Result<Json<SpkRotateResp>, ApiError> {
-    // Each rotation appends an immutable KT entry → bound the rate so a token can't
-    // bloat the KT log (which every bundle fetch scans).
-    crate::routes::rate_limit(&st, "spkrotate", &user_id, 10, 60).await?;
+    // Each rotation appends an immutable KT entry that EVERY bundle fetch O(N)-scans
+    // - a global cost, not just this user's. 30/hour is generous vs. legit use
+    // (scheduled rotation is ~monthly; recovery does one rotate per recovery).
+    crate::routes::rate_limit(&st, "spkrotate", &user_id, 30, 3600).await?;
     let spk = hexd(&body.spk_x25519_pub)?;
     let sig_ed = hexd(&body.spk_sig_ed)?;
     let sig_dil = hexd(&body.spk_sig_dil)?;

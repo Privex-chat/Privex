@@ -104,6 +104,8 @@ pub async fn list(
     State(st): State<AppState>,
     Query(params): Query<ListParams>,
 ) -> Result<Json<ListResp>, ApiError> {
+    // Restores page in bursts (500/page) → 120/min covers a 60k-record restore.
+    crate::routes::rate_limit(&st, "histlist", &user, 120, 60).await?;
     let limit = params.limit.unwrap_or(200).clamp(1, 500);
     let (after_at, after_id) = match &params.after {
         Some(c) => {
@@ -148,6 +150,7 @@ pub async fn status(
     AuthUser(user): AuthUser,
     State(st): State<AppState>,
 ) -> Result<Json<StatusResp>, ApiError> {
+    crate::routes::rate_limit(&st, "histstat", &user, 120, 60).await?;
     let (count, bytes) = history::stats(&st.db, &user)
         .await
         .map_err(|_| ApiError::internal())?;
@@ -163,6 +166,7 @@ pub async fn delete_all(
     AuthUser(user): AuthUser,
     State(st): State<AppState>,
 ) -> Result<Json<DeleteResp>, ApiError> {
+    crate::routes::rate_limit(&st, "histdel", &user, 10, 600).await?;
     let deleted = history::delete_all(&st.db, &user)
         .await
         .map_err(|_| ApiError::internal())?;

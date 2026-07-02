@@ -140,6 +140,12 @@ pub async fn ack(
     State(st): State<AppState>,
     Json(body): Json<AckReq>,
 ) -> Result<Json<AckResp>, ApiError> {
+    // Acks are cheap deletes but still per-request DB work; bound the call rate
+    // (batching keeps legit clients far under this) and the batch size.
+    crate::routes::rate_limit(&st, "msgack", &user, 200, 60).await?;
+    if body.message_ids.len() > 500 {
+        return Err(ApiError::bad_request());
+    }
     let mut ids = Vec::with_capacity(body.message_ids.len());
     for s in &body.message_ids {
         ids.push(Uuid::parse_str(s).map_err(|_| ApiError::bad_request())?);
