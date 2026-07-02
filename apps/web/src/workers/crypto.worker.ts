@@ -41,6 +41,8 @@ const handlers: Record<string, (args: unknown[], emit: Emit) => unknown> = {
       a[3] as Uint8Array,
       a[4] as Uint8Array,
     ),
+  // Fresh signed prekey for rotation (16E "log out everywhere"). Struct → plain.
+  generate_signed_spk: (a) => oc.generateSignedSpk(wasm, a[0] as Uint8Array, a[1] as Uint8Array),
   // Synchronous solve blocks this worker (~500ms at difficulty 22); progress is
   // posted live to the calling tab as it runs.
   solve_pow: (a, emit) => oc.solvePow(wasm, a[0] as Uint8Array, a[1] as number, emit),

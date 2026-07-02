@@ -48,13 +48,23 @@ sw.addEventListener("sync", ((e: TaggedEvent) => {
   if (e.tag === "sync-pending-messages") e.waitUntil(wakeTabs());
 }) as EventListener);
 
-// Push payload is a wake token (random bytes), never message content.
+// Periodic background sync (16E): on mobile/installed PWAs the SW is woken every
+// ~15 min to nudge open/backgrounded tabs to sync over the authed WS. The SW holds
+// no key/token, so it can only WAKE tabs - it never fetches or decrypts itself.
+sw.addEventListener("periodicsync", ((e: TaggedEvent) => {
+  if (e.tag === "check-messages") e.waitUntil(wakeTabs());
+}) as EventListener);
+
+// Push payload is a wake token (random bytes), never message content. The OS
+// notification is GENERIC by design: the notification tray (and its history) is
+// readable by other apps, so sender/preview NEVER appear here - content is shown
+// only inside the app after a tab syncs.
 sw.addEventListener("push", ((e: ExtendableEvent) => {
   e.waitUntil(
     (async () => {
       await wakeTabs();
-      await sw.registration.showNotification("New message", {
-        body: "Open Privex to read it.",
+      await sw.registration.showNotification("Privex", {
+        body: "You have a new message.",
         tag: "privex-message",
         icon: "/icons/maskable192.webp",
       });

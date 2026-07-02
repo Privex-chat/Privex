@@ -263,3 +263,21 @@ export function signHybrid(w: WasmModule, data: Uint8Array, edPriv: Uint8Array, 
   const s = w.sign_hybrid(data, edPriv, dilPriv);
   return { ed: s.sig_ed25519, dil: s.sig_dilithium3 };
 }
+
+// --- signed prekey rotation (docs 4.9 / 16E) ---
+
+export interface SignedSpk {
+  pub: Uint8Array;
+  priv: Uint8Array;
+  sigEd: Uint8Array;
+  sigDil: Uint8Array;
+}
+
+/** Generate a fresh X25519 signed prekey and hybrid-sign its public key with the
+ *  identity keys (same construction genIdentityBundle uses). Returned as plain,
+ *  structured-cloneable data so it can cross the crypto worker. */
+export function generateSignedSpk(w: WasmModule, edPriv: Uint8Array, dilPriv: Uint8Array): SignedSpk {
+  const spk = w.generate_x25519_prekey();
+  const sig = w.sign_hybrid(spk.public_key, edPriv, dilPriv);
+  return { pub: spk.public_key, priv: spk.private_key, sigEd: sig.sig_ed25519, sigDil: sig.sig_dilithium3 };
+}

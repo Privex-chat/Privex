@@ -48,7 +48,7 @@ import {
   setDeviceSyncEnabled,
   type LinkedDeviceInfo,
 } from "../services/device-sync";
-import * as api from "../api/client";
+import { logoutEverywhere as logoutEverywhereSvc } from "../services/session";
 
 const HISTORY_WARNING =
   "Store encrypted chat history on Privex servers so you can restore it on a new device " +
@@ -866,10 +866,16 @@ function ActiveSessions() {
 
   async function logoutEverywhere() {
     if (!token) return;
-    if (!window.confirm("Log out of ALL devices? Every session token becomes invalid; you'll sign back in here.")) return;
+    if (
+      !window.confirm(
+        "Log out of ALL devices? Every session token is revoked and your signed prekey is " +
+          "rotated (forward secrecy). You'll sign back in on this device.",
+      )
+    )
+      return;
     setBusy(true);
     try {
-      await api.logoutAll(token);
+      await logoutEverywhereSvc(); // rotate SPK + revoke all tokens
       // Drop the (now-revoked) token; reload re-authenticates this device from the
       // stored keys with a fresh post-cutoff token.
       location.reload();
@@ -882,7 +888,8 @@ function ActiveSessions() {
     <div>
       <div className="text-sm text-neutral-300">Active sessions</div>
       <p className="text-xs text-neutral-500">
-        Tokens live in memory only and can&rsquo;t be listed. You have 1 session on this device.
+        Tokens live in memory only and can&rsquo;t be listed. &ldquo;Log out everywhere&rdquo;
+        revokes every device&rsquo;s token and rotates your signed prekey.
       </p>
       <button
         onClick={() => void logoutEverywhere()}
