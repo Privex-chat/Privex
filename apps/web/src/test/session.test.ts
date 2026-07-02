@@ -5,21 +5,28 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { keyRef } = vi.hoisted(() => ({ keyRef: { key: null as CryptoKey | null } }));
+const { keyRef, wipeSpy } = vi.hoisted(() => ({
+  keyRef: { key: null as CryptoKey | null },
+  wipeSpy: { called: 0 },
+}));
 vi.mock("../crypto/keystore", () => ({
   getMasterKey: async () => keyRef.key,
   hasMasterKey: async () => true,
   clearMasterKey: async () => {},
+  wipeKeystore: async () => {
+    wipeSpy.called += 1;
+  },
 }));
 
 import { initCrypto, wasm } from "../crypto/wasm";
 import { genIdentityBundle, toHex, type SignedSpk } from "../crypto/onboarding-crypto";
 import { generateSignedSpk } from "../crypto/onboarding-crypto";
 import { persistGeneratedIdentity, finalizeIdentity, loadBundle } from "../onboarding/store";
+import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
 import { db } from "../db";
 import * as api from "../api/client";
-import { logoutEverywhere, type SessionCryptoApi } from "../services/session";
+import { eraseThisDevice, logoutEverywhere, type SessionCryptoApi } from "../services/session";
 
 beforeAll(async () => {
   await initCrypto({
@@ -34,7 +41,14 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await Promise.all([db.identity.clear(), db.settings.clear()]);
+  await Promise.all([
+    db.identity.clear(),
+    db.settings.clear(),
+    db.messages.clear(),
+    db.contacts.clear(),
+    db.sessions.clear(),
+  ]);
+  wipeSpy.called = 0;
   useAuth.setState({ sessionToken: null, userId: null, authenticated: false });
 });
 
@@ -122,5 +136,49 @@ describe("log out everywhere (16E)", () => {
     );
     expect(rotateSpy).not.toHaveBeenCalled();
     rotateSpy.mockRestore();
+  });
+});
+
+describe("erase this device (16E follow-up)", () => {
+  it("wipes ALL local data + keystore, signs out, and never touches the network", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x41));
+    await persistGeneratedIdentity(me);
+    await finalizeIdentity(me);
+    useAuth.getState().setSession("tok", me.userId);
+
+    // Seed data across several stores.
+    await new EncryptedMessages(db).add({
+      msg_id: "m1",
+      session_id: "px_" + "aa".repeat(16),
+      content: "secret",
+      timestamp: 1,
+      status: "sent",
+      direction: "out",
+      kind: "text",
+    });
+    await db.contacts.put({ px_id: "px_" + "aa".repeat(16), added_at: 1 });
+    await db.settings.put({ key: "some-flag", value: true });
+    expect(await db.identity.count()).toBe(1);
+    expect(await db.messages.count()).toBe(1);
+
+    // Any network call during erase would be a bug (nothing to tell the server).
+    const anyPost = vi.spyOn(api, "logoutAll");
+    const anyRotate = vi.spyOn(api, "spkRotate");
+
+    await eraseThisDevice();
+
+    // Every local store is empty.
+    for (const t of db.tables) {
+      expect(await t.count()).toBe(0);
+    }
+    // Keystore wiped + auth dropped.
+    expect(wipeSpy.called).toBe(1);
+    expect(useAuth.getState().authenticated).toBe(false);
+    expect(useAuth.getState().sessionToken).toBe(null);
+    // No server contact.
+    expect(anyPost).not.toHaveBeenCalled();
+    expect(anyRotate).not.toHaveBeenCalled();
+    anyPost.mockRestore();
+    anyRotate.mockRestore();
   });
 });

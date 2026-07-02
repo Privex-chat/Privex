@@ -48,7 +48,7 @@ import {
   setDeviceSyncEnabled,
   type LinkedDeviceInfo,
 } from "../services/device-sync";
-import { logoutEverywhere as logoutEverywhereSvc } from "../services/session";
+import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
 
 const HISTORY_WARNING =
   "Store encrypted chat history on Privex servers so you can restore it on a new device " +
@@ -189,6 +189,9 @@ export default function Settings() {
           </Row>
           <Row>
             <ActiveSessions />
+          </Row>
+          <Row>
+            <EraseDevice />
           </Row>
         </Section>
 
@@ -860,6 +863,53 @@ function AppLockToggle() {
   );
 }
 
+/** Erase this device (16E follow-up): a full LOCAL reset. Irreversible without
+ *  recovery, so it takes an explicit typed confirmation. Runs ONLY from this
+ *  button - never from an auth error / slow load (those re-authenticate instead). */
+function EraseDevice() {
+  const [busy, setBusy] = useState(false);
+
+  async function erase() {
+    const ok = window.confirm(
+      "Erase this device?\n\n" +
+        "This permanently deletes ALL local data on THIS device — messages, contacts, " +
+        "and your identity key — and returns to the welcome screen.\n\n" +
+        "This is IRREVERSIBLE. You can only get your account back if you have your " +
+        "recovery phrase, your recovery password, or an enabled server backup. " +
+        "Other devices are NOT affected.\n\n" +
+        "Continue?",
+    );
+    if (!ok) return;
+    // Second gate for an irreversible action.
+    if (window.prompt('Type ERASE to confirm.') !== "ERASE") return;
+    setBusy(true);
+    try {
+      await eraseThisDeviceSvc();
+      location.reload(); // boot into a clean onboarding (no identity left)
+    } catch {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="text-sm text-red-300">Erase this device</div>
+      <p className="text-xs text-neutral-500">
+        Permanently delete all data and your identity on this device, returning to a clean
+        slate. Irreversible without your recovery phrase, password, or backup. Other devices
+        are untouched.
+      </p>
+      <button
+        onClick={() => void erase()}
+        disabled={busy}
+        className="mt-2 rounded-lg border border-red-600/60 text-red-300 hover:bg-red-600/10 disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
+      >
+        {busy ? "Erasing…" : "Erase this device"}
+      </button>
+    </div>
+  );
+}
+
 function ActiveSessions() {
   const token = useAuth((s) => s.sessionToken);
   const [busy, setBusy] = useState(false);
@@ -889,7 +939,8 @@ function ActiveSessions() {
       <div className="text-sm text-neutral-300">Active sessions</div>
       <p className="text-xs text-neutral-500">
         Tokens live in memory only and can&rsquo;t be listed. &ldquo;Log out everywhere&rdquo;
-        revokes every device&rsquo;s token and rotates your signed prekey.
+        revokes every device&rsquo;s token and rotates your signed prekey. It does NOT erase
+        this device&rsquo;s data &mdash; use &ldquo;Erase this device&rdquo; below for that.
       </p>
       <button
         onClick={() => void logoutEverywhere()}

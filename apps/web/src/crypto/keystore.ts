@@ -8,7 +8,7 @@
 // (biometric) key - with NO auto-available handle. So a page reload, a URL change,
 // or a copied IndexedDB cannot reach it without the unlock secret. getMasterKey()
 // throws "locked" until unlocked; the app shows the unlock screen first.
-import { get, set, del } from "idb-keyval";
+import { get, set, del, clear } from "idb-keyval";
 
 const MASTER_KEY_ID = "privex-master-key"; // no-lock: non-extractable handle
 const LOCK_ID = "privex-lock"; // lock metadata (wrap blobs + KDF params)
@@ -77,6 +77,15 @@ export async function clearMasterKey(): Promise<void> {
   memKeyBytes = null;
   await del(MASTER_KEY_ID);
   await del(LOCK_ID);
+}
+
+/** Full keystore wipe for "erase this device": clears the ENTIRE idb-keyval store
+ *  (data-key handle, app-lock meta, and anything else) plus the in-memory key, so
+ *  nothing decryptable is left behind. */
+export async function wipeKeystore(): Promise<void> {
+  memKey = null;
+  memKeyBytes = null;
+  await clear();
 }
 
 // --- app-lock plumbing (used by services/applock.ts) ---

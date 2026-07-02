@@ -16,10 +16,15 @@
 // The cutoff already invalidates tokens; SPK rotation here is orthogonal forward
 // secrecy layered on top.
 import * as api from "../api/client";
+import { db } from "../db";
 import { useAuth } from "../store/auth";
 import { cryptoCall } from "../workers/crypto-client";
+import { wipeKeystore } from "../crypto/keystore";
 import { loadBundle, finalizeIdentity } from "../onboarding/store";
 import { toHex, type SignedSpk } from "../crypto/onboarding-crypto";
+import { disconnectWebSocket } from "./websocket";
+import { stopCoverTraffic } from "./cover-traffic";
+import { resetMessaging } from "./messaging";
 
 export interface SessionCryptoApi {
   generateSignedSpk(edPriv: Uint8Array, dilPriv: Uint8Array): Promise<SignedSpk>;
@@ -59,4 +64,35 @@ export async function logoutEverywhere(crypto: SessionCryptoApi = workerSessionC
 
   // Revoke every token across all devices (incl. this one - we re-auth on reload).
   await api.logoutAll(token);
+}
+
+/**
+ * "Erase this device": a full LOCAL reset - delete every message, contact,
+ * session, AND the identity key material, then sign out to a clean onboarding.
+ *
+ * IRREVERSIBLE: without a recovery phrase / OPAQUE password / server backup, the
+ * account is gone. This is DESTRUCTIVE by design.
+ *
+ * SAFETY CONTRACT (do not violate): this runs ONLY from the explicit, confirmed
+ * Settings action. It is NEVER wired to a 401, a boot/restore failure, a slow
+ * load, or any transient/network condition - the correct response to those is to
+ * RE-AUTHENTICATE from the local identity (auth-session.ts), never to delete data.
+ * So a latency spike or an ambiguous auth error can never nuke local data.
+ *
+ * Does NOT contact the server (nothing to tell it - the data was only ever local).
+ * The caller reloads afterwards so all in-memory module caches are dropped too.
+ */
+export async function eraseThisDevice(): Promise<void> {
+  // 1. Stop anything that could re-write IndexedDB mid-wipe.
+  stopCoverTraffic();
+  disconnectWebSocket();
+  resetMessaging(); // drop cached identity/sender-cert
+
+  // 2. Delete every local store: all Dexie tables (db.tables auto-covers future
+  //    ones) + the entire idb-keyval keystore (data-key handle + app-lock meta).
+  await Promise.all(db.tables.map((t) => t.clear()));
+  await wipeKeystore();
+
+  // 3. Drop in-memory auth. The caller reloads → boot finds no identity → onboarding.
+  useAuth.getState().signOut();
 }
