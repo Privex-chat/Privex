@@ -45,12 +45,12 @@ Privex is currently in **Phase 1 (Web App Foundation)**. We have made significan
 ### 🚧 What is Missing / Needs Help
 We are actively building the following features to complete Phase 1:
 - **Nym Integration:** Transitioning from direct WebSockets to full Nym mixnet routing.
-- **Session Management:** Fixing token invalidation on Signed Pre-Key rotation.
+- ~~**Session Management:** Fixing token invalidation on Signed Pre-Key rotation.~~
 - **Push Notifications:** Service Worker push event handling needs fixing.
-- **Time Synchronization:** Desync attack prevention via server-signed timestamps.
-- **Cross-Device Sync:** Real-time syncing of sent messages across multiple devices.
-- **Delivery & Read Receipts:** Implementing secure receipts without timing correlations.
-- **Timing Mitigations:** Polling schedules, fetch padding, and jittered receipt sending.
+- ~~**Time Synchronization:** Desync attack prevention via server-signed timestamps.~~
+- ~~**Cross-Device Sync:** Real-time syncing of sent messages across multiple devices.~~
+- ~~**Delivery & Read Receipts:** Implementing secure receipts without timing correlations.~~
+- ~~**Timing Mitigations:** Polling schedules, fetch padding, and jittered receipt sending.~~
 - **File Sharing:** Disabled in Phase 1; pending client-side CSAM perceptual hashing implementation in Phase 2.
 
 ---
