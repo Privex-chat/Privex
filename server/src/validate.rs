@@ -133,8 +133,8 @@ pub fn validate_solution_hash(s: &str) -> Result<Vec<u8>, ApiError> {
 
 /// Validate a timestamp is within acceptable drift from the current time.
 pub fn validate_timestamp(ts: i64, now: i64) -> bool {
-    let drift = (now - ts).abs();
-    drift < MAX_TIMESTAMP_DRIFT_SECS
+    let drift = now.saturating_sub(ts).unsigned_abs();
+    drift < MAX_TIMESTAMP_DRIFT_SECS as u64
 }
 
 /// Sanitize a user-supplied string: trim whitespace, reject control chars,
@@ -166,13 +166,14 @@ pub fn validate_opaque_wire(s: &str) -> Result<Vec<u8>, ApiError> {
 
 /// Validate the history cursor `after` format: `created_at:blob_id`.
 pub fn validate_history_cursor(cursor: &str) -> Result<(i32, String), ApiError> {
-    let (a, b) = cursor.split_once(':').ok_or_else(ApiError::bad_request)?;
-    let after_at = a.parse::<i32>().map_err(|_| ApiError::bad_request())?;
+    let colon = cursor.find(':').ok_or_else(ApiError::bad_request)?;
+    let after_at = cursor[..colon].parse::<i32>().map_err(|_| ApiError::bad_request())?;
+    let b = &cursor[colon + 1..];
     if b.is_empty() || b.len() > MAX_HISTORY_BLOB_ID_CHARS {
         return Err(ApiError::bad_request());
     }
-    // blob_id must be printable ASCII, no spaces or control chars
-    if b.bytes().any(|c| c < 0x21 || c > 0x7E) {
+    // blob_id must match the same character set accepted by sanitize_string
+    if b.bytes().any(|c| c < 0x20 && c != 0x09 && c != 0x0A) {
         return Err(ApiError::bad_request());
     }
     Ok((after_at, b.to_string()))
@@ -301,6 +302,8 @@ mod tests {
         assert!(validate_timestamp(now, now));
         assert!(validate_timestamp(now - 86399, now)); // within drift
         assert!(!validate_timestamp(now - 86401, now)); // beyond drift
+        assert!(!validate_timestamp(i64::MIN, 0)); // extreme negative, no panic
+        assert!(!validate_timestamp(0, i64::MAX)); // extreme positive, no panic
     }
 
     #[test]
@@ -319,6 +322,8 @@ mod tests {
         assert!(validate_history_cursor(":").is_err());
         assert!(validate_history_cursor("abc:").is_err());
         assert!(validate_history_cursor("").is_err());
+        assert!(validate_history_cursor("100:contact:px_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p").is_ok());
+        assert!(validate_history_cursor("100:hello world").is_ok());
     }
 
     #[test]
