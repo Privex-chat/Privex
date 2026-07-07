@@ -384,7 +384,7 @@ message_queue:          recipient_id → encrypted blob (UNLOGGED, deleted on ac
 blob_index:             SHA-256(enc_chunk) → storage path (UNLOGGED, deleted after download)
 group_state:            group_id → encrypted MLS state (server cannot decrypt)
 opaque_records:         px_id → OPRF record + encrypted envelope (server cannot decrypt)
-kt_log:                 Merkle tree of all key operations (UNLOGGED)
+kt_log:                 Merkle tree of all key operations (UNLOGGED, auto-repaired at startup on crash)
 recovery_shares:        px_id → encrypted Shamir shares (server cannot decrypt)
 history_blobs:          px_id → encrypted history blobs (UNLOGGED, OPT-IN ONLY)
 linked_devices:         px_id → device public keys (UNLOGGED)
