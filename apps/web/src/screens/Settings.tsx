@@ -1,6 +1,6 @@
-// Settings: account, privacy, recovery, security, about (docs 9). Most state is
-// local (IndexedDB settings table) or derived from the stored identity. Recovery
-// management (seed phrase, emergency contacts) and "log out everywhere" live here.
+// Settings: account+security, privacy, recovery, guide, about (docs 9). Tabbed layout
+// so users aren't buried in one long scroll. Most state is local (IndexedDB settings
+// table) or derived from the stored identity.
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
@@ -63,6 +63,16 @@ const HISTORY_WARNING =
 const APP_VERSION = "0.1.0 (Phase 1)";
 const COVER_KEY = "cover_traffic";
 
+type SettingsTab = "account" | "privacy" | "recovery" | "guide" | "about";
+
+const TABS: { key: SettingsTab; label: string }[] = [
+  { key: "account", label: "Account" },
+  { key: "privacy", label: "Privacy" },
+  { key: "recovery", label: "Recovery" },
+  { key: "guide", label: "Guide" },
+  { key: "about", label: "About" },
+];
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-6">
@@ -79,6 +89,7 @@ function Row({ children }: { children: React.ReactNode }) {
 export default function Settings() {
   const nav = useNavigate();
   const pxId = useAuth((s) => s.userId) ?? "";
+  const [tab, setTab] = useState<SettingsTab>("account");
   const [cover, setCover] = useState<string>("medium");
   const [hasContacts, setHasContacts] = useState(false);
   const [hasSeed, setHasSeed] = useState(false);
@@ -97,130 +108,302 @@ export default function Settings() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 p-6">
-      <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/")} className="text-sm text-neutral-500 hover:text-neutral-300">← Back</button>
-        <h1 className="mt-3 text-2xl font-semibold">Settings</h1>
-
-        <Section title="Account">
-          <Row>
-            <div className="text-sm text-neutral-400">Your Privex ID</div>
-            <div className="mt-1 flex items-center gap-2">
-              <code className="flex-1 break-all font-mono text-xs text-indigo-300">{pxId}</code>
-              <button
-                onClick={() => void navigator.clipboard?.writeText(pxId)}
-                className="rounded bg-neutral-800 hover:bg-neutral-700 px-2 py-1 text-xs"
-              >
-                Copy
-              </button>
-            </div>
-          </Row>
-        </Section>
-
-        <Section title="Privacy">
-          <Row>
-            <label className="text-sm text-neutral-300">Cover traffic</label>
-            <p className="text-xs text-neutral-500">
-              Sends steady fixed-size decoy messages so an observer can&rsquo;t tell from your
-              traffic when you&rsquo;re really active (docs 5.3/5.7). Higher = more protection,
-              more battery/data. Off = no decoys (for metered data).
-            </p>
-            <select
-              value={cover}
-              onChange={(e) => setCoverLevel(e.target.value)}
-              className="mt-2 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100">
+      <div className="mx-auto w-full max-w-2xl px-4 py-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => nav("/")}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+              title="Back"
             >
-              <option value="off">Off</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-            </select>
-          </Row>
-          <Row>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-neutral-300">Connection mode</span>
-              <span className="text-sm text-neutral-500">Direct (onion routing soon)</span>
-            </div>
-          </Row>
-          <Row>
-            <MessageStatusSettings />
-          </Row>
-          <Row>
-            <HistoryBackup />
-          </Row>
-        </Section>
+              ←
+            </button>
+            <h1 className="text-2xl font-semibold">Settings</h1>
+          </div>
+        </div>
 
-        <Section title="Recovery">
-          <Row>
-            <RecoveryStatus
-              opaqueEnabled={opaqueEnabled === true}
+        {/* Tab bar */}
+        <nav className="mt-5 flex gap-1 border-b border-neutral-800 text-sm">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={
+                "-mb-px border-b-2 px-4 py-2.5 transition-colors " +
+                (tab === t.key
+                  ? "border-indigo-500 text-neutral-100"
+                  : "border-transparent text-neutral-400 hover:text-neutral-200")
+              }
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Tab content */}
+        <div className="mt-6">
+          {tab === "account" && <AccountSecurityTab pxId={pxId} />}
+          {tab === "privacy" && <PrivacyTab cover={cover} setCoverLevel={setCoverLevel} />}
+          {tab === "recovery" && (
+            <RecoveryTab
+              opaqueEnabled={opaqueEnabled}
+              setOpaqueEnabled={setOpaqueEnabled}
               hasSeed={hasSeed}
               hasContacts={hasContacts}
+              setHasContacts={setHasContacts}
             />
-          </Row>
-          <Row>
-            <OpaqueRecoveryToggle enabled={opaqueEnabled} onChanged={setOpaqueEnabled} />
-          </Row>
-          <Row>
-            <SeedPhraseView />
-          </Row>
-          <Row>
-            <EmergencyContacts onConfigured={() => setHasContacts(true)} />
-          </Row>
-          <Row>
-            <Link to="/device-transfer" className="text-sm text-indigo-300 hover:underline">
-              Transfer history to another device
-            </Link>
-            <p className="text-xs text-neutral-500">
-              Send your chat history directly to a new device (or receive it here). End-to-end
-              encrypted, both devices online - nothing is stored on the server.
-            </p>
-          </Row>
-          <Row>
-            <DeviceSyncSettings />
-          </Row>
-        </Section>
-
-        <Section title="Security">
-          <Row>
-            <Link to="/" className="text-sm text-indigo-300 hover:underline">
-              Verify contacts &amp; safety codes
-            </Link>
-            <p className="text-xs text-neutral-500">Compare codes in a chat&rsquo;s ⚠ badge.</p>
-          </Row>
-          <Row>
-            <AppLockToggle />
-          </Row>
-          <Row>
-            <ActiveSessions />
-          </Row>
-          <Row>
-            <EraseDevice />
-          </Row>
-        </Section>
-
-        <Section title="About">
-          <Row>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-neutral-400">Version</span>
-              <span className="text-neutral-300">{APP_VERSION}</span>
-            </div>
-          </Row>
-          <Row>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-neutral-400">Source code</span>
-              <span className="text-neutral-500">github.com/Privex-chat/Privex</span>
-            </div>
-          </Row>
-          <Row>
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-neutral-400">Warrant canary</span>
-              <span className="text-neutral-500">privex.dpdns.org/canary</span>
-            </div>
-          </Row>
-        </Section>
+          )}
+          {tab === "guide" && <GuideTab />}
+          {tab === "about" && <AboutTab />}
+        </div>
       </div>
     </main>
+  );
+}
+
+/* ───────── Tab: Account + Security ───────── */
+function AccountSecurityTab({ pxId }: { pxId: string }) {
+  return (
+    <>
+      <Section title="Account">
+        <Row>
+          <div className="text-sm text-neutral-400">Your Privex ID</div>
+          <div className="mt-1 flex items-center gap-2">
+            <code className="flex-1 break-all font-mono text-xs text-indigo-300">{pxId}</code>
+            <button
+              onClick={() => void navigator.clipboard?.writeText(pxId)}
+              className="rounded bg-neutral-800 hover:bg-neutral-700 px-2 py-1 text-xs"
+            >
+              Copy
+            </button>
+          </div>
+        </Row>
+      </Section>
+
+      <Section title="Security">
+        <Row>
+          <Link to="/" className="text-sm text-indigo-300 hover:underline">
+            Verify contacts &amp; safety codes
+          </Link>
+          <p className="text-xs text-neutral-500">Compare codes in a chat&rsquo;s ⚠ badge.</p>
+        </Row>
+        <Row>
+          <AppLockToggle />
+        </Row>
+        <Row>
+          <ActiveSessions />
+        </Row>
+        <Row>
+          <EraseDevice />
+        </Row>
+      </Section>
+    </>
+  );
+}
+
+/* ───────── Tab: Privacy ───────── */
+function PrivacyTab({
+  cover,
+  setCoverLevel,
+}: {
+  cover: string;
+  setCoverLevel: (v: string) => void;
+}) {
+  return (
+    <Section title="Privacy">
+      <Row>
+        <label className="text-sm text-neutral-300">Cover traffic</label>
+        <p className="text-xs text-neutral-500">
+          Sends steady fixed-size decoy messages so an observer can&rsquo;t tell from your
+          traffic when you&rsquo;re really active. Higher = more protection,
+          more battery/data. Off = no decoys (for metered data).
+        </p>
+        <select
+          value={cover}
+          onChange={(e) => setCoverLevel(e.target.value)}
+          className="mt-2 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+        >
+          <option value="off">Off</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </Row>
+      <Row>
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-neutral-300">Connection mode</span>
+          <span className="text-sm text-neutral-500">Direct</span>
+        </div>
+      </Row>
+      <Row>
+        <MessageStatusSettings />
+      </Row>
+      <Row>
+        <HistoryBackup />
+      </Row>
+    </Section>
+  );
+}
+
+/* ───────── Tab: Recovery ───────── */
+function RecoveryTab({
+  opaqueEnabled,
+  setOpaqueEnabled,
+  hasSeed,
+  hasContacts,
+  setHasContacts,
+}: {
+  opaqueEnabled: boolean | null;
+  setOpaqueEnabled: (v: boolean) => void;
+  hasSeed: boolean;
+  hasContacts: boolean;
+  setHasContacts: (v: boolean) => void;
+}) {
+  return (
+    <Section title="Recovery">
+      <Row>
+        <RecoveryStatus
+          opaqueEnabled={opaqueEnabled === true}
+          hasSeed={hasSeed}
+          hasContacts={hasContacts}
+        />
+      </Row>
+      <Row>
+        <OpaqueRecoveryToggle enabled={opaqueEnabled} onChanged={setOpaqueEnabled} />
+      </Row>
+      <Row>
+        <SeedPhraseView />
+      </Row>
+      <Row>
+        <EmergencyContacts onConfigured={() => setHasContacts(true)} />
+      </Row>
+      <Row>
+        <Link to="/device-transfer" className="text-sm text-indigo-300 hover:underline">
+          Transfer history to another device
+        </Link>
+        <p className="text-xs text-neutral-500">
+          Send your chat history directly to a new device (or receive it here). End-to-end
+          encrypted, both devices online — nothing is stored on the server.
+        </p>
+      </Row>
+      <Row>
+        <DeviceSyncSettings />
+      </Row>
+    </Section>
+  );
+}
+
+/* ───────── Tab: Guide ───────── */
+function GuideTab() {
+  return (
+    <div className="space-y-6 text-sm text-neutral-300 leading-relaxed">
+      <section>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Getting started</h2>
+        <div className="mt-2 rounded-xl border border-neutral-800 divide-y divide-neutral-800">
+          <div className="px-4 py-3 space-y-2">
+            <p>
+              Privex is a zero-knowledge, end-to-end encrypted messenger. Your identity lives
+              only on your device — the server cannot read messages, identify users, or trace
+              relationships.
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">Adding contacts</h3>
+            <ol className="mt-2 list-inside list-decimal space-y-1 text-neutral-400">
+              <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
+              <li>Tap <span className="text-indigo-300">+ Add contact</span> on the home screen and paste their Privex ID.</li>
+              <li>Privex fetches their keys, verifies them against the key transparency log, and sets up an encrypted session.</li>
+              <li>Compare safety codes over a separate channel (in person, phone call, another app).</li>
+              <li>If the codes match, tap <strong>Mark Verified</strong> — you&rsquo;re ready to chat.</li>
+            </ol>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">Sending messages &amp; files</h3>
+            <p className="mt-1 text-neutral-400">
+              Type in the composer at the bottom of a conversation and press Enter or tap Send.
+              Use the paperclip icon to attach files (up to 100 MB). Drag-and-drop is also supported.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Privacy &amp; settings guide</h2>
+        <div className="mt-2 rounded-xl border border-neutral-800 divide-y divide-neutral-800">
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">Cover traffic</h3>
+            <p className="mt-1 text-neutral-400">
+              Sends decoy messages at random intervals so an observer can&rsquo;t tell when you&rsquo;re
+              actually active. <strong>Off</strong> = no decoys (saves battery/data). <strong>Low–High</strong> = increasing
+              protection at the cost of more traffic. Recommended: <strong>Low</strong> or <strong>Medium</strong> for most users.
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">Delivery &amp; read receipts</h3>
+            <p className="mt-1 text-neutral-400">
+              Receipts are mutual — turning them off means you neither send nor receive them.
+              Each receipt is end-to-end encrypted and carries no timestamp. The privacy delay
+              adds a random jitter (avg 5 min) before your receipts send, useful for high-threat
+              scenarios.
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">History backup</h3>
+            <p className="mt-1 text-neutral-400">
+              Off by default. When on, your encrypted message history is stored on Privex servers.
+              Only you can decrypt it. The trade-off: your data exists in more places. Not
+              recommended if your threat model includes targeted surveillance.
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">App lock</h3>
+            <p className="mt-1 text-neutral-400">
+              Encrypts this device&rsquo;s data behind a passphrase or biometrics. Required after
+              reload or 5 min idle. This is a deterrent lock — a short passphrase is not
+              offline-brute-force-proof. Recommended for anyone who shares their device.
+            </p>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-neutral-200">Recovery options</h3>
+            <p className="mt-1 text-neutral-400">
+              <strong>Password recovery (OPAQUE):</strong> Creates an encrypted server record. Off by default —
+              the record becomes part of your server-side footprint. <br />
+              <strong>Seed phrase:</strong> 24 words that are your master key. Store them offline.
+              Privex never asks for them. <br />
+              <strong>Emergency contacts:</strong> Split your recovery key across 2–3 trusted friends.
+              Each share is useless alone; all shares together can restore your account.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/* ───────── Tab: About ───────── */
+function AboutTab() {
+  return (
+    <Section title="About">
+      <Row>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-neutral-400">Version</span>
+          <span className="text-neutral-300">{APP_VERSION}</span>
+        </div>
+      </Row>
+      <Row>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-neutral-400">Source code</span>
+          <span className="text-neutral-500">github.com/Privex-chat/Privex</span>
+        </div>
+      </Row>
+      <Row>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-neutral-400">Warrant canary</span>
+          <span className="text-neutral-500">privex.dpdns.org/canary</span>
+        </div>
+      </Row>
+    </Section>
   );
 }
 
@@ -347,6 +530,7 @@ function OpaqueRecoveryToggle({
             onChange={(e) => setPw(e.target.value)}
             autoComplete="new-password"
             placeholder="Recovery password"
+            minLength={8}
             className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
           />
           {pw && scorer && (
@@ -366,6 +550,7 @@ function OpaqueRecoveryToggle({
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
             placeholder="Confirm password"
+            minLength={8}
             className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
           />
           {confirm && !matches && <p className="text-xs text-red-400">Passwords don&rsquo;t match.</p>}

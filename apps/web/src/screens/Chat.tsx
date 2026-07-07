@@ -148,8 +148,14 @@ export default function Chat() {
   // Message request (opt-in): reading is informed consent, replying is gated.
   const pending = contact?.status === "pending_inbound";
 
+  const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+
   async function upload_(file: File) {
     if (!peerId || pending) return;
+    if (file.size > MAX_FILE_BYTES) {
+      setError(`File too large (max 100 MB).`);
+      return;
+    }
     setError(null);
     setUpload({ done: 0, total: 1 });
     try {
@@ -189,7 +195,7 @@ export default function Chat() {
     setDragging(false);
     if (pending) return;
     const file = e.dataTransfer.files?.[0];
-    if (file) void upload_(file);
+    if (file && file.size > 0) void upload_(file);
   }
 
   async function acceptRequest() {
@@ -216,20 +222,31 @@ export default function Chat() {
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
     >
-      <header className="flex items-center gap-3 border-b border-neutral-800 px-4 py-3">
-        <button onClick={() => nav("/")} className="text-neutral-500 hover:text-neutral-300">←</button>
-        <div className="min-w-0">
+      {/* Sticky header — always visible while scrolling messages */}
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-neutral-800 bg-[#0a0a0a]/95 px-4 py-3 backdrop-blur-sm">
+        <button
+          onClick={() => nav("/")}
+          className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+          title="Back to conversations"
+        >
+          ←
+        </button>
+        {/* Contact avatar — initials fallback */}
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600/20 text-sm font-semibold text-indigo-400">
+          {(contact?.name || peerId || "?").charAt(0).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-medium">{title}</span>
+            <span className="truncate font-semibold">{title}</span>
             {contact?.verified ? (
               <span title="Verified" className="text-green-400 text-sm">✓</span>
             ) : (
-              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified - compare safety code" className="text-yellow-500 text-sm">⚠</button>
+              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" className="text-yellow-500 text-sm">⚠</button>
             )}
           </div>
-          <div className="truncate font-mono text-xs text-neutral-600">{peerId}</div>
+          <div className="truncate font-mono text-[11px] text-neutral-500">{peerId}</div>
         </div>
-        <div className="ml-auto">
+        <div className="shrink-0">
           <ConnectionStatus />
         </div>
       </header>
@@ -360,6 +377,7 @@ export default function Chat() {
             }
           }}
           placeholder="Message"
+          maxLength={4096}
           className="flex-1 rounded-full bg-neutral-900 border border-neutral-700 px-4 py-2 outline-none focus:border-indigo-500"
         />
         <button
