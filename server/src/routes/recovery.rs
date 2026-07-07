@@ -327,12 +327,27 @@ pub async fn store_shares(
     if body.shares.is_empty() || body.shares.len() > 10 {
         return Err(ApiError::bad_request());
     }
+    // Validate all shares first before persisting any.
+    let mut validated: Vec<(i16, Vec<u8>)> = Vec::with_capacity(body.shares.len());
     for s in &body.shares {
+        if s.share_index < 1 || s.share_index > 255 {
+            return Err(ApiError::bad_request());
+        }
         let bytes = hexd(&s.encrypted_share)?;
         if bytes.is_empty() || bytes.len() > MAX_SHARE_BYTES {
             return Err(ApiError::bad_request());
         }
-        recovery_shares::store_share(&st.db, &user_id, s.share_index, &bytes)
+        validated.push((s.share_index, bytes));
+    }
+    // Reject duplicate share indices.
+    {
+        let mut seen = std::collections::HashSet::new();
+        if validated.iter().any(|(idx, _)| !seen.insert(idx)) {
+            return Err(ApiError::bad_request());
+        }
+    }
+    for (share_index, bytes) in &validated {
+        recovery_shares::store_share(&st.db, &user_id, *share_index, bytes)
             .await
             .map_err(|_| ApiError::internal())?;
     }
