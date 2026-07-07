@@ -17,6 +17,7 @@ use crate::now_unix;
 use crate::rds;
 use crate::routes::valid_chunk_id;
 use crate::state::AppState;
+use crate::validate;
 
 const SEVEN_DAYS: i64 = 7 * 24 * 3600;
 const ONE_DAY: i64 = 24 * 3600;
@@ -27,6 +28,10 @@ pub async fn upload(
     Path(chunk_id): Path<String>,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Reject oversized uploads before any processing.
+    if body.len() > validate::MAX_BLOB_UPLOAD_BYTES {
+        return Err(ApiError::bad_request());
+    }
     let allowed = rds::check_rate_limit(
         &st.redis,
         &st.config.session_hmac_key,
