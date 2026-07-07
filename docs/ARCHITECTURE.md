@@ -776,7 +776,12 @@ Client verifies:
   3. If within tolerance: use local clock for display
   4. If outside tolerance: use server_ts as ordering anchor, show clock warning
 
-Message ordering: sorted by server_anchor (tamper-resistant), not client_ts.
+Message ordering: primary sort key is created_at (Date.now(), millisecond
+precision, monotonic local clock) so messages within the same server_anchor
+second appear in true send/arrival order even when the receiver's clock drifts
+relative to the server. server_anchor (tamper-resistant) is the secondary key
+and UUIDv4 the tertiary — so a sender's manipulated clock still can't reorder
+the conversation on the receiver's device.
 
 Time signing key rotation: annually, announced via KT log.
 ```

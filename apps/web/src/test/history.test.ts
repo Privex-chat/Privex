@@ -82,8 +82,8 @@ describe("history backup (Option A)", () => {
     await setDisplayName(peer.userId, "Alice");
     await setVerified(peer.userId, "12345 67890");
     const msgs = new EncryptedMessages(db);
-    await msgs.add({ msg_id: "a", session_id: peer.userId, content: "hello", timestamp: 1, status: "sent", direction: "out", kind: "text" });
-    await msgs.add({ msg_id: "b", session_id: peer.userId, content: "world", timestamp: 2, status: "received", direction: "in", kind: "text" });
+    await msgs.add({ msg_id: "a", session_id: peer.userId, content: "hello", timestamp: 1, created_at: 1000, status: "sent", direction: "out", kind: "text" });
+    await msgs.add({ msg_id: "b", session_id: peer.userId, content: "world", timestamp: 2, created_at: 1001, status: "received", direction: "in", kind: "text" });
 
     await enableBackup();
     expect(server.size).toBe(3); // 2 messages + 1 contact sidecar

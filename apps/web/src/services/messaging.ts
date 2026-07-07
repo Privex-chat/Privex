@@ -193,6 +193,7 @@ async function sealAndSend(
       status,
       direction: "out" as const,
       kind: store.kind,
+      created_at: Date.now(),
       // Our receipt token (docs 4.10): an incoming ReceiptMessage matching it
       // upgrades this row's status to delivered/read.
       receipt_token: store.receiptToken,
@@ -492,6 +493,7 @@ export async function receiveMessage(
     // signed server_anchor below, so a manipulated sender clock can't reorder.
     timestamp: sentAt || ws.queued_at || now(),
     server_anchor: time.anchor,
+    created_at: Date.now(),
     content: stored,
     status: keyChanged ? "received-key-changed" : verified ? "received" : "received-unverified",
     direction: "in" as const,

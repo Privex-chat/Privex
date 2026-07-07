@@ -183,6 +183,7 @@ export async function applySyncRecord(rec: SyncRecord): Promise<void> {
     session_id: rec.peer_id,
     content: rec.content,
     timestamp: rec.ts,
+    created_at: Date.now(),
     status: "sent",
     direction: "out",
     kind: rec.kind,

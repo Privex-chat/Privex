@@ -358,6 +358,7 @@ describe("applying incoming receipts to sent messages", () => {
       session_id: peerId,
       content: "yo",
       timestamp: 1,
+      created_at: 1000,
       status: "sent",
       direction: "out",
       kind: "text",

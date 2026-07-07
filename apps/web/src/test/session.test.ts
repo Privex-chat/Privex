@@ -183,6 +183,7 @@ describe("erase this device (16E follow-up)", () => {
       session_id: "px_" + "aa".repeat(16),
       content: "secret",
       timestamp: 1,
+      created_at: 1000,
       status: "sent",
       direction: "out",
       kind: "text",
