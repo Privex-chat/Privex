@@ -232,6 +232,7 @@ function PasswordStep({
         type="password"
         value={pw}
         onChange={(e) => setPw(e.target.value)}
+        minLength={8}
         autoComplete="new-password"
         className="mt-1 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 outline-none focus:border-indigo-500"
       />
@@ -466,6 +467,9 @@ function RecoveryStep({
                     onChange={(e) =>
                       setAnswers((a) => a.map((v, j) => (j === i ? e.target.value : v)))
                     }
+                    maxLength={8}
+                    spellCheck={false}
+                    autoCapitalize="none"
                     className="flex-1 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm outline-none focus:border-indigo-500"
                   />
                 </div>

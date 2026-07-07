@@ -215,7 +215,8 @@ export default function DeviceTransfer() {
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
               rows={2}
-              placeholder="abcd….0123…"
+              maxLength={200}
+              placeholder="abcd…0123…"
               className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-xs outline-none focus:border-indigo-500"
             />
             <div className="flex gap-2">

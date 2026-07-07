@@ -347,6 +347,7 @@ function OpaqueRecoveryToggle({
             onChange={(e) => setPw(e.target.value)}
             autoComplete="new-password"
             placeholder="Recovery password"
+            minLength={8}
             className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
           />
           {pw && scorer && (
@@ -366,6 +367,7 @@ function OpaqueRecoveryToggle({
             onChange={(e) => setConfirm(e.target.value)}
             autoComplete="new-password"
             placeholder="Confirm password"
+            minLength={8}
             className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
           />
           {confirm && !matches && <p className="text-xs text-red-400">Passwords don&rsquo;t match.</p>}

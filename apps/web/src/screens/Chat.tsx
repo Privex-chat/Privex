@@ -145,10 +145,16 @@ export default function Chat() {
     }
   }
 
+  const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
   // Message request (opt-in): reading is informed consent, replying is gated.
   const pending = contact?.status === "pending_inbound";
 
   async function upload_(file: File) {
+    if (file.size > MAX_FILE_BYTES || file.size === 0) {
+      setError("File too large or empty (max 100 MB).");
+      return;
+    }
     if (!peerId || pending) return;
     setError(null);
     setUpload({ done: 0, total: 1 });
@@ -189,7 +195,7 @@ export default function Chat() {
     setDragging(false);
     if (pending) return;
     const file = e.dataTransfer.files?.[0];
-    if (file) void upload_(file);
+    if (file && file.size > 0) void upload_(file);
   }
 
   async function acceptRequest() {
@@ -360,6 +366,7 @@ export default function Chat() {
             }
           }}
           placeholder="Message"
+          maxLength={4096}
           className="flex-1 rounded-full bg-neutral-900 border border-neutral-700 px-4 py-2 outline-none focus:border-indigo-500"
         />
         <button

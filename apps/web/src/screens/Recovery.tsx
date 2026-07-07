@@ -80,6 +80,7 @@ function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Pr
         value={pxId}
         onChange={(e) => setPxId(e.target.value)}
         placeholder="px_…"
+        maxLength={35}
         spellCheck={false}
         autoCapitalize="none"
         className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 font-mono text-sm outline-none focus:border-indigo-500"
@@ -89,6 +90,7 @@ function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Pr
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         placeholder="Recovery password"
+        minLength={8}
         autoComplete="current-password"
         className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 outline-none focus:border-indigo-500"
       />
@@ -113,6 +115,7 @@ function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promis
         onChange={(e) => setPhrase(e.target.value)}
         placeholder="Enter your 24-word seed phrase, separated by spaces"
         rows={4}
+        maxLength={528}
         spellCheck={false}
         autoCapitalize="none"
         className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
