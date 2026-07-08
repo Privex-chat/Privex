@@ -161,7 +161,6 @@ pub async fn verify(
         return Err(ApiError::rate_limited());
     }
 
-    // Single-use challenge: fetch-and-delete.
     let stored = rds::take_challenge(&st.redis, &st.config.session_hmac_key, &body.user_id)
         .await
         .map_err(|_| ApiError::internal())?;
@@ -176,7 +175,7 @@ pub async fn verify(
     if !validate::validate_timestamp(body.timestamp, now) {
         return Err(ApiError::unauthorized());
     }
-    // Specific +/-5 min window for auth challenge (stricter than general drift).
+    // Specific ±5 min window for auth challenge (stricter than general drift).
     if (now - body.timestamp).abs() > 300 {
         return Err(ApiError::unauthorized());
     }

@@ -58,6 +58,11 @@ pub async fn build_state_with_store(
 ) -> anyhow::Result<AppState> {
     let db = db::init_pool_with(&config.database_url).await?;
     db::run_migrations(&db).await?;
+    // Rebuild missing kt_log entries if the previous UNLOGGED table was
+    // truncated by an unclean shutdown (key_directory is LOGGED and survived).
+    if let Err(e) = db::queries::kt_log::repair_kt_log(&db).await {
+        tracing::warn!(event = "kt_log_repair_error", error = %e);
+    }
     let redis = init_redis(&config.redis_url)?;
     Ok(AppState {
         db,
