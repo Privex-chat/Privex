@@ -19,6 +19,7 @@ import Recovery from "./screens/Recovery";
 import DeviceTransfer from "./screens/DeviceTransfer";
 import MyQr from "./screens/MyQr";
 import UnlockScreen from "./screens/UnlockScreen";
+import AnnouncementBanner from "./components/AnnouncementBanner";
 import InstallPrompt from "./components/InstallPrompt";
 import NotificationBanner from "./components/NotificationBanner";
 import AppLockGuard from "./components/AppLockGuard";
@@ -161,6 +162,7 @@ export default function App() {
 
   return (
     <>
+      <AnnouncementBanner />
       <HashRouter>
         <Routes>
           <Route

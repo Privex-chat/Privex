@@ -12,7 +12,7 @@
 --
 -- Deletion (one user via CASCADE, or DELETE FROM ... WHERE user_id) is immediate
 -- and permanent. No soft delete.
-CREATE TABLE history_blobs (
+CREATE TABLE IF NOT EXISTS history_blobs (
     user_id    VARCHAR(35) NOT NULL
                    REFERENCES key_directory(user_id) ON DELETE CASCADE,
     blob_id    VARCHAR(64) NOT NULL,   -- client msg_id, or "contact:<px_id>" (idempotent re-upload)
@@ -22,4 +22,4 @@ CREATE TABLE history_blobs (
 );
 
 -- Pagination: ORDER BY (created_at, blob_id) with a strict composite cursor.
-CREATE INDEX history_blobs_user_created ON history_blobs (user_id, created_at, blob_id);
+CREATE INDEX IF NOT EXISTS history_blobs_user_created ON history_blobs (user_id, created_at, blob_id);

@@ -4,6 +4,6 @@
 -- deliberately NOT logged. Drop the unused 'opk_replenish' operation so the
 -- schema stops advertising a capability the server does not implement.
 ALTER TABLE kt_log
-    DROP CONSTRAINT kt_log_operation_check,
+    DROP CONSTRAINT IF EXISTS kt_log_operation_check,
     ADD CONSTRAINT kt_log_operation_check
         CHECK (operation IN ('register', 'spk_rotate'));

@@ -12,7 +12,7 @@
 --   verify_hybrid(spk_x25519, spk_sig_ed, ik_ed25519, spk_sig_dil, ik_dilithium3)
 -- The server cannot and does not verify this.
 
-CREATE TABLE key_directory (
+CREATE TABLE IF NOT EXISTS key_directory (
     user_id        VARCHAR(35) PRIMARY KEY
                        CHECK (user_id ~ '^px_[0-9a-f]{32}$'),
     ik_ed25519     BYTEA   NOT NULL,  -- Ed25519 identity public key (signing)

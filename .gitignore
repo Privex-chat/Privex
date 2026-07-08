@@ -44,4 +44,4 @@ coverage/
 
 # Docker / data volumes
 infra/data/
-ecosystem.config.js
+/ecosystem.config.js
