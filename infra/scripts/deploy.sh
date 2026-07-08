@@ -80,15 +80,15 @@ echo "[5/9] Building frontend..."
 pnpm run build
 
 # ── 6. Build Rust backend ──
-echo "[6/9] Building Rust server..."
+echo "[6/9] Building Rust server (privex-server + gen_opaque_setup)..."
 cd server
-cargo build --release
+cargo build --release --bin privex-server --bin gen_opaque_setup
 cd "$PRIVEX_HOME"
 
 # ── 7. Generate OPAQUE setup if missing ──
 if [[ -z "${OPAQUE_SERVER_SETUP:-}" ]]; then
   echo "[7/9] Generating OPAQUE server setup..."
-  OPAQUE_B64=$(cargo run --manifest-path server/Cargo.toml --bin gen_opaque_setup 2>/dev/null)
+  OPAQUE_B64=$(./server/target/release/gen_opaque_setup 2>/dev/null)
   echo "OPAQUE_SERVER_SETUP=${OPAQUE_B64}" >> .env
   set -a; source .env; set +a
   echo "  OPAQUE setup written to .env"
