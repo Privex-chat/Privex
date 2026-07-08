@@ -1,18 +1,25 @@
-# Local dev stack - stubs only (Session 1). Server image build + env wiring,
-# UNLOGGED tables, and network isolation land in Sessions 7–9, 26.
+# Privex infrastructure stack — PostgreSQL, Redis, MinIO.
+# nginx (host) handles TLS + reverse proxy; no Caddy needed.
+# Docker secrets loaded from .env (shared with the host Rust server).
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: privex
-      POSTGRES_PASSWORD: privex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-privex}
       POSTGRES_DB: privex
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     volumes:
       - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U privex"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7.2-alpine
@@ -20,31 +27,27 @@ services:
     volumes:
       - ./redis/redis.conf:/etc/redis/redis.conf:ro
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6380:6379"
+    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: privex
-      MINIO_ROOT_PASSWORD: privexprivex
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-privexprivex}
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
-
-  caddy:
-    image: caddy:2-alpine
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
   minio_data:
-  caddy_data:
