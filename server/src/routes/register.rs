@@ -4,10 +4,7 @@
 
 use axum::extract::State;
 use axum::Json;
-use fips203::ml_kem_1024;
-use fips204::ml_dsa_65;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::auth::sig;
 use crate::crypto::pow_difficulty;
@@ -17,20 +14,7 @@ use crate::error::ApiError;
 use crate::now_unix;
 use crate::routes::{hexd, valid_user_id, PowProof};
 use crate::state::AppState;
-
-const ED25519_PUB: usize = 32;
-const ED25519_SIG: usize = 64;
-const X25519_PUB: usize = 32;
-const MIN_REGISTRATION_OPKS: usize = 1;
-const MAX_REGISTRATION_OPKS: usize = 200;
-
-fn require_len(bytes: &[u8], expected: usize) -> Result<(), ApiError> {
-    if bytes.len() == expected {
-        Ok(())
-    } else {
-        Err(ApiError::bad_request())
-    }
-}
+use crate::validate;
 
 #[derive(Deserialize)]
 pub struct OpkReq {
@@ -50,8 +34,6 @@ pub struct RegisterReq {
     kyber1024_pub: String,
     opks: Vec<OpkReq>,
     pow: PowProof,
-    // OPAQUE recovery setup is a SEPARATE authenticated step
-    // (/recovery/opaque/register/*), not part of key registration.
 }
 
 #[derive(Serialize)]
@@ -66,11 +48,12 @@ pub async fn register(
     if !valid_user_id(&body.user_id) {
         return Err(ApiError::bad_request());
     }
-    if body.opks.len() < MIN_REGISTRATION_OPKS || body.opks.len() > MAX_REGISTRATION_OPKS {
+    if body.opks.len() < validate::MIN_OPKS_PER_REGISTRATION
+        || body.opks.len() > validate::MAX_OPKS_PER_REGISTRATION
+    {
         return Err(ApiError::bad_request());
     }
 
-    // --- PoW: gate all expensive registration work behind a valid solution. ---
     crate::routes::verify_pow(&st, &body.pow).await?;
     let now = now_unix();
 
@@ -82,20 +65,15 @@ pub async fn register(
     let spk_sig_dil = hexd(&body.spk_sig_dil)?;
     let kyber = hexd(&body.kyber1024_pub)?;
 
-    // Byte-length validation against the real algorithm sizes.
-    require_len(&ik_ed, ED25519_PUB)?;
-    require_len(&ik_dil, ml_dsa_65::PK_LEN)?;
-    require_len(&ik_x, X25519_PUB)?;
-    require_len(&spk, X25519_PUB)?;
-    require_len(&spk_sig_ed, ED25519_SIG)?;
-    require_len(&spk_sig_dil, ml_dsa_65::SIG_LEN)?;
-    require_len(&kyber, ml_kem_1024::EK_LEN)?;
+    validate::validate_identity_key(&ik_ed)?;
+    validate::validate_dilithium_pk(&ik_dil)?;
+    validate::validate_x25519_pub(&ik_x)?;
+    validate::validate_x25519_pub(&spk)?;
+    validate::validate_ed25519_sig(&spk_sig_ed)?;
+    validate::validate_dilithium_sig(&spk_sig_dil)?;
+    validate::validate_kyber_pub(&kyber)?;
 
-    // user_id integrity: must equal px_ + hex(SHA-256(ik_ed25519)[..16]).
-    let expected = format!("px_{}", hex::encode(&Sha256::digest(&ik_ed)[..16]));
-    if expected != body.user_id {
-        return Err(ApiError::bad_request());
-    }
+    validate::validate_user_id_integrity(&body.user_id, &ik_ed)?;
 
     // Server-side SPK signature check: the signed prekey must be signed by BOTH
     // submitted identity keys (signing input = spk_x25519_pub bytes). This does
@@ -109,7 +87,7 @@ pub async fn register(
     let mut opks = Vec::with_capacity(body.opks.len());
     for opk in &body.opks {
         let opk_pub = hexd(&opk.opk_x25519_pub)?;
-        require_len(&opk_pub, X25519_PUB)?;
+        validate::validate_x25519_pub(&opk_pub)?;
         opks.push((opk.opk_id, opk_pub));
     }
 

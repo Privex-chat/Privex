@@ -16,9 +16,7 @@ use crate::error::ApiError;
 use crate::now_unix;
 use crate::rds;
 use crate::state::AppState;
-
-const MAX_BLOB_BYTES: usize = 256 * 1024; // one encrypted record (a file manifest + thumbnail can be large)
-const MAX_BATCH: usize = 500;
+use crate::validate;
 
 #[derive(Deserialize)]
 pub struct BlobIn {
@@ -56,23 +54,17 @@ pub async fn upload(
         return Err(ApiError::rate_limited());
     }
 
-    if body.blobs.is_empty() || body.blobs.len() > MAX_BATCH {
+    if body.blobs.is_empty() || body.blobs.len() > validate::MAX_HISTORY_BATCH {
         return Err(ApiError::bad_request());
     }
 
     let now = now_unix() as i32;
     let mut stored = 0;
     for b in &body.blobs {
-        if b.blob_id.is_empty() || b.blob_id.len() > 64 {
-            return Err(ApiError::bad_request());
-        }
-        let ct = STANDARD
-            .decode(&b.ciphertext)
-            .map_err(|_| ApiError::bad_request())?;
-        if ct.is_empty() || ct.len() > MAX_BLOB_BYTES {
-            return Err(ApiError::bad_request());
-        }
-        history::upsert(&st.db, &user, &b.blob_id, &ct, now)
+        // blob_id must be non-empty, not too long, and contain only safe chars.
+        let safe_id = validate::sanitize_string(&b.blob_id, validate::MAX_HISTORY_BLOB_ID_CHARS)?;
+        let ct = validate::validate_b64(&b.ciphertext, validate::MAX_HISTORY_BLOB_BYTES)?;
+        history::upsert(&st.db, &user, &safe_id, &ct, now)
             .await
             .map_err(|_| ApiError::internal())?;
         stored += 1;
@@ -104,17 +96,10 @@ pub async fn list(
     State(st): State<AppState>,
     Query(params): Query<ListParams>,
 ) -> Result<Json<ListResp>, ApiError> {
-    // Restores page in bursts (500/page) → 120/min covers a 60k-record restore.
     crate::routes::rate_limit(&st, "histlist", &user, 120, 60).await?;
-    let limit = params.limit.unwrap_or(200).clamp(1, 500);
+    let limit = validate::validate_page_limit(params.limit, 200, 500);
     let (after_at, after_id) = match &params.after {
-        Some(c) => {
-            let (a, b) = c.split_once(':').ok_or_else(ApiError::bad_request)?;
-            (
-                a.parse::<i32>().map_err(|_| ApiError::bad_request())?,
-                b.to_string(),
-            )
-        }
+        Some(c) => validate::validate_history_cursor(c)?,
         None => (0, String::new()),
     };
 

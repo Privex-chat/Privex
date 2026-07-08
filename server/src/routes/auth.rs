@@ -7,12 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::auth::extract::AuthUser;
 use crate::auth::{sig, token};
+use fips204::ml_dsa_65;
 use crate::crypto::pow_difficulty::{compute_difficulty, record_challenge_request, unix_ts_ms};
 use crate::error::ApiError;
 use crate::now_unix;
 use crate::rds;
 use crate::routes::valid_user_id;
 use crate::state::AppState;
+use crate::validate;
 use sqlx::types::Uuid;
 
 // --- POST /auth/pow_challenge ---
@@ -135,10 +137,16 @@ pub async fn verify(
         return Err(ApiError::unauthorized());
     }
 
-    // Resource-abuse cap, 30 / 60s per user. (This isn't credential brute-force
-    // protection - the response is a signature over a server-issued challenge, so
-    // it can't be guessed without the private key. The old 5/60s was tight enough
-    // that a few page reloads on boot could lock a legitimate user out.)
+    // Validate input hex field lengths BEFORE any Oracle-able operation.
+    if !validate::validate_hex_str_exact(&body.challenge, validate::CHALLENGE_HEX_CHARS) {
+        return Err(ApiError::unauthorized());
+    }
+    // Ed25519 sig is 64 bytes = 128 hex chars (ED25519_SIG_LEN is the byte count).
+    if !validate::validate_hex_str_exact(&body.sig_ed, validate::ED25519_SIG_LEN * 2) {
+        return Err(ApiError::unauthorized());
+    }
+
+    // Resource-abuse cap, 30 / 60s per user.
     let allowed = rds::check_rate_limit(
         &st.redis,
         &st.config.session_hmac_key,
@@ -165,6 +173,10 @@ pub async fn verify(
     }
 
     let now = now_unix();
+    if !validate::validate_timestamp(body.timestamp, now) {
+        return Err(ApiError::unauthorized());
+    }
+    // Specific +/-5 min window for auth challenge (stricter than general drift).
     if (now - body.timestamp).abs() > 300 {
         return Err(ApiError::unauthorized());
     }
@@ -175,7 +187,8 @@ pub async fn verify(
         .ok_or_else(ApiError::unauthorized)?;
 
     let sig_ed = hex::decode(&body.sig_ed).map_err(|_| ApiError::unauthorized())?;
-    let sig_dil = hex::decode(&body.sig_dil).map_err(|_| ApiError::unauthorized())?;
+    let sig_dil = validate::validate_hex_max(&body.sig_dil, ml_dsa_65::SIG_LEN)
+        .map_err(|_| ApiError::unauthorized())?;
     let msg = sig::challenge_signing_input(&stored, &body.user_id, body.timestamp);
 
     if !sig::verify_hybrid(

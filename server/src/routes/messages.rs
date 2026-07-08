@@ -16,6 +16,7 @@ use crate::now_unix;
 use crate::rds;
 use crate::routes::valid_user_id;
 use crate::state::AppState;
+use crate::validate;
 
 const THIRTY_DAYS: i64 = 30 * 24 * 3600;
 
@@ -75,14 +76,9 @@ pub async fn send(
         return Err(ApiError::bad_request());
     }
 
-    let content = STANDARD
-        .decode(&body.content)
-        .map_err(|_| ApiError::bad_request())?;
-    if content.is_empty() {
-        return Err(ApiError::bad_request());
-    }
+    let content = validate::validate_b64(&body.content, validate::MAX_CONTENT_B64_BYTES)?;
     let csam = match &body.csam_proof {
-        Some(p) => Some(STANDARD.decode(p).map_err(|_| ApiError::bad_request())?),
+        Some(p) => Some(validate::validate_b64(p, validate::MAX_CSAM_PROOF_B64_BYTES)?),
         None => None,
     };
 

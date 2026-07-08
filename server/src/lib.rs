@@ -26,6 +26,7 @@ pub mod routes;
 pub mod state;
 pub mod store;
 pub mod tasks;
+pub mod validate;
 pub mod ws;
 
 // Generated Protobuf types (prost). Package `privex` → single file `privex.rs`.

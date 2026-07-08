@@ -28,28 +28,11 @@ use crate::db::queries::recovery_shares;
 use crate::error::ApiError;
 use crate::now_unix;
 use crate::rds;
-use crate::routes::{hexd, valid_user_id};
+use crate::routes::valid_user_id;
 use crate::state::AppState;
+use crate::validate;
 
 const LOGIN_TTL: i64 = 120; // seconds; OPAQUE login state is short-lived
-const MAX_OPAQUE_WIRE_BYTES: usize = 4096;
-const OPAQUE_ENVELOPE_BYTES: usize = 116;
-const OPAQUE_ENVELOPE_MAC_BYTES: usize = 32;
-
-fn bounded_hex(s: &str, max_bytes: usize) -> Result<Vec<u8>, ApiError> {
-    if s.len() > max_bytes.saturating_mul(2) {
-        return Err(ApiError::bad_request());
-    }
-    hexd(s)
-}
-
-fn fixed_hex(s: &str, exact_bytes: usize) -> Result<Vec<u8>, ApiError> {
-    let bytes = bounded_hex(s, exact_bytes)?;
-    if bytes.len() != exact_bytes {
-        return Err(ApiError::bad_request());
-    }
-    Ok(bytes)
-}
 
 fn random_hex(len: usize) -> Result<String, ApiError> {
     let mut bytes = vec![0u8; len];
@@ -102,7 +85,7 @@ pub async fn opaque_register_start(
     crate::routes::rate_limit(&st, "opqregstart", &user_id, 10, 600).await?;
     let setup =
         opaque::load_setup(&st.config.opaque_server_setup).map_err(|_| ApiError::internal())?;
-    let request = bounded_hex(&body.registration_request, MAX_OPAQUE_WIRE_BYTES)?;
+    let request = validate::validate_opaque_wire(&body.registration_request)?;
     let response = opaque::register_start(&setup, &request, user_id.as_bytes())
         .map_err(|_| ApiError::bad_request())?;
     Ok(Json(RegStartResp {
@@ -129,10 +112,10 @@ pub async fn opaque_register_finish(
     Json(body): Json<RegFinishReq>,
 ) -> Result<Json<RegFinishResp>, ApiError> {
     crate::routes::rate_limit(&st, "opqregfinish", &user_id, 10, 600).await?;
-    let upload = bounded_hex(&body.registration_upload, MAX_OPAQUE_WIRE_BYTES)?;
+    let upload = validate::validate_opaque_wire(&body.registration_upload)?;
     let record = opaque::register_finish(&upload).map_err(|_| ApiError::bad_request())?;
-    let envelope = fixed_hex(&body.envelope, OPAQUE_ENVELOPE_BYTES)?;
-    let envelope_mac = fixed_hex(&body.envelope_mac, OPAQUE_ENVELOPE_MAC_BYTES)?;
+    let envelope = validate::validate_hex_exact(&body.envelope, validate::OPAQUE_ENVELOPE_BYTES)?;
+    let envelope_mac = validate::validate_hex_exact(&body.envelope_mac, validate::OPAQUE_ENVELOPE_MAC_BYTES)?;
 
     let now = now_unix();
     opaque_db::upsert_opaque_record(
@@ -198,7 +181,7 @@ pub async fn opaque_login_init(
     crate::routes::rate_limit(&st, "opqinit", &body.user_id, 10, 60).await?;
     let setup =
         opaque::load_setup(&st.config.opaque_server_setup).map_err(|_| ApiError::internal())?;
-    let request = bounded_hex(&body.credential_request, MAX_OPAQUE_WIRE_BYTES)
+    let request = validate::validate_opaque_wire(&body.credential_request)
         .map_err(|_| ApiError::unauthorized())?;
 
     // Missing record → opaque-ke fabricates an indistinguishable response and a
@@ -235,8 +218,8 @@ pub async fn opaque_login_init(
     let (envelope, envelope_mac) = match &record {
         Some(r) => (hex::encode(&r.envelope), hex::encode(&r.envelope_mac)),
         None => (
-            random_hex(OPAQUE_ENVELOPE_BYTES)?,
-            random_hex(OPAQUE_ENVELOPE_MAC_BYTES)?,
+            random_hex(validate::OPAQUE_ENVELOPE_BYTES)?,
+            random_hex(validate::OPAQUE_ENVELOPE_MAC_BYTES)?,
         ),
     };
 
@@ -274,7 +257,7 @@ pub async fn opaque_login_complete(
         .map_err(|_| ApiError::internal())?;
     let (user_id, login_record_tag, login_state) = consumed.ok_or_else(ApiError::unauthorized)?;
 
-    let finalization = bounded_hex(&body.credential_finalization, MAX_OPAQUE_WIRE_BYTES)
+    let finalization = validate::validate_opaque_wire(&body.credential_finalization)
         .map_err(|_| ApiError::unauthorized())?;
     opaque::login_finish(&login_state, &finalization).map_err(|_| ApiError::unauthorized())?;
     let current_record = opaque_db::get_opaque_login_record(&st.db, &user_id)
@@ -299,8 +282,6 @@ pub async fn opaque_login_complete(
 // NOTE: RETRIEVAL ("recover via contacts") stays deferred - a relationship-free
 // share rendezvous is needed (see the module header). This is setup only.
 
-const MAX_SHARE_BYTES: usize = 4096;
-
 #[derive(Deserialize)]
 pub struct ShareItem {
     share_index: i16,
@@ -324,14 +305,24 @@ pub async fn store_shares(
 ) -> Result<Json<StoreSharesResp>, ApiError> {
     // Setup-only endpoint (a few calls per lifetime) - bound DB row growth.
     crate::routes::rate_limit(&st, "shares", &user_id, 10, 600).await?;
-    if body.shares.is_empty() || body.shares.len() > 10 {
+    if body.shares.is_empty() || body.shares.len() > validate::MAX_SHARES_BATCH {
+        return Err(ApiError::bad_request());
+    }
+    // Each share index must be in range (1-255), and no duplicates.
+    for s in &body.shares {
+        if !validate::validate_share_index(s.share_index) {
+            return Err(ApiError::bad_request());
+        }
+    }
+    let indices: Vec<i16> = body.shares.iter().map(|s| s.share_index).collect();
+    if !validate::validate_no_duplicate_indices(&indices) {
         return Err(ApiError::bad_request());
     }
     for s in &body.shares {
-        let bytes = hexd(&s.encrypted_share)?;
-        if bytes.is_empty() || bytes.len() > MAX_SHARE_BYTES {
-            return Err(ApiError::bad_request());
-        }
+        let bytes = validate::validate_hex_max(
+            &s.encrypted_share,
+            validate::MAX_SHARE_BYTES,
+        )?;
         recovery_shares::store_share(&st.db, &user_id, s.share_index, &bytes)
             .await
             .map_err(|_| ApiError::internal())?;

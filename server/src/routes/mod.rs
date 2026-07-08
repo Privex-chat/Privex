@@ -10,6 +10,7 @@ pub mod register;
 use crate::crypto::pow_difficulty;
 use crate::error::ApiError;
 use crate::state::AppState;
+use crate::validate;
 
 /// A submitted Proof-of-Work solution (shared by every PoW-gated endpoint:
 /// registration + the public, target-revealing key/recovery fetches). Mirrors the
@@ -59,17 +60,18 @@ fn log_suspicious_pow_solve(suspicion: u32, solve_time_ms: u64, min_expected: u6
 /// or logged. This is the only privacy-preserving gate for the public,
 /// target-revealing endpoints (key fetch, KT proof, OPAQUE login init).
 pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiError> {
+    // Validate PoW proof structure BEFORE touching Redis
+    if !validate::validate_pow_challenge_id(&pow.challenge_id) {
+        return Err(ApiError::bad_request());
+    }
+    let sol = validate::validate_solution_hash(&pow.solution_hash)?;
+
     let cid = sqlx::types::Uuid::parse_str(&pow.challenge_id).map_err(|_| ApiError::bad_request())?;
     let now_ms = pow_difficulty::unix_ts_ms();
     let consumed = crate::rds::take_pow_challenge(&st.redis, &cid.to_string())
         .await
         .map_err(|_| ApiError::internal())?
         .ok_or_else(ApiError::bad_request)?; // unknown / used / expired
-
-    let sol = hexd(&pow.solution_hash)?;
-    if sol.len() != 32 {
-        return Err(ApiError::bad_request());
-    }
     if !crate::powcheck::pow_valid(&consumed.challenge_data, pow.nonce, consumed.difficulty, &sol) {
         return Err(ApiError::bad_request());
     }
@@ -110,23 +112,17 @@ pub(crate) async fn rate_limit(
     }
 }
 
-/// `px_` + 32 lowercase hex chars (matches the DB CHECK constraint).
+// Delegates to the central validation module.
 pub(crate) fn valid_user_id(s: &str) -> bool {
-    s.len() == 35
-        && s.starts_with("px_")
-        && s.as_bytes()[3..]
-            .iter()
-            .all(|&b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    validate::validate_px_id(s)
 }
 
 pub(crate) fn hexd(s: &str) -> Result<Vec<u8>, ApiError> {
-    hex::decode(s).map_err(|_| ApiError::bad_request())
+    // Used for variable-length hex fields (like OPK keys); max 4KB is generous.
+    validate::validate_hex_max(s, 4096)
 }
 
 /// A blob chunk_id is exactly 64 lowercase hex chars (a SHA-256 digest).
 pub(crate) fn valid_chunk_id(s: &str) -> bool {
-    s.len() == 64
-        && s.as_bytes()
-            .iter()
-            .all(|&b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    validate::validate_chunk_id(s)
 }
