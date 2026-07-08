@@ -36,6 +36,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 anyhow = "1.0.93"
 secrecy = "0.10.3"
+dotenvy = "0.15.0"
 prost = "0.13.4"
 
 # Server-side auth crypto (no OpenSSL - pure Rust)
