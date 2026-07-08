@@ -2,7 +2,7 @@
 // so users aren't buried in one long scroll. Most state is local (IndexedDB settings
 // table) or derived from the stored identity.
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { db } from "../db";
 import { loadBundle } from "../onboarding/store";
@@ -49,6 +49,10 @@ import {
   type LinkedDeviceInfo,
 } from "../services/device-sync";
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
+import {
+  isScreenRecordProtectionEnabled,
+  setScreenRecordProtectionEnabled,
+} from "../components/ScreenRecordGuard";
 
 const HISTORY_WARNING =
   "Store encrypted chat history on Privex servers so you can restore it on a new device " +
@@ -86,10 +90,20 @@ function Row({ children }: { children: React.ReactNode }) {
   return <div className="px-4 py-3">{children}</div>;
 }
 
+const VALID_TABS: SettingsTab[] = ["account", "privacy", "recovery", "guide", "about"];
+
 export default function Settings() {
   const nav = useNavigate();
+  const { tab: rawTab } = useParams();
+  const tab: SettingsTab =
+    VALID_TABS.includes((rawTab ?? "account") as SettingsTab) ? (rawTab as SettingsTab) : "account";
   const pxId = useAuth((s) => s.userId) ?? "";
-  const [tab, setTab] = useState<SettingsTab>("account");
+
+  // Redirect invalid tab to account
+  useEffect(() => {
+    if (rawTab && tab !== rawTab) nav(`/settings/${tab}`, { replace: true });
+  }, [rawTab, tab, nav]);
+
   const [cover, setCover] = useState<string>("medium");
   const [hasContacts, setHasContacts] = useState(false);
   const [hasSeed, setHasSeed] = useState(false);
@@ -128,7 +142,7 @@ export default function Settings() {
           {TABS.map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => nav(`/settings/${t.key}`)}
               className={
                 "-mb-px border-b-2 px-4 py-2.5 transition-colors " +
                 (tab === t.key
@@ -210,6 +224,18 @@ function PrivacyTab({
   cover: string;
   setCoverLevel: (v: string) => void;
 }) {
+  const [screenRecord, setScreenRecord] = useState(false);
+
+  useEffect(() => {
+    void isScreenRecordProtectionEnabled().then(setScreenRecord);
+  }, []);
+
+  async function toggleScreenRecord() {
+    const next = !screenRecord;
+    setScreenRecord(next);
+    await setScreenRecordProtectionEnabled(next);
+  }
+
   return (
     <Section title="Privacy">
       <Row>
@@ -241,6 +267,24 @@ function PrivacyTab({
       </Row>
       <Row>
         <HistoryBackup />
+      </Row>
+      <Row>
+        <label className="flex items-start justify-between gap-3 cursor-pointer">
+          <span>
+            <span className="block text-sm text-neutral-300">Screen recording protection</span>
+            <span className="block text-xs text-neutral-500">
+              Blurs content when you switch away from Privex and overlays a discreet watermark
+              to deter screen recording. This is a visual deterrent — it cannot prevent
+              recording via external cameras or kernel-level capture.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={screenRecord}
+            onChange={() => void toggleScreenRecord()}
+            className="mt-1 h-4 w-4 accent-indigo-500"
+          />
+        </label>
       </Row>
     </Section>
   );

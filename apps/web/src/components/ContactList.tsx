@@ -11,18 +11,49 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listContacts, removeContact, setDisplayName, type PlainContact } from "../data/contacts";
-import { onContactsChanged } from "../services/events";
+import { onContactsChanged, onMessage } from "../services/events";
+import { db } from "../db";
+
+/** Load the latest message timestamp per session from IndexedDB. Uses the signed
+ *  server_anchor when available (docs 9.6), falling back to the local timestamp. */
+async function latestPerSession(): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const msgs = await db.messages.toArray();
+  for (const m of msgs) {
+    const key = m.server_anchor ?? m.timestamp;
+    const prev = map.get(m.session_id);
+    if (!prev || key > prev) map.set(m.session_id, key);
+  }
+  return map;
+}
 
 export default function ContactList() {
   const nav = useNavigate();
   const [contacts, setContacts] = useState<PlainContact[]>([]);
 
   const reload = useCallback(() => {
-    void listContacts().then((all) => setContacts(all.filter((c) => c.status !== "pending_inbound")));
+    void (async () => {
+      const [all, latest] = await Promise.all([listContacts(), latestPerSession()]);
+      const sorted = all
+        .filter((c) => c.status !== "pending_inbound")
+        .sort((a, b) => {
+          const aKey = latest.get(a.px_id) ?? a.added_at;
+          const bKey = latest.get(b.px_id) ?? b.added_at;
+          return bKey - aKey;
+        });
+      setContacts(sorted);
+    })();
   }, []);
   useEffect(() => {
     reload();
-    return onContactsChanged(reload); // refresh when a contact is accepted/removed
+    const unsub1 = onContactsChanged(reload);
+    // Bump on every new message (docs 4.4/4.10): the conversation moves to the
+    // top when the latest message timestamp changes, matching WhatsApp/Signal.
+    const unsub2 = onMessage(reload);
+    return () => {
+      unsub1();
+      unsub2();
+    };
   }, [reload]);
 
   async function rename(c: PlainContact) {

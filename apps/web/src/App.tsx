@@ -21,6 +21,7 @@ import UnlockScreen from "./screens/UnlockScreen";
 import InstallPrompt from "./components/InstallPrompt";
 import NotificationBanner from "./components/NotificationBanner";
 import AppLockGuard from "./components/AppLockGuard";
+import ScreenRecordGuard from "./components/ScreenRecordGuard";
 import { isLockEnabled, isUnlocked } from "./services/applock";
 
 type Boot = "loading" | "ready" | "offline" | "locked";
@@ -170,7 +171,7 @@ export default function App() {
           <Route path="/add-contact" element={<AddContact />} />
           <Route path="/chat/:id" element={<Chat />} />
           <Route path="/call/:id" element={<Call />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/:tab?" element={<Settings />} />
           <Route path="/device-transfer" element={<DeviceTransfer />} />
           <Route path="/verify/:id" element={<KeyVerification />} />
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -178,6 +179,7 @@ export default function App() {
       </HashRouter>
       <InstallPrompt />
       <NotificationBanner />
+      <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
       <AppLockGuard onLock={() => setBoot("locked")} />
     </>
   );

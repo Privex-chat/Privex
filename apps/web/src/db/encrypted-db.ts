@@ -160,6 +160,7 @@ export interface PlainContact {
   status: ContactStatus; // "accepted" | "pending_inbound" (legacy rows → "accepted")
   ik_ed25519: Uint8Array; // peer Ed25519 identity pub (empty if legacy/unset)
   ik_x25519: Uint8Array; // peer X25519 identity pub (Sealed Sender target)
+  added_at: number; // unix timestamp
 }
 
 /** Contact store that transparently encrypts the display name (the only
@@ -225,6 +226,7 @@ export class EncryptedContacts {
       status: row.status ?? "accepted", // legacy rows predate opt-in
       ik_ed25519: row.ik_ed25519_pub ?? new Uint8Array(0),
       ik_x25519: row.ik_x25519_pub ?? new Uint8Array(0),
+      added_at: row.added_at,
     };
   }
 

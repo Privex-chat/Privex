@@ -65,7 +65,7 @@ export default function ConversationList() {
               </svg>
             </button>
             <button
-              onClick={() => nav("/settings")}
+              onClick={() => nav("/settings/account")}
               title="Settings"
               className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
             >
