@@ -17,6 +17,7 @@ import KeyVerification from "./screens/KeyVerification";
 import AddContact from "./screens/AddContact";
 import Recovery from "./screens/Recovery";
 import DeviceTransfer from "./screens/DeviceTransfer";
+import MyQr from "./screens/MyQr";
 import UnlockScreen from "./screens/UnlockScreen";
 import InstallPrompt from "./components/InstallPrompt";
 import NotificationBanner from "./components/NotificationBanner";
@@ -173,6 +174,7 @@ export default function App() {
           <Route path="/call/:id" element={<Call />} />
           <Route path="/settings/:tab?" element={<Settings />} />
           <Route path="/device-transfer" element={<DeviceTransfer />} />
+          <Route path="/my-qr" element={<MyQr />} />
           <Route path="/verify/:id" element={<KeyVerification />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

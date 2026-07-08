@@ -234,7 +234,6 @@ function PasswordStep({
         onChange={(e) => setPw(e.target.value)}
         minLength={8}
         autoComplete="new-password"
-        minLength={8}
         className="mt-1 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 outline-none focus:border-indigo-500"
       />
       {pw && scorer && (
