@@ -12,7 +12,7 @@
 --
 -- Deletion (one user via CASCADE, or DELETE FROM ... WHERE user_id) is immediate
 -- and permanent. No soft delete.
-CREATE TABLE history_blobs (
+CREATE TABLE IF NOT EXISTS history_blobs (
     user_id    VARCHAR(35) NOT NULL
                    REFERENCES key_directory(user_id) ON DELETE CASCADE,
     blob_id    VARCHAR(64) NOT NULL,   -- client msg_id, or "contact:<px_id>" (idempotent re-upload)

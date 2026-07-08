@@ -1,7 +1,7 @@
 -- Message queue (docs 8.3). Sealed Sender blobs awaiting delivery. Hard-deleted
 -- on ACK; never kept after delivery. UNLOGGED: no WAL writes.
 -- NEVER stored: sender_id, message_type, read_status.
-CREATE UNLOGGED TABLE message_queue (
+CREATE UNLOGGED TABLE IF NOT EXISTS message_queue (
     message_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     recipient_id VARCHAR(35) NOT NULL CHECK (recipient_id ~ '^px_[0-9a-f]{32}$'),
     content      BYTEA       NOT NULL,  -- Sealed Sender encrypted blob

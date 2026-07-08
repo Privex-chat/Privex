@@ -29,11 +29,11 @@ fi
 set -a; source .env; set +a
 
 # ── 2. Pull latest code ──
-echo "[1/8] Pulling latest code..."
+echo "[1/9] Pulling latest code..."
 git pull
 
 # ── 3. Docker: start infrastructure services ──
-echo "[2/8] Starting Docker stack (PostgreSQL, Redis, MinIO)..."
+echo "[2/9] Starting Docker stack (PostgreSQL, Redis, MinIO)..."
 docker compose -f infra/docker-compose.yml --env-file .env up -d
 
 # Wait for PostgreSQL to be ready
@@ -64,35 +64,43 @@ docker compose -f infra/docker-compose.yml exec -T minio \
 docker compose -f infra/docker-compose.yml exec -T minio \
   mc mb "local/${BUCKET}" --ignore-existing 2>/dev/null || true
 
-# ── 4. Build frontend ──
-echo "[3/8] Installing frontend dependencies..."
+# ── 4. Apply database migrations (creates schema so sqlx::query!() works at compile time) ──
+echo "[3/9] Applying database migrations..."
+for f in server/migrations/*.sql; do
+  echo "  Running $(basename "$f")..."
+  docker compose -f infra/docker-compose.yml exec -T postgres \
+    psql -U privex -d privex -q -f - < "$f"
+done
+
+# ── 5. Build frontend ──
+echo "[4/9] Installing frontend dependencies..."
 pnpm install --frozen-lockfile
 
-echo "[4/8] Building frontend..."
+echo "[5/9] Building frontend..."
 pnpm run build
 
-# ── 5. Build Rust backend ──
-echo "[5/8] Building Rust server..."
+# ── 6. Build Rust backend ──
+echo "[6/9] Building Rust server..."
 cd server
 cargo build --release
 cd "$PRIVEX_HOME"
 
-# ── 6. Generate OPAQUE setup if missing ──
+# ── 7. Generate OPAQUE setup if missing ──
 if [[ -z "${OPAQUE_SERVER_SETUP:-}" ]]; then
-  echo "[6/8] Generating OPAQUE server setup..."
+  echo "[7/9] Generating OPAQUE server setup..."
   OPAQUE_B64=$(cargo run --manifest-path server/Cargo.toml --bin gen_opaque_setup 2>/dev/null)
   echo "OPAQUE_SERVER_SETUP=${OPAQUE_B64}" >> .env
   set -a; source .env; set +a
   echo "  OPAQUE setup written to .env"
 else
-  echo "[6/8] OPAQUE setup present — skipping"
+  echo "[7/9] OPAQUE setup present — skipping"
 fi
 
-# ── 7. Copy PM2 ecosystem config & restart ──
-echo "[7/8] Configuring PM2..."
+# ── 8. Copy PM2 ecosystem config & restart ──
+echo "[8/9] Configuring PM2..."
 cp infra/ecosystem.config.js ecosystem.config.js
 
-echo "[8/8] Restarting PM2..."
+echo "[9/9] Restarting PM2..."
 pm2 startOrReload ecosystem.config.js --update-env
 
 echo ""

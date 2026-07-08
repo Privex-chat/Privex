@@ -1,7 +1,7 @@
 -- OPAQUE records (docs 4.2/6/8.3). The server holds the OPRF record + an
 -- encrypted key envelope it CANNOT decrypt without the user's password.
 -- NEVER stored: password, password hash, or any function of the password.
-CREATE TABLE opaque_records (
+CREATE TABLE IF NOT EXISTS opaque_records (
     user_id      VARCHAR(35) PRIMARY KEY
                      REFERENCES key_directory(user_id) ON DELETE CASCADE,
     oprf_record  BYTEA   NOT NULL,  -- OPAQUE server OPRF record (blinded)
