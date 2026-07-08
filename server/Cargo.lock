@@ -2233,6 +2233,7 @@ dependencies = [
  "base64 0.22.1",
  "dashmap",
  "deadpool-redis",
+ "dotenvy",
  "ed25519-dalek",
  "fips203",
  "fips204",

@@ -159,7 +159,7 @@ export default function DeviceTransfer() {
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 p-6">
       <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/settings")} className="text-sm text-neutral-500 hover:text-neutral-300">
+        <button onClick={() => nav("/settings/account")} className="text-sm text-neutral-500 hover:text-neutral-300">
           ← Back
         </button>
         <h1 className="mt-4 text-xl font-semibold">Transfer history</h1>

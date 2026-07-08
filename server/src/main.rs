@@ -4,5 +4,6 @@
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let _ = dotenvy::dotenv();
     privex_server::run().await
 }

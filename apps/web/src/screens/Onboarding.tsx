@@ -233,6 +233,7 @@ function PasswordStep({
         value={pw}
         onChange={(e) => setPw(e.target.value)}
         autoComplete="new-password"
+        minLength={8}
         className="mt-1 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 outline-none focus:border-indigo-500"
       />
       {pw && scorer && (
@@ -407,16 +408,20 @@ function RecoveryStep({
         </button>
       </div>
 
-      {/* Card A - deferred (multi-device linking needs WS fan-out, not built yet) */}
-      <div className="mt-4 rounded-xl border border-neutral-800 p-4">
-        <p className="font-medium">Backup device <span className="text-indigo-400 text-xs">(recommended)</span></p>
-        <p className="mt-1 text-neutral-400 text-sm">Link another device by QR code. Available soon - set it up in Settings.</p>
+      {/* Card A - multi-device linking (deferred to Phase 2: needs WebSocket fan-out) */}
+      <div className="mt-4 rounded-xl border border-neutral-800 p-4 opacity-60">
+        <p className="font-medium">Link another device</p>
+        <p className="mt-1 text-neutral-400 text-sm">
+          Transfer your account to another phone or computer. Available in a future update.
+        </p>
       </div>
 
-      {/* Card B - deferred (needs contacts; added in a later session) */}
-      <div className="mt-3 rounded-xl border border-neutral-800 p-4">
-        <p className="font-medium">Recovery contacts</p>
-        <p className="mt-1 text-neutral-400 text-sm">Pick 2–3 trusted friends to hold recovery shares. Do this after adding contacts.</p>
+      {/* Card B - emergency contacts (needs contacts first; set up in Settings > Recovery) */}
+      <div className="mt-3 rounded-xl border border-neutral-800 p-4 opacity-60">
+        <p className="font-medium">Emergency contacts</p>
+        <p className="mt-1 text-neutral-400 text-sm">
+          Split your recovery key across trusted friends. Add contacts first, then set this up in Settings.
+        </p>
       </div>
 
       {/* Card C - seed phrase (real) */}
@@ -466,6 +471,9 @@ function RecoveryStep({
                     onChange={(e) =>
                       setAnswers((a) => a.map((v, j) => (j === i ? e.target.value : v)))
                     }
+                    maxLength={8}
+                    spellCheck={false}
+                    autoCapitalize="none"
                     className="flex-1 rounded bg-neutral-900 border border-neutral-700 px-2 py-1 text-sm outline-none focus:border-indigo-500"
                   />
                 </div>
