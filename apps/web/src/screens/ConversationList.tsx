@@ -57,6 +57,7 @@ export default function ConversationList() {
             <button
               onClick={() => nav("/my-qr")}
               title="Show my QR"
+              aria-label="Show my QR code"
               className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
             >
               <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">
@@ -67,6 +68,7 @@ export default function ConversationList() {
             <button
               onClick={() => nav("/settings/account")}
               title="Settings"
+              aria-label="Settings"
               className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
             >
               <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5">

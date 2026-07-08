@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useScreenRecord } from "../store/screenRecord";
 import { db } from "../db";
 
 const SETTINGS_KEY = "screen_record_protection";
@@ -23,11 +24,12 @@ const ANIM_STYLE = `
 
 export default function ScreenRecordGuard({ pxId }: { pxId: string }) {
   const [hidden, setHidden] = useState(false);
-  const [enabled, setEnabled] = useState(false);
+  const enabled = useScreenRecord((s) => s.enabled);
+  const init = useScreenRecord((s) => s.init);
 
   useEffect(() => {
-    void isScreenRecordProtectionEnabled().then(setEnabled);
-  }, []);
+    void init();
+  }, [init]);
 
   useEffect(() => {
     if (!enabled) return;

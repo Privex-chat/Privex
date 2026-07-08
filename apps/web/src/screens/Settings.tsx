@@ -49,10 +49,7 @@ import {
   type LinkedDeviceInfo,
 } from "../services/device-sync";
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
-import {
-  isScreenRecordProtectionEnabled,
-  setScreenRecordProtectionEnabled,
-} from "../components/ScreenRecordGuard";
+import { useScreenRecord } from "../store/screenRecord";
 
 const HISTORY_WARNING =
   "Store encrypted chat history on Privex servers so you can restore it on a new device " +
@@ -96,7 +93,7 @@ export default function Settings() {
   const nav = useNavigate();
   const { tab: rawTab } = useParams();
   const tab: SettingsTab =
-    VALID_TABS.includes((rawTab ?? "account") as SettingsTab) ? (rawTab as SettingsTab) : "account";
+    rawTab && VALID_TABS.includes(rawTab as SettingsTab) ? (rawTab as SettingsTab) : "account";
   const pxId = useAuth((s) => s.userId) ?? "";
 
   // Redirect invalid tab to account
@@ -224,17 +221,13 @@ function PrivacyTab({
   cover: string;
   setCoverLevel: (v: string) => void;
 }) {
-  const [screenRecord, setScreenRecord] = useState(false);
+  const screenRecord = useScreenRecord((s) => s.enabled);
+  const setScreenRecord = useScreenRecord((s) => s.setEnabled);
+  const init = useScreenRecord((s) => s.init);
 
   useEffect(() => {
-    void isScreenRecordProtectionEnabled().then(setScreenRecord);
-  }, []);
-
-  async function toggleScreenRecord() {
-    const next = !screenRecord;
-    setScreenRecord(next);
-    await setScreenRecordProtectionEnabled(next);
-  }
+    void init();
+  }, [init]);
 
   return (
     <Section title="Privacy">
@@ -281,7 +274,7 @@ function PrivacyTab({
           <input
             type="checkbox"
             checked={screenRecord}
-            onChange={() => void toggleScreenRecord()}
+            onChange={() => void setScreenRecord(!screenRecord)}
             className="mt-1 h-4 w-4 accent-indigo-500"
           />
         </label>

@@ -8,17 +8,20 @@
 //
 // ponytail: rename uses window.prompt and remove uses window.confirm - no modal
 // component yet. Swap for a real dialog when the design system lands.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listContacts, removeContact, setDisplayName, type PlainContact } from "../data/contacts";
 import { onContactsChanged, onMessage } from "../services/events";
 import { db } from "../db";
 
 /** Load the latest message timestamp per session from IndexedDB. Uses the signed
- *  server_anchor when available (docs 9.6), falling back to the local timestamp. */
-async function latestPerSession(): Promise<Map<string, number>> {
+ *  server_anchor when available (docs 9.6), falling back to the local timestamp.
+ *  Accepts the contact px_ids so it can query by the indexed session_id field
+ *  rather than scanning every row. */
+async function latestPerSession(sessionIds: string[]): Promise<Map<string, number>> {
   const map = new Map<string, number>();
-  const msgs = await db.messages.toArray();
+  if (sessionIds.length === 0) return map;
+  const msgs = await db.messages.where("session_id").anyOf(sessionIds).toArray();
   for (const m of msgs) {
     const key = m.server_anchor ?? m.timestamp;
     const prev = map.get(m.session_id);
@@ -33,7 +36,9 @@ export default function ContactList() {
 
   const reload = useCallback(() => {
     void (async () => {
-      const [all, latest] = await Promise.all([listContacts(), latestPerSession()]);
+      const all = await listContacts();
+      const contactIds = all.filter((c) => c.status !== "pending_inbound").map((c) => c.px_id);
+      const [latest] = await Promise.all([latestPerSession(contactIds)]);
       const sorted = all
         .filter((c) => c.status !== "pending_inbound")
         .sort((a, b) => {
@@ -44,15 +49,21 @@ export default function ContactList() {
       setContacts(sorted);
     })();
   }, []);
+  const msgTimer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     reload();
     const unsub1 = onContactsChanged(reload);
     // Bump on every new message (docs 4.4/4.10): the conversation moves to the
     // top when the latest message timestamp changes, matching WhatsApp/Signal.
-    const unsub2 = onMessage(reload);
+    // Debounced (300ms) so rapid bursts coalesce into a single reload.
+    const unsub2 = onMessage(() => {
+      clearTimeout(msgTimer.current);
+      msgTimer.current = setTimeout(reload, 300);
+    });
     return () => {
       unsub1();
       unsub2();
+      clearTimeout(msgTimer.current);
     };
   }, [reload]);
 

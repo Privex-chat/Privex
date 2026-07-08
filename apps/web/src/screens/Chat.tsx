@@ -228,6 +228,7 @@ export default function Chat() {
           onClick={() => nav("/")}
           className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
           title="Back to conversations"
+          aria-label="Back to conversations"
         >
           ←
         </button>
@@ -241,7 +242,7 @@ export default function Chat() {
             {contact?.verified ? (
               <span title="Verified" className="text-green-400 text-sm">✓</span>
             ) : (
-              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" className="text-yellow-500 text-sm">⚠</button>
+              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" aria-label="Verify safety code" className="text-yellow-500 text-sm">⚠</button>
             )}
           </div>
           <div className="truncate font-mono text-[11px] text-neutral-500">{peerId}</div>
