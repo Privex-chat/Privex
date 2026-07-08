@@ -18,11 +18,10 @@ if [[ ! -f .env ]]; then
   echo "ERROR: .env not found at $PRIVEX_HOME/.env"
   echo ""
   echo "First-time setup:"
-  echo "  1. cp .env.example .env"
-  echo "  2. bash infra/scripts/generate-credentials.sh >> .env"
-  echo "  3. Edit .env and generate OPAQUE_SERVER_SETUP:"
-  echo "       cargo run --manifest-path server/Cargo.toml --bin gen_opaque_setup"
-  echo "       (then paste the base64 output into OPAQUE_SERVER_SETUP in .env)"
+  echo "  1. bash infra/scripts/generate-credentials.sh > .env"
+  echo "  2. Generate OPAQUE_SERVER_SETUP (deploy.sh does this):"
+  echo "       ./server/target/release/gen_opaque_setup"
+  echo "     then paste the output into OPAQUE_SERVER_SETUP in .env"
   exit 1
 fi
 # Source it for use in this script
