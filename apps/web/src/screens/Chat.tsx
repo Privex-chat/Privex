@@ -22,8 +22,8 @@ import ConnectionStatus from "../components/ConnectionStatus";
 function StatusTicks({ status }: { status: string }) {
   if (status === "queued") return <span title="Waiting for connection">◷</span>;
   if (status === "delivered") return <span title="Delivered">✓✓</span>;
-  if (status === "read") return <span className="text-sky-300" title="Read">✓✓</span>;
-  if (status === "failed") return <span className="text-red-300" title="Failed">!</span>;
+  if (status === "read") return <span className="text-accent-subtle" title="Read">✓✓</span>;
+  if (status === "failed") return <span className="text-danger" title="Failed">!</span>;
   return <span title="Sent">✓</span>; // "sent"
 }
 
@@ -224,7 +224,7 @@ export default function Chat() {
 
   return (
     <main
-      className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex flex-col"
+      className="min-h-screen bg-surface text-text-primary flex flex-col"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -233,29 +233,29 @@ export default function Chat() {
       onDrop={onDrop}
     >
       {/* Sticky header — always visible while scrolling messages */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-neutral-800 bg-[#0a0a0a]/95 px-4 py-3 backdrop-blur-sm">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-divider bg-header px-4 py-3 backdrop-blur-sm">
         <button
           onClick={() => nav("/")}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
           title="Back to conversations"
           aria-label="Back to conversations"
         >
           ←
         </button>
         {/* Contact avatar — initials fallback */}
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-600/20 text-sm font-semibold text-indigo-400">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-bg text-sm font-semibold text-accent-text">
           {(contact?.name || peerId || "?").charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold">{title}</span>
             {contact?.verified ? (
-              <span title="Verified" className="text-green-400 text-sm">✓</span>
+              <span title="Verified" className="text-success text-sm">✓</span>
             ) : (
-              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" aria-label="Verify safety code" className="text-yellow-500 text-sm">⚠</button>
+              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" aria-label="Verify safety code" className="text-warning text-sm">⚠</button>
             )}
           </div>
-          <div className="truncate font-mono text-[11px] text-neutral-500">{peerId}</div>
+          <div className="truncate font-mono text-[11px] text-text-muted">{peerId}</div>
         </div>
         <div className="shrink-0">
           <ConnectionStatus />
@@ -264,11 +264,11 @@ export default function Chat() {
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 relative">
         {dragging && (
-          <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed border-indigo-500 bg-indigo-500/10 flex items-center justify-center text-indigo-300 text-sm pointer-events-none">
+          <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed border-border-focus bg-accent-bg flex items-center justify-center text-accent-subtle text-sm pointer-events-none">
             Drop to send
           </div>
         )}
-        {msgs.length === 0 && <p className="text-neutral-600 text-sm">No messages yet.</p>}
+        {msgs.length === 0 && <p className="text-text-subtle text-sm">No messages yet.</p>}
         {msgs.map((m) => {
           const out = m.direction === "out";
           const meta = m.kind === "file" ? parseFileMeta(m.content) : null;
@@ -279,17 +279,17 @@ export default function Chat() {
               ref={(el) => observeForRead(el, m)}
               className={out ? "flex justify-end" : "flex justify-start"}
             >
-              <div className={"max-w-[75%] rounded-2xl px-3 py-2 text-sm " + (out ? "bg-indigo-600" : "bg-neutral-800")}>
+              <div className={"max-w-[75%] rounded-2xl px-3 py-2 text-sm " + (out ? "bg-accent" : "bg-raised")}>
                 {meta ? (
                   <div className="space-y-2">
                     {meta.thumb && (
                       <img src={meta.thumb} alt={meta.name} className="max-h-48 rounded-lg" />
                     )}
                     <div className="flex items-center gap-2">
-                      <FileIcon className="w-6 h-6 shrink-0 text-neutral-200" />
+                      <FileIcon className="w-6 h-6 shrink-0 text-text" />
                       <div className="min-w-0">
                         <div className="truncate">{meta.name}</div>
-                        <div className="text-[11px] text-neutral-300/70">{formatSize(meta.size)}</div>
+                        <div className="text-[11px] text-text-muted">{formatSize(meta.size)}</div>
                       </div>
                       <button
                         onClick={() => void download(m, meta)}
@@ -301,20 +301,20 @@ export default function Chat() {
                       </button>
                     </div>
                     {dl && (
-                      <div className="h-1 w-full rounded bg-black/30 overflow-hidden">
-                        <div className="h-full bg-white/70" style={{ width: `${(dl.done / Math.max(1, dl.total)) * 100}%` }} />
+                      <div className="h-1 w-full rounded bg-progress-track-file overflow-hidden">
+                        <div className="h-full bg-progress-fill-file" style={{ width: `${(dl.done / Math.max(1, dl.total)) * 100}%` }} />
                       </div>
                     )}
                   </div>
                 ) : (
                   <p className="whitespace-pre-wrap break-words">{m.content}</p>
                 )}
-                <div className="mt-1 flex items-center gap-1 text-[10px] text-neutral-300/70">
+                <div className="mt-1 flex items-center gap-1 text-[10px] text-text-muted">
                   <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                   {out && <StatusTicks status={m.status} />}
                   {m.status === "received-unverified" && <span title="Sender not verified">· ⚠ unverified</span>}
                   {m.status === "received-key-changed" && (
-                    <span className="text-red-300" title="This contact's key changed - re-verify">· ⚠ key changed</span>
+                    <span className="text-danger" title="This contact's key changed - re-verify">· ⚠ key changed</span>
                   )}
                 </div>
               </div>
@@ -326,40 +326,40 @@ export default function Chat() {
 
       {upload && (
         <div className="px-4 pb-1">
-          <div className="text-[11px] text-neutral-400 mb-1">Encrypting & uploading… {upload.done}/{upload.total}</div>
-          <div className="h-1 w-full rounded bg-neutral-800 overflow-hidden">
-            <div className="h-full bg-indigo-500" style={{ width: `${(upload.done / Math.max(1, upload.total)) * 100}%` }} />
+          <div className="text-[11px] text-text-secondary mb-1">Encrypting & uploading… {upload.done}/{upload.total}</div>
+          <div className="h-1 w-full rounded bg-raised overflow-hidden">
+            <div className="h-full bg-accent-hover" style={{ width: `${(upload.done / Math.max(1, upload.total)) * 100}%` }} />
           </div>
         </div>
       )}
-      {error && <p className="px-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="px-4 text-sm text-danger">{error}</p>}
 
       {pending ? (
         /* Message request: no composer until accepted. Declining deletes the
            request AND its messages; the sender is never notified either way. */
-        <footer className="border-t border-neutral-800 p-4 space-y-3">
-          <p className="text-sm text-neutral-400">
-            <span className="font-mono text-neutral-300">{peerId}</span> wants to connect.
+        <footer className="border-t border-divider p-4 space-y-3">
+          <p className="text-sm text-text-secondary">
+            <span className="font-mono text-text-secondary">{peerId}</span> wants to connect.
             Accepting lets you reply; declining deletes this request and its messages.
             They are not notified either way.
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => void acceptRequest()}
-              className="flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 py-2 text-sm font-medium"
+              className="flex-1 rounded-lg bg-accent hover:bg-accent-hover py-2 text-sm font-medium"
             >
               Accept
             </button>
             <button
               onClick={() => void declineRequest()}
-              className="flex-1 rounded-lg border border-neutral-700 hover:bg-neutral-800 py-2 text-sm text-red-400"
+              className="flex-1 rounded-lg border border-border-strong hover:bg-raised py-2 text-sm text-danger"
             >
               Decline &amp; delete
             </button>
           </div>
         </footer>
       ) : (
-      <footer className="flex items-center gap-2 border-t border-neutral-800 p-3">
+      <footer className="flex items-center gap-2 border-t border-divider p-3">
         {fileUploadsEnabled && (
           <>
             <input
@@ -376,7 +376,7 @@ export default function Chat() {
               onClick={() => fileInput.current?.click()}
               disabled={!!upload}
               title="Attach a file"
-              className="rounded-full p-2 text-neutral-400 hover:bg-neutral-800 disabled:opacity-40"
+              className="rounded-full p-2 text-text-secondary hover:bg-raised disabled:opacity-40"
             >
               <AttachIcon className="w-6 h-6" />
             </button>
@@ -393,12 +393,12 @@ export default function Chat() {
           }}
           placeholder="Message"
           maxLength={4096}
-          className="flex-1 rounded-full bg-neutral-900 border border-neutral-700 px-4 py-2 outline-none focus:border-indigo-500"
+          className="flex-1 rounded-full bg-input border border-border-strong px-4 py-2 outline-none focus:border-border-focus"
         />
         <button
           disabled={sending || draft.trim().length === 0}
           onClick={() => void send()}
-          className="rounded-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-4 py-2 text-sm font-medium"
+          className="rounded-full bg-accent hover:bg-accent-hover disabled:opacity-40 px-4 py-2 text-sm font-medium"
         >
           Send
         </button>

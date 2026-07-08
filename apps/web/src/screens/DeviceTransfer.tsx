@@ -157,23 +157,23 @@ export default function DeviceTransfer() {
   const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 p-6">
+    <main className="min-h-screen bg-surface text-text-primary p-6">
       <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/settings/account")} className="text-sm text-neutral-500 hover:text-neutral-300">
+        <button onClick={() => nav("/settings/account")} className="text-sm text-text-muted hover:text-text-secondary">
           ← Back
         </button>
         <h1 className="mt-4 text-xl font-semibold">Transfer history</h1>
 
         {mode === "choose" && (
           <div className="mt-4 space-y-3">
-            <p className="text-sm text-neutral-400">
+            <p className="text-sm text-text-secondary">
               Move your chat history to another device directly - encrypted end-to-end, nothing stored on the
               server. Both devices must be online.
             </p>
-            <button onClick={() => void beginSend()} className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 py-3 font-medium">
+            <button onClick={() => void beginSend()} className="w-full rounded-lg bg-accent hover:bg-accent-hover py-3 font-medium">
               Send from this device
             </button>
-            <button onClick={() => setMode("receive")} className="w-full rounded-lg border border-neutral-700 hover:bg-neutral-900 py-3 font-medium">
+            <button onClick={() => setMode("receive")} className="w-full rounded-lg border border-border-strong hover:bg-elevated py-3 font-medium">
               Receive on this device
             </button>
           </div>
@@ -181,8 +181,8 @@ export default function DeviceTransfer() {
 
         {mode === "send" && !sas && (
           <div className="mt-4 space-y-3">
-            <p className="text-sm text-neutral-400">
-              On your other device, choose <span className="text-neutral-200">Receive</span>, then paste this code
+            <p className="text-sm text-text-secondary">
+              On your other device, choose <span className="text-text">Receive</span>, then paste this code
               (or scan the QR):
             </p>
             <div className="flex gap-2">
@@ -190,19 +190,19 @@ export default function DeviceTransfer() {
                 readOnly
                 value={code ?? "…"}
                 onFocus={(e) => e.currentTarget.select()}
-                className="flex-1 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-xs outline-none"
+                className="flex-1 rounded-lg border border-border-strong bg-elevated px-3 py-2 font-mono text-xs outline-none"
               />
               <button
                 onClick={() => void copyCode()}
                 disabled={!code}
-                className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-3 py-2 text-sm font-medium"
+                className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-2 text-sm font-medium"
               >
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
             {qrUrl && (
               <div className="flex justify-center pt-1">
-                <img src={qrUrl} alt="Transfer QR" className="rounded-lg bg-white p-2" />
+                <img src={qrUrl} alt="Transfer QR" className="rounded-lg bg-qr-bg p-2" />
               </div>
             )}
           </div>
@@ -210,29 +210,29 @@ export default function DeviceTransfer() {
 
         {mode === "receive" && !sas && (
           <div className="mt-4 space-y-3">
-            <p className="text-sm text-neutral-400">Paste the code from your other device:</p>
+            <p className="text-sm text-text-secondary">Paste the code from your other device:</p>
             <textarea
               value={paste}
               onChange={(e) => setPaste(e.target.value)}
               rows={2}
               maxLength={200}
               placeholder="abcd…0123…"
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-xs outline-none focus:border-indigo-500"
+              className="w-full rounded-lg border border-border-strong bg-elevated px-3 py-2 font-mono text-xs outline-none focus:border-border-focus"
             />
             <div className="flex gap-2">
               <button
                 disabled={paste.trim().length === 0}
                 onClick={() => void beginReceive(paste)}
-                className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-4 py-2 text-sm font-medium"
+                className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-4 py-2 text-sm font-medium"
               >
                 Connect
               </button>
               {scanning ? (
-                <button onClick={() => void stopScan()} className="rounded-lg border border-neutral-700 hover:bg-neutral-900 px-4 py-2 text-sm">
+                <button onClick={() => void stopScan()} className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm">
                   Stop camera
                 </button>
               ) : (
-                <button onClick={() => void startScan()} className="rounded-lg border border-neutral-700 hover:bg-neutral-900 px-4 py-2 text-sm">
+                <button onClick={() => void startScan()} className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm">
                   Scan with camera
                 </button>
               )}
@@ -244,40 +244,40 @@ export default function DeviceTransfer() {
         {/* Shared: SAS confirm + progress + result, for both modes. */}
         {sas && finished === null && (
           <div className="mt-6">
-            <p className="text-sm text-neutral-400">Verify this code matches on both devices:</p>
-            <div className="mt-2 text-center font-mono text-3xl tracking-[0.3em] text-indigo-300">{sas}</div>
+            <p className="text-sm text-text-secondary">Verify this code matches on both devices:</p>
+            <div className="mt-2 text-center font-mono text-3xl tracking-[0.3em] text-accent-subtle">{sas}</div>
             {!confirmed ? (
-              <button onClick={confirm} className="mt-4 w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 py-3 font-medium">
+              <button onClick={confirm} className="mt-4 w-full rounded-lg bg-accent hover:bg-accent-hover py-3 font-medium">
                 The codes match
               </button>
             ) : (
-              <p className="mt-4 text-center text-sm text-neutral-400">{STATUS_TEXT[status] ?? "Working…"}</p>
+              <p className="mt-4 text-center text-sm text-text-secondary">{STATUS_TEXT[status] ?? "Working…"}</p>
             )}
           </div>
         )}
 
         {progress && finished === null && confirmed && (
           <div className="mt-4">
-            <div className="h-1.5 w-full overflow-hidden rounded bg-neutral-800">
-              <div className="h-full bg-indigo-500 transition-all" style={{ width: `${pct}%` }} />
+            <div className="h-1.5 w-full overflow-hidden rounded bg-input">
+              <div className="h-full bg-accent transition-all" style={{ width: `${pct}%` }} />
             </div>
-            <p className="mt-1 text-xs text-neutral-500">{progress.done} / {progress.total}</p>
+            <p className="mt-1 text-xs text-text-muted">{progress.done} / {progress.total}</p>
           </div>
         )}
 
         {finished !== null && (
           <div className="mt-6 text-center">
-            <p className="text-green-400">✓ Transferred {finished} items.</p>
-            <button onClick={() => nav("/")} className="mt-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-5 py-2 font-medium">
+            <p className="text-success">✓ Transferred {finished} items.</p>
+            <button onClick={() => nav("/")} className="mt-4 rounded-lg bg-accent hover:bg-accent-hover px-5 py-2 font-medium">
               Done
             </button>
           </div>
         )}
 
         {status && !sas && finished === null && mode !== "choose" && (
-          <p className="mt-4 text-sm text-neutral-500">{STATUS_TEXT[status] ?? status}</p>
+          <p className="mt-4 text-sm text-text-muted">{STATUS_TEXT[status] ?? status}</p>
         )}
-        {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+        {error && <p className="mt-4 text-sm text-danger">{error}</p>}
       </div>
     </main>
   );

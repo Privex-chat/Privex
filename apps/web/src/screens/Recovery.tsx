@@ -9,7 +9,7 @@ type Tab = "password" | "seed" | "contacts";
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-surface text-text-primary flex items-center justify-center p-6">
       <div className="w-full max-w-md">{children}</div>
     </main>
   );
@@ -35,9 +35,9 @@ export default function Recovery() {
 
   return (
     <Shell>
-      <button onClick={() => nav("/onboarding")} className="text-sm text-neutral-500 hover:text-neutral-300">← Back</button>
+      <button onClick={() => nav("/onboarding")} className="text-sm text-text-muted hover:text-text-secondary">← Back</button>
       <h1 className="mt-3 text-2xl font-semibold">Recover your account</h1>
-      <p className="mt-2 text-neutral-400 text-sm">
+      <p className="mt-2 text-text-secondary text-sm">
         Your identity is restored from your master key. Message history stays on your devices and
         won&rsquo;t be recovered.
       </p>
@@ -52,7 +52,7 @@ export default function Recovery() {
             }}
             className={
               "rounded-lg px-3 py-1.5 " +
-              (tab === t ? "bg-indigo-600" : "bg-neutral-900 border border-neutral-800 hover:bg-neutral-800")
+              (tab === t ? "bg-accent" : "bg-elevated border border-divider hover:bg-raised")
             }
           >
             {t === "password" ? "Password" : t === "seed" ? "Seed phrase" : "Contacts"}
@@ -66,7 +66,7 @@ export default function Recovery() {
         {tab === "contacts" && <ContactsRecovery />}
       </div>
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-danger">{error}</p>}
     </Shell>
   );
 }
@@ -83,7 +83,7 @@ function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Pr
         maxLength={35}
         spellCheck={false}
         autoCapitalize="none"
-        className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 font-mono text-sm outline-none focus:border-indigo-500"
+        className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-border-focus"
       />
       <input
         type="password"
@@ -92,12 +92,12 @@ function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Pr
         placeholder="Recovery password"
         minLength={8}
         autoComplete="current-password"
-        className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 outline-none focus:border-indigo-500"
+        className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 outline-none focus:border-border-focus"
       />
       <button
         disabled={busy || !pxId.trim() || !password}
         onClick={() => onRun(() => recoverWithPassword(pxId.trim(), password))}
-        className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 py-3 font-medium"
+        className="w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-3 font-medium"
       >
         {busy ? "Recovering…" : "Recover with password"}
       </button>
@@ -118,13 +118,13 @@ function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promis
         maxLength={528}
         spellCheck={false}
         autoCapitalize="none"
-        className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+        className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-sm outline-none focus:border-border-focus"
       />
-      <p className="text-xs text-neutral-500">{wordCount}/24 words</p>
+      <p className="text-xs text-text-muted">{wordCount}/24 words</p>
       <button
         disabled={busy || wordCount !== 24}
         onClick={() => onRun(() => recoverWithSeed(phrase))}
-        className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 py-3 font-medium"
+        className="w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-3 font-medium"
       >
         {busy ? "Recovering…" : "Recover with seed phrase"}
       </button>
@@ -134,8 +134,8 @@ function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promis
 
 function ContactsRecovery() {
   return (
-    <div className="rounded-xl border border-neutral-800 p-4 text-sm text-neutral-400">
-      <p className="font-medium text-neutral-200">Recovery via emergency contacts</p>
+    <div className="rounded-xl border border-divider p-4 text-sm text-text-secondary">
+      <p className="font-medium text-text">Recovery via emergency contacts</p>
       <p className="mt-2">
         Ask 2 of your recovery friends to approve your recovery in Privex. This flow needs the
         relationship-free share rendezvous, which is coming in a later release. For now, recover with

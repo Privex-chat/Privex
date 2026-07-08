@@ -39,14 +39,14 @@ export default function ConnectionStatus() {
   const label = online ? waiting : waiting ? `Offline · ${waiting}` : "Offline";
   return (
     <span
-      className="flex items-center gap-1.5 text-xs text-neutral-500"
+      className="flex items-center gap-1.5 text-xs text-text-muted"
       title={online ? "Connected" : "Offline - messages send when you reconnect"}
     >
-      <span className={`inline-block h-2 w-2 rounded-full ${online ? "bg-green-500" : "bg-amber-500"}`} />
+      <span className={`inline-block h-2 w-2 rounded-full ${online ? "bg-success-bg" : "bg-offline"}`} />
       {label && <span>{label}</span>}
       {clock.warning && (
         <span
-          className="text-amber-400"
+          className="text-offline"
           title={`Your device clock may be incorrect (${formatDrift(clock.driftSeconds)} vs the server). Message order is anchored to signed server time; fix your clock to clear this.`}
         >
           ⚠ clock

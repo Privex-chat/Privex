@@ -42,17 +42,17 @@ export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void })
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-surface text-text-primary flex items-center justify-center p-6">
       <form onSubmit={(e) => void unlockPass(e)} className="w-full max-w-xs text-center">
         <h1 className="text-lg font-semibold">Privex is locked</h1>
-        <p className="mt-1 text-xs text-neutral-500">Unlock to access your messages on this device.</p>
+        <p className="mt-1 text-xs text-text-muted">Unlock to access your messages on this device.</p>
 
         {biometric && (
           <button
             type="button"
             onClick={() => void unlockBio()}
             disabled={busy}
-            className="mt-5 w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 py-2.5 font-medium"
+            className="mt-5 w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-2.5 font-medium"
           >
             Unlock with biometrics
           </button>
@@ -65,13 +65,13 @@ export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void })
           onChange={(e) => setPass(e.target.value)}
           placeholder="Passphrase"
           minLength={6}
-          className="mt-4 w-full rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-center outline-none focus:border-indigo-500"
+          className="mt-4 w-full rounded-lg border border-border-strong bg-input px-3 py-2 text-center outline-none focus:border-border-focus"
         />
-        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+        {error && <p className="mt-2 text-xs text-danger">{error}</p>}
         <button
           type="submit"
           disabled={busy || pass.length === 0}
-          className="mt-4 w-full rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 py-2.5 font-medium"
+          className="mt-4 w-full rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 py-2.5 font-medium"
         >
           {busy ? "Unlocking…" : "Unlock"}
         </button>

@@ -48,18 +48,18 @@ export default function InstallPrompt() {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 flex justify-center p-3 md:p-4">
-      <div className="flex w-full max-w-md items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/95 px-4 py-3 shadow-lg backdrop-blur">
+      <div className="flex w-full max-w-md items-center gap-3 rounded-xl border border-divider bg-elevated px-4 py-3 shadow-lg backdrop-blur">
         <div className="flex-1">
-          <p className="text-sm font-medium text-neutral-100">Install Privex</p>
-          <p className="text-xs text-neutral-500">Add it to your device for offline access and a faster launch.</p>
+          <p className="text-sm font-medium text-text-primary">Install Privex</p>
+          <p className="text-xs text-text-muted">Add it to your device for offline access and a faster launch.</p>
         </div>
         <button
           onClick={() => void install()}
-          className="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 text-sm font-medium"
+          className="rounded-lg bg-accent hover:bg-accent-hover px-3 py-1.5 text-sm font-medium"
         >
           Install
         </button>
-        <button onClick={dismiss} aria-label="Dismiss" className="text-neutral-500 hover:text-neutral-300 text-sm">
+        <button onClick={dismiss} aria-label="Dismiss" className="text-text-muted hover:text-text-secondary text-sm">
           ✕
         </button>
       </div>

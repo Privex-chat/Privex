@@ -66,15 +66,15 @@ export default function ScreenRecordGuard({ pxId }: { pxId: string }) {
       />
       {hidden && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-overlay"
           style={{ backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}
         >
-          <div className="text-center text-neutral-300">
+          <div className="text-center text-text-secondary">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} className="mx-auto mb-3 h-12 w-12">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
             </svg>
             <p className="text-sm">Content hidden</p>
-            <p className="mt-1 text-xs text-neutral-500">Privex is protecting your privacy</p>
+            <p className="mt-1 text-xs text-text-muted">Privex is protecting your privacy</p>
           </div>
         </div>
       )}

@@ -24,13 +24,14 @@ import InstallPrompt from "./components/InstallPrompt";
 import NotificationBanner from "./components/NotificationBanner";
 import AppLockGuard from "./components/AppLockGuard";
 import ScreenRecordGuard from "./components/ScreenRecordGuard";
+import ThemeProvider from "./components/ThemeProvider";
 import { isLockEnabled, isUnlocked } from "./services/applock";
 
 type Boot = "loading" | "ready" | "offline" | "locked";
 
 function Center({ children }: { children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-surface text-text-primary flex items-center justify-center p-6">
       {children}
     </main>
   );
@@ -139,7 +140,7 @@ export default function App() {
   if (boot === "loading") {
     return (
       <Center>
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-neutral-600 border-t-indigo-400" />
+        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-text-subtle border-t-accent-text" />
       </Center>
     );
   }
@@ -147,11 +148,11 @@ export default function App() {
     return (
       <Center>
         <div className="text-center">
-          <p className="text-neutral-300">Can&rsquo;t reach Privex right now.</p>
-          <p className="mt-1 text-neutral-500 text-sm">Your identity is safe on this device.</p>
+          <p className="text-text-secondary">Can&rsquo;t reach Privex right now.</p>
+          <p className="mt-1 text-text-muted text-sm">Your identity is safe on this device.</p>
           <button
             onClick={tryRestore}
-            className="mt-6 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-5 py-2 font-medium"
+            className="mt-6 rounded-lg bg-accent hover:bg-accent-hover px-5 py-2 font-medium"
           >
             Retry
           </button>
@@ -161,7 +162,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <ThemeProvider>
       <AnnouncementBanner />
       <HashRouter>
         <Routes>
@@ -185,6 +186,6 @@ export default function App() {
       <NotificationBanner />
       <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
       <AppLockGuard onLock={() => setBoot("locked")} />
-    </>
+    </ThemeProvider>
   );
 }

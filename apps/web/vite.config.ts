@@ -67,6 +67,7 @@ export default defineConfig(({ mode }) => {
           display: "standalone",
           background_color: "#0a0a0a",
           theme_color: "#0a0a0a",
+          display_override: ["window-controls-overlay"],
           categories: ["communication", "security"],
           icons: [
             { src: "/favicon.ico", sizes: "48x48", type: "image/x-icon" },
