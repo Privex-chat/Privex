@@ -46,6 +46,7 @@ Privex is currently in **Phase 1 (Web App Foundation)**. We have made significan
 We are actively building the following features to complete Phase 1:
 - **Nym Integration:** Transitioning from direct WebSockets to full Nym mixnet routing.
 - **PoW Hardening:** Argon2id, in a hybrid with SHA-256. Not instead of SHA-256, on top of it.
+- **Emergency Recovery Contacts:** Recover-via-contacts (Shamir) retrieval is setup only, retrieval needs a relationship free share rendezvous the server doesn't know who your contacts are.
 - ~~**Session Management:** Fixing token invalidation on Signed Pre-Key rotation.~~
 - **Push Notifications:** Service Worker push event handling needs fixing.
 - ~~**Time Synchronization:** Desync attack prevention via server-signed timestamps.~~
