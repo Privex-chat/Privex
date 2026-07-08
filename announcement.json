@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "message": "This is a fragile environment — Currently under development. Data loss may occur in rare cases.",
+  "severity": "warning",
+  "dismissible": true
+}
