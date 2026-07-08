@@ -13,7 +13,5 @@
   "devDependencies": {
     "turbo": "^2.3.3"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "protobufjs"]
-  }
+  "onlyBuiltDependencies": ["esbuild", "protobufjs", "@swc/core"]
 }

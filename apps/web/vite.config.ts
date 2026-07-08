@@ -96,6 +96,7 @@ export default defineConfig(({ mode }) => {
       // Vite's default output uses content hashes → deterministic / reproducible.
     },
     server: {
+      allowedHosts: ["privex.dpdns.org"],
       port: devPort,
       headers: securityHeaders,
       // Dev only: forward API calls to the configured backend. In prod Caddy serves
