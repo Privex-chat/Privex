@@ -134,58 +134,55 @@ export default function App() {
     };
   }, []);
 
-  if (boot === "locked") {
-    return <UnlockScreen onUnlocked={onUnlocked} />;
-  }
-  if (boot === "loading") {
-    return (
-      <Center>
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-text-subtle border-t-accent-text" />
-      </Center>
-    );
-  }
-  if (boot === "offline") {
-    return (
-      <Center>
-        <div className="text-center">
-          <p className="text-text-secondary">Can&rsquo;t reach Privex right now.</p>
-          <p className="mt-1 text-text-muted text-sm">Your identity is safe on this device.</p>
-          <button
-            onClick={tryRestore}
-            className="mt-6 rounded-lg bg-accent hover:bg-accent-hover px-5 py-2 font-medium"
-          >
-            Retry
-          </button>
-        </div>
-      </Center>
-    );
-  }
-
   return (
     <ThemeProvider>
-      <AnnouncementBanner />
-      <HashRouter>
-        <Routes>
-          <Route
-            path="/"
-            element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
-          />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/recover" element={<Recovery />} />
-          <Route path="/add-contact" element={<AddContact />} />
-          <Route path="/chat/:id" element={<Chat />} />
-          <Route path="/call/:id" element={<Call />} />
-          <Route path="/settings/:tab?" element={<Settings />} />
-          <Route path="/device-transfer" element={<DeviceTransfer />} />
-          <Route path="/my-qr" element={<MyQr />} />
-          <Route path="/verify/:id" element={<KeyVerification />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </HashRouter>
-      <InstallPrompt />
-      <NotificationBanner />
-      <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
-      <AppLockGuard onLock={() => setBoot("locked")} />
+      {boot === "locked" && <UnlockScreen onUnlocked={onUnlocked} />}
+      {boot === "loading" && (
+        <Center>
+          <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-text-subtle border-t-accent-text" />
+        </Center>
+      )}
+      {boot === "offline" && (
+        <Center>
+          <div className="text-center">
+            <p className="text-text-secondary">Can&rsquo;t reach Privex right now.</p>
+            <p className="mt-1 text-text-muted text-sm">Your identity is safe on this device.</p>
+            <button
+              onClick={tryRestore}
+              className="mt-6 rounded-lg bg-accent hover:bg-accent-hover px-5 py-2 font-medium"
+            >
+              Retry
+            </button>
+          </div>
+        </Center>
+      )}
+      {boot === "ready" && (
+        <>
+          <AnnouncementBanner />
+          <HashRouter>
+            <Routes>
+              <Route
+                path="/"
+                element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
+              />
+              <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/recover" element={<Recovery />} />
+              <Route path="/add-contact" element={<AddContact />} />
+              <Route path="/chat/:id" element={<Chat />} />
+              <Route path="/call/:id" element={<Call />} />
+              <Route path="/settings/:tab?" element={<Settings />} />
+              <Route path="/device-transfer" element={<DeviceTransfer />} />
+              <Route path="/my-qr" element={<MyQr />} />
+              <Route path="/verify/:id" element={<KeyVerification />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </HashRouter>
+          <InstallPrompt />
+          <NotificationBanner />
+          <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
+          <AppLockGuard onLock={() => setBoot("locked")} />
+        </>
+      )}
     </ThemeProvider>
   );
 }

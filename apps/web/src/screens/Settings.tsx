@@ -150,7 +150,7 @@ export default function Settings() {
                 "-mb-px border-b-2 px-4 py-2.5 transition-colors " +
                 (tab === t.key
                   ? "border-border-focus text-text-primary"
-                  : "border-transparent text-text-secondary hover:text-text")
+                  : "border-transparent text-text-secondary hover:text-text-primary")
               }
             >
               {t.label}
@@ -388,7 +388,7 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-<h3 className="font-medium text-text">Adding contacts</h3>
+<h3 className="font-medium text-text-primary-primary">Adding contacts</h3>
             <ol className="mt-2 list-inside list-decimal space-y-1 text-text-secondary">
              <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
              <li>Tap <span className="text-accent-text">+ Add contact</span> on the home screen and paste their Privex ID.</li>
@@ -398,7 +398,7 @@ function GuideTab() {
             </ol>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-text">Sending messages &amp; files</h3>
+            <h3 className="font-medium text-text-primary">Sending messages &amp; files</h3>
             <p className="mt-1 text-text-secondary">
               Type in the composer at the bottom of a conversation and press Enter or tap Send.
               Use the paperclip icon to attach files (up to 100 MB). Drag-and-drop is also supported.
@@ -411,7 +411,7 @@ function GuideTab() {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Privacy &amp; settings guide</h2>
         <div className="mt-2 rounded-xl border border-divider divide-y divide-divider">
           <div className="px-4 py-3">
-            <h3 className="font-medium text-text">Cover traffic</h3>
+            <h3 className="font-medium text-text-primary">Cover traffic</h3>
             <p className="mt-1 text-text-secondary">
               Sends decoy messages at random intervals so an observer can&rsquo;t tell when you&rsquo;re
               actually active. <strong>Off</strong> = no decoys (saves battery/data). <strong>Low–High</strong> = increasing
@@ -419,7 +419,7 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-text">Delivery &amp; read receipts</h3>
+            <h3 className="font-medium text-text-primary">Delivery &amp; read receipts</h3>
             <p className="mt-1 text-text-secondary">
               Receipts are mutual — turning them off means you neither send nor receive them.
               Each receipt is end-to-end encrypted and carries no timestamp. The privacy delay
@@ -428,7 +428,7 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-text">History backup</h3>
+            <h3 className="font-medium text-text-primary">History backup</h3>
             <p className="mt-1 text-text-secondary">
               Off by default. When on, your encrypted message history is stored on Privex servers.
               Only you can decrypt it. The trade-off: your data exists in more places. Not
@@ -436,7 +436,7 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-text">App lock</h3>
+            <h3 className="font-medium text-text-primary">App lock</h3>
             <p className="mt-1 text-text-secondary">
               Encrypts this device&rsquo;s data behind a passphrase or biometrics. Required after
               reload or 5 min idle. This is a deterrent lock — a short passphrase is not
@@ -444,7 +444,7 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-text">Recovery options</h3>
+            <h3 className="font-medium text-text-primary">Recovery options</h3>
             <p className="mt-1 text-text-secondary">
               <strong>Password recovery (OPAQUE):</strong> Creates an encrypted server record. Off by default —
               the record becomes part of your server-side footprint. <br />
@@ -498,7 +498,7 @@ function RecoveryStatus({
   const Item = ({ ok, label }: { ok: boolean; label: string }) => (
     <div className="flex items-center gap-2 text-sm">
       <span className={ok ? "text-success" : "text-text-subtle"}>{ok ? "✓" : "✗"}</span>
-      <span className={ok ? "text-text" : "text-text-muted"}>{label}</span>
+      <span className={ok ? "text-text-primary" : "text-text-muted"}>{label}</span>
     </div>
   );
   return (

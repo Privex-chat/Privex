@@ -116,7 +116,7 @@ function Welcome({ onStart }: { onStart: () => void }) {
       </button>
       <Link
         to="/recover"
-        className="mt-4 block text-center text-sm text-text-secondary hover:text-text"
+        className="mt-4 block text-center text-sm text-text-secondary hover:text-text-primary"
       >
         Recover an existing account
       </Link>

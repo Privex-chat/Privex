@@ -182,7 +182,7 @@ export default function DeviceTransfer() {
         {mode === "send" && !sas && (
           <div className="mt-4 space-y-3">
             <p className="text-sm text-text-secondary">
-              On your other device, choose <span className="text-text">Receive</span>, then paste this code
+              On your other device, choose <span className="text-text-primary">Receive</span>, then paste this code
               (or scan the QR):
             </p>
             <div className="flex gap-2">

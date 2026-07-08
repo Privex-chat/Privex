@@ -7,7 +7,7 @@ export type ThemeMode = "dark" | "light" | "amoled";
 
 interface ThemeState {
   mode: ThemeMode;
-  init: () => Promise<void>;
+  init: () => Promise<boolean>;
   setMode: (m: ThemeMode) => Promise<void>;
 }
 
@@ -18,7 +18,9 @@ export const useTheme = create<ThemeState>((set) => ({
     const stored = row?.value as ThemeMode | undefined;
     if (stored && ["dark", "light", "amoled"].includes(stored)) {
       set({ mode: stored });
+      return true;
     }
+    return false;
   },
   setMode: async (m: ThemeMode) => {
     await db.settings.put({ key: SETTINGS_KEY, value: m });

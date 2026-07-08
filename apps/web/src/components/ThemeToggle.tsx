@@ -24,7 +24,7 @@ export default function ThemeToggle() {
             className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
               mode === m.value
                 ? "bg-accent text-white"
-                : "bg-raised hover:bg-elevated text-text-secondary"
+                : "bg-elevated hover:bg-raised text-text-secondary"
             }`}
           >
             {m.label}

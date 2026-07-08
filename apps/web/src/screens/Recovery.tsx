@@ -135,7 +135,7 @@ function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promis
 function ContactsRecovery() {
   return (
     <div className="rounded-xl border border-divider p-4 text-sm text-text-secondary">
-      <p className="font-medium text-text">Recovery via emergency contacts</p>
+      <p className="font-medium text-text-primary">Recovery via emergency contacts</p>
       <p className="mt-2">
         Ask 2 of your recovery friends to approve your recovery in Privex. This flow needs the
         relationship-free share rendezvous, which is coming in a later release. For now, recover with

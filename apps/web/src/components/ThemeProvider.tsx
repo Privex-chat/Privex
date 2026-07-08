@@ -23,16 +23,20 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void (async () => {
-      await init();
-      const current = useTheme.getState().mode;
-      if (current === "dark" || current === "light" || current === "amoled") {
-        applyThemeAttribute(current);
-        return;
+      try {
+        const hadStored = await init();
+        if (hadStored) {
+          applyThemeAttribute(useTheme.getState().mode);
+          return;
+        }
+        // First visit: no stored preference. Respect OS, default dark.
+        const osPref = resolveOsPref();
+        await setMode(osPref);
+        applyThemeAttribute(osPref);
+      } catch (e) {
+        console.error("[theme] init failed, falling back to dark:", e);
+        applyThemeAttribute("dark");
       }
-      // First visit: no stored preference. Respect OS, default dark.
-      const osPref = resolveOsPref();
-      await setMode(osPref);
-      applyThemeAttribute(osPref);
     })();
   }, [init, setMode]);
 
