@@ -50,6 +50,11 @@ import {
 } from "../services/device-sync";
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
 import { useScreenRecord } from "../store/screenRecord";
+import {
+  isNotificationEnabled,
+  setNotificationEnabled,
+  requestPermissionAndSubscribe,
+} from "../services/notifications";
 
 const HISTORY_WARNING =
   "Store encrypted chat history on Privex servers so you can restore it on a new device " +
@@ -224,10 +229,25 @@ function PrivacyTab({
   const screenRecord = useScreenRecord((s) => s.enabled);
   const setScreenRecord = useScreenRecord((s) => s.setEnabled);
   const init = useScreenRecord((s) => s.init);
+  const [notifOn, setNotifOn] = useState(true);
 
   useEffect(() => {
     void init();
   }, [init]);
+
+  useEffect(() => {
+    void isNotificationEnabled().then(setNotifOn);
+  }, []);
+
+  async function toggleNotification() {
+    if (notifOn) {
+      setNotifOn(false);
+      await setNotificationEnabled(false);
+    } else {
+      const ok = await requestPermissionAndSubscribe();
+      if (ok) setNotifOn(true);
+    }
+  }
 
   return (
     <Section title="Privacy">
@@ -257,6 +277,24 @@ function PrivacyTab({
       </Row>
       <Row>
         <MessageStatusSettings />
+      </Row>
+      <Row>
+        <label className="flex items-start justify-between gap-3 cursor-pointer">
+          <span>
+            <span className="block text-sm text-neutral-300">Push notifications</span>
+            <span className="block text-xs text-neutral-500">
+              Receive alerts when messages arrive. When off, messages arrive only while
+              Privex is open. No message content is ever shown in notifications — only
+              &ldquo;You have a new message.&rdquo;
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={notifOn}
+            onChange={() => void toggleNotification()}
+            className="mt-1 h-4 w-4 accent-indigo-500"
+          />
+        </label>
       </Row>
       <Row>
         <HistoryBackup />
