@@ -127,6 +127,7 @@ pub fn app(state: AppState) -> Router {
         });
 
     Router::new()
+        .route("/config/client", get(routes::config::client_settings))
         .route("/health", get(routes::health::health))
         .route(
             "/auth/pow_challenge",

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod blobs;
+pub mod config;
 pub mod health;
 pub mod history;
 pub mod keys;

@@ -28,6 +28,9 @@ pub async fn upload(
     Path(chunk_id): Path<String>,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if !st.config.file_uploads_enabled {
+        return Err(ApiError::forbidden());
+    }
     // Reject oversized uploads before any processing.
     if body.len() > validate::MAX_BLOB_UPLOAD_BYTES {
         return Err(ApiError::bad_request());
@@ -80,6 +83,9 @@ pub async fn download(
     State(st): State<AppState>,
     Path(chunk_id): Path<String>,
 ) -> Result<Response, ApiError> {
+    if !st.config.file_uploads_enabled {
+        return Err(ApiError::forbidden());
+    }
     // Each hit streams up to 4 MiB from the object store → bound per user
     // (120 chunks/min ≈ 480 MB/min, generous for legit file receives).
     crate::routes::rate_limit(&st, "blobget", &user, 120, 60).await?;
@@ -118,6 +124,9 @@ pub async fn delete(
     State(st): State<AppState>,
     Path(chunk_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    if !st.config.file_uploads_enabled {
+        return Err(ApiError::forbidden());
+    }
     crate::routes::rate_limit(&st, "blobdel", &user, 60, 60).await?;
     if !valid_chunk_id(&chunk_id) {
         return Err(ApiError::bad_request());

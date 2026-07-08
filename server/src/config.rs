@@ -28,6 +28,7 @@ pub struct Config {
     pub r2_region: String,
     pub r2_access_key: SecretString,
     pub r2_secret_key: SecretString,
+    pub file_uploads_enabled: bool,
     pub turn_secret: SecretString,
     pub cors_origins: Vec<String>,
     /// Allowed WebSocket `Origin` headers. Empty = allow all (local dev default).
@@ -100,6 +101,10 @@ impl Config {
             r2_region: std::env::var("R2_REGION").unwrap_or_else(|_| "auto".into()),
             r2_access_key: SecretString::from(req("R2_ACCESS_KEY")?),
             r2_secret_key: SecretString::from(req("R2_SECRET_KEY")?),
+            file_uploads_enabled: std::env::var("FILE_UPLOADS_ENABLED")
+                .ok()
+                .map(|v| v == "1" || v.to_lowercase() == "true")
+                .unwrap_or(true),
             turn_secret: secret("TURN_SECRET"),
             cors_origins: std::env::var("CORS_ORIGIN")
                 .unwrap_or_default()
@@ -158,6 +163,7 @@ impl Config {
             r2_region: "auto".into(),
             r2_access_key: SecretString::from(String::new()),
             r2_secret_key: SecretString::from(String::new()),
+            file_uploads_enabled: true,
             turn_secret: SecretString::from(String::new()),
             cors_origins: vec!["http://localhost:3000".to_string()],
             ws_allowed_origins: Vec::new(), // allow all in tests

@@ -13,6 +13,7 @@ import { onContactsChanged, onMessage } from "../services/events";
 import { sendMessage, sendFile } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
+import { getClientConfig } from "../services/client-config";
 import { AttachIcon, DownloadIcon, FileIcon } from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
 
@@ -51,8 +52,13 @@ export default function Chat() {
   const [downloads, setDownloads] = useState<Record<string, { done: number; total: number }>>({});
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fileUploadsEnabled, setFileUploadsEnabled] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void getClientConfig().then((c) => setFileUploadsEnabled(c.file_uploads_enabled));
+  }, []);
 
   useEffect(() => {
     if (!peerId) return;
@@ -197,7 +203,7 @@ export default function Chat() {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
-    if (pending) return;
+    if (pending || !fileUploadsEnabled) return;
     const file = e.dataTransfer.files?.[0];
     if (file && file.size > 0) void upload_(file);
   }
@@ -354,24 +360,28 @@ export default function Chat() {
         </footer>
       ) : (
       <footer className="flex items-center gap-2 border-t border-neutral-800 p-3">
-        <input
-          ref={fileInput}
-          type="file"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void upload_(f);
-            e.target.value = "";
-          }}
-        />
-        <button
-          onClick={() => fileInput.current?.click()}
-          disabled={!!upload}
-          title="Attach a file"
-          className="rounded-full p-2 text-neutral-400 hover:bg-neutral-800 disabled:opacity-40"
-        >
-          <AttachIcon className="w-6 h-6" />
-        </button>
+        {fileUploadsEnabled && (
+          <>
+            <input
+              ref={fileInput}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void upload_(f);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInput.current?.click()}
+              disabled={!!upload}
+              title="Attach a file"
+              className="rounded-full p-2 text-neutral-400 hover:bg-neutral-800 disabled:opacity-40"
+            >
+              <AttachIcon className="w-6 h-6" />
+            </button>
+          </>
+        )}
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

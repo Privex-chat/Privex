@@ -49,6 +49,9 @@ R2_REGION=us-east-1
 R2_ACCESS_KEY=privex
 R2_SECRET_KEY=${MINIO_PASS}
 
+# --- File uploads ---
+FILE_UPLOADS_ENABLED=true
+
 # --- TURN relay (optional Phase 1) ---
 TURN_SECRET=${TURN_SECRET}
 
