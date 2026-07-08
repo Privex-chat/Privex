@@ -68,9 +68,11 @@ export default function ContactList() {
   }, [reload]);
 
   async function rename(c: PlainContact) {
-    const name = window.prompt("Display name", c.name);
+    const name = window.prompt("Display name (max 64 chars)", c.name);
     if (name === null) return;
-    await setDisplayName(c.px_id, name.trim());
+    const trimmed = name.trim().slice(0, 64);
+    if (!trimmed) return;
+    await setDisplayName(c.px_id, trimmed);
     reload();
   }
 

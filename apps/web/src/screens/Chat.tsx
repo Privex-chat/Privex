@@ -145,12 +145,18 @@ export default function Chat() {
     }
   }
 
+  const MAX_FILE_BYTES = 100 * 1024 * 1024;
+
   // Message request (opt-in): reading is informed consent, replying is gated.
   const pending = contact?.status === "pending_inbound";
 
   const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
 
   async function upload_(file: File) {
+    if (file.size > MAX_FILE_BYTES || file.size === 0) {
+      setError("File too large or empty (max 100 MB).");
+      return;
+    }
     if (!peerId || pending) return;
     if (file.size > MAX_FILE_BYTES) {
       setError(`File too large (max 100 MB).`);

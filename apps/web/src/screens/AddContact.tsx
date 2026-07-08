@@ -132,6 +132,7 @@ export default function AddContact() {
               value={pxId}
               onChange={(e) => setPxId(e.target.value)}
               placeholder="px_…"
+              maxLength={35}
               spellCheck={false}
               autoCapitalize="none"
               className="mt-1 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 font-mono text-sm outline-none focus:border-indigo-500"

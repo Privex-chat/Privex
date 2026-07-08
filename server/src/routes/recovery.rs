@@ -318,12 +318,20 @@ pub async fn store_shares(
     if !validate::validate_no_duplicate_indices(&indices) {
         return Err(ApiError::bad_request());
     }
+    // Validate all shares first before persisting any.
+    let mut validated: Vec<(i16, Vec<u8>)> = Vec::with_capacity(body.shares.len());
     for s in &body.shares {
+        if s.share_index < 1 || s.share_index > 255 {
+            return Err(ApiError::bad_request());
+        }
         let bytes = validate::validate_hex_max(
             &s.encrypted_share,
             validate::MAX_SHARE_BYTES,
         )?;
-        recovery_shares::store_share(&st.db, &user_id, s.share_index, &bytes)
+        validated.push((s.share_index, bytes));
+    }
+    for (share_index, bytes) in &validated {
+        recovery_shares::store_share(&st.db, &user_id, *share_index, bytes)
             .await
             .map_err(|_| ApiError::internal())?;
     }
