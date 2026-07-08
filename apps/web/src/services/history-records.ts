@@ -91,6 +91,7 @@ export async function importRecord(rec: HistoryRecord): Promise<void> {
       session_id: rec.peer_id,
       content: rec.content,
       timestamp: rec.timestamp,
+      created_at: Date.now(),
       status: rec.status,
       direction: rec.direction,
       kind: rec.kind,

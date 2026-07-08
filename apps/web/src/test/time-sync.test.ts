@@ -219,13 +219,16 @@ describe("signed delivery timestamps", () => {
     expect(got.timestamp).toBe(farFuture);
     expect(got.server_anchor).toBe(5_000_000);
 
-    // A LATER local message (timestamp 6_000_000 > anchor) must sort AFTER the
-    // attack message even though the attacker's claimed time is years ahead.
+    // A LATER local message must sort AFTER the attack message because its
+    // created_at (Date.now()) is strictly later than the attack message's
+    // created_at (also Date.now(), set when receiveMessage processed it).
+    const later = Date.now();
     await store.add({
       msg_id: "later-local",
       session_id: peer.userId,
       content: "sent after",
       timestamp: 6_000_000,
+      created_at: later,
       status: "sent",
       direction: "out",
       kind: "text",

@@ -100,6 +100,9 @@ export interface PlainMessage {
   receipt_read_done?: boolean;
   // Signed server time anchor (docs 9.6): ORDERING key; `timestamp` is display.
   server_anchor?: number;
+  // Monotonic creation timestamp (ms). Primary ordering key — same-second
+  // messages always appear in arrival/send order regardless of clock drift.
+  created_at: number;
 }
 
 /** Message store that transparently encrypts content on write / decrypts on read. */
@@ -112,7 +115,7 @@ export class EncryptedMessages {
   async add(message: PlainMessage): Promise<void> {
     const key = await this.keyPromise;
     const { content, ...rest } = message;
-    const row: MessageRow = { ...rest, content_enc: await encryptString(key, content) };
+    const row: MessageRow = { ...rest, created_at: message.created_at, content_enc: await encryptString(key, content) };
     await this.db.messages.put(row);
   }
 
@@ -128,6 +131,7 @@ export class EncryptedMessages {
       receipt_read_wanted: row.receipt_read_wanted,
       receipt_read_done: row.receipt_read_done,
       server_anchor: row.server_anchor,
+      created_at: row.created_at ?? 0,
       content: await decryptString(key, row.content_enc),
     };
   }
@@ -140,14 +144,16 @@ export class EncryptedMessages {
   }
 
   /** Most-recent `limit` messages for a conversation, oldest-first for display.
-   *  Ordering key = the SIGNED server anchor when present (docs 9.6 - a sender's
-   *  manipulated clock can't reorder the conversation), falling back to the
-   *  sender-claimed/local timestamp. */
+   *  Primary sort = created_at (ms precision, local monotonic clock) so same-second
+   *  messages always appear in arrival/send order even when the receiver's clock
+   *  drifts relative to the server anchor. Secondary = server_anchor (docs 9.6)
+   *  or local timestamp; tertiary = UUIDv4 for determinism. */
   async listBySession(sessionId: string, limit = 50): Promise<PlainMessage[]> {
     const key = await this.keyPromise;
     const rows = await this.db.messages.where("session_id").equals(sessionId).toArray();
+    const orderCreated = (r: MessageRow) => r.created_at ?? 0;
     const orderKey = (r: MessageRow) => r.server_anchor ?? r.timestamp;
-    rows.sort((a, b) => orderKey(a) - orderKey(b) || a.msg_id.localeCompare(b.msg_id));
+    rows.sort((a, b) => orderCreated(a) - orderCreated(b) || orderKey(a) - orderKey(b) || a.msg_id.localeCompare(b.msg_id));
     const recent = rows.slice(-limit);
     return Promise.all(recent.map((row) => this.rowToPlain(row, key)));
   }

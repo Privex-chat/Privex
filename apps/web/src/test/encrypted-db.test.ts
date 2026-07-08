@@ -22,6 +22,7 @@ describe("encrypted IndexedDB", () => {
       session_id: "s1",
       content: secret,
       timestamp: 1,
+      created_at: 1000,
       status: "sent",
       direction: "out",
       kind: "text",

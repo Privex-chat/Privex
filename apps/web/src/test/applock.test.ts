@@ -54,6 +54,7 @@ async function addMessage(id: string, body: string) {
     session_id: "px_x",
     content: body,
     timestamp: 1,
+    created_at: 1000,
     status: "sent",
     direction: "out",
     kind: "text",

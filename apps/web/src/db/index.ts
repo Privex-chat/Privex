@@ -51,6 +51,10 @@ export interface MessageRow {
   // sender-claimed display time. Absent on outgoing rows / unsigned deliveries.
   // Not indexed → no schema version bump.
   server_anchor?: number;
+  // Monotonic creation timestamp (Date.now(), millisecond precision). Primary
+  // ordering key — same-second messages appear in actual send order, not random
+  // UUID order. Optional for backward compatibility with older stored rows.
+  created_at?: number;
 }
 
 export interface ContactRow {
