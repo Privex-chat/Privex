@@ -83,11 +83,11 @@ export default function ContactList() {
   }
 
   if (contacts.length === 0) {
-    return <p className="text-neutral-500">No contacts yet. Add someone by their Privex ID.</p>;
+    return <p className="text-text-muted">No contacts yet. Add someone by their Privex ID.</p>;
   }
 
   return (
-    <ul className="divide-y divide-neutral-800">
+    <ul className="divide-y divide-divider">
       {contacts.map((c) => (
         <li key={c.px_id} className="flex items-center gap-3 py-3">
           <button
@@ -97,32 +97,32 @@ export default function ContactList() {
             <div className="flex items-center gap-2">
               <span className="truncate font-medium">{c.name || c.px_id}</span>
               {c.verified ? (
-                <span title="Verified" className="text-green-400 text-sm">
+                <span title="Verified" className="text-success text-sm">
                   ✓
                 </span>
               ) : (
-                <span title="Not verified" className="text-yellow-500 text-sm">
+                <span title="Not verified" className="text-warning text-sm">
                   ⚠
                 </span>
               )}
             </div>
-            {c.name && <div className="truncate font-mono text-xs text-neutral-600">{c.px_id}</div>}
+            {c.name && <div className="truncate font-mono text-xs text-text-subtle">{c.px_id}</div>}
           </button>
           <button
             onClick={() => nav(`/verify/${c.px_id}`)}
-            className="rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800"
+            className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
           >
             Code
           </button>
           <button
             onClick={() => void rename(c)}
-            className="rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800"
+            className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
           >
             Rename
           </button>
           <button
             onClick={() => void remove(c)}
-            className="rounded px-2 py-1 text-xs text-red-400 hover:bg-neutral-800"
+            className="rounded px-2 py-1 text-xs text-danger hover:bg-raised"
           >
             Remove
           </button>

@@ -22,29 +22,29 @@ export default function ContactRequests() {
 
   if (requests.length === 0) {
     return (
-      <p className="mt-6 text-sm text-neutral-500">
+      <p className="mt-6 text-sm text-text-muted">
         No pending requests. When someone adds you, they'll appear here for you to accept.
       </p>
     );
   }
 
   return (
-    <ul className="mt-4 divide-y divide-neutral-800">
+    <ul className="mt-4 divide-y divide-divider">
       {requests.map((c) => (
         <li key={c.px_id} className="flex items-center gap-3 py-3">
           <div className="min-w-0 flex-1">
             <div className="truncate font-mono text-sm">{c.px_id}</div>
-            <div className="text-xs text-neutral-500">wants to connect</div>
+            <div className="text-xs text-text-muted">wants to connect</div>
           </div>
           <button
             onClick={() => void acceptContact(c.px_id)}
-            className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium hover:bg-indigo-500"
+            className="rounded bg-accent px-3 py-1 text-xs font-medium hover:bg-accent-hover"
           >
             Accept
           </button>
           <button
             onClick={() => void removeContact(c.px_id)}
-            className="rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800"
+            className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
           >
             Decline
           </button>

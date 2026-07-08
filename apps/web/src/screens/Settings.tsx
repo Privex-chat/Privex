@@ -49,6 +49,7 @@ import {
   type LinkedDeviceInfo,
 } from "../services/device-sync";
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
+import ThemeToggle from "../components/ThemeToggle";
 import { useScreenRecord } from "../store/screenRecord";
 import {
   isNotificationEnabled,
@@ -82,8 +83,8 @@ const TABS: { key: SettingsTab; label: string }[] = [
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-6">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{title}</h2>
-      <div className="mt-2 rounded-xl border border-neutral-800 divide-y divide-neutral-800">{children}</div>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">{title}</h2>
+      <div className="mt-2 rounded-xl border border-divider divide-y divide-divider">{children}</div>
     </section>
   );
 }
@@ -124,13 +125,13 @@ export default function Settings() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100">
+    <main className="min-h-screen bg-surface text-text-primary">
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               onClick={() => nav("/")}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-100"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
               title="Back"
             >
               ←
@@ -140,7 +141,7 @@ export default function Settings() {
         </div>
 
         {/* Tab bar */}
-        <nav className="mt-5 flex gap-1 border-b border-neutral-800 text-sm">
+        <nav className="mt-5 flex gap-1 border-b border-divider text-sm">
           {TABS.map((t) => (
             <button
               key={t.key}
@@ -148,8 +149,8 @@ export default function Settings() {
               className={
                 "-mb-px border-b-2 px-4 py-2.5 transition-colors " +
                 (tab === t.key
-                  ? "border-indigo-500 text-neutral-100"
-                  : "border-transparent text-neutral-400 hover:text-neutral-200")
+                  ? "border-border-focus text-text-primary"
+                  : "border-transparent text-text-secondary hover:text-text-primary")
               }
             >
               {t.label}
@@ -184,25 +185,28 @@ function AccountSecurityTab({ pxId }: { pxId: string }) {
     <>
       <Section title="Account">
         <Row>
-          <div className="text-sm text-neutral-400">Your Privex ID</div>
+          <div className="text-sm text-text-secondary">Your Privex ID</div>
           <div className="mt-1 flex items-center gap-2">
-            <code className="flex-1 break-all font-mono text-xs text-indigo-300">{pxId}</code>
+            <code className="flex-1 break-all font-mono text-xs text-accent-subtle">{pxId}</code>
             <button
               onClick={() => void navigator.clipboard?.writeText(pxId)}
-              className="rounded bg-neutral-800 hover:bg-neutral-700 px-2 py-1 text-xs"
+              className="rounded bg-raised hover:bg-border-strong px-2 py-1 text-xs"
             >
               Copy
             </button>
           </div>
         </Row>
+      <Row>
+          <ThemeToggle />
+        </Row>
       </Section>
 
       <Section title="Security">
         <Row>
-          <Link to="/" className="text-sm text-indigo-300 hover:underline">
+          <Link to="/" className="text-sm text-accent-text hover:underline">
             Verify contacts &amp; safety codes
           </Link>
-          <p className="text-xs text-neutral-500">Compare codes in a chat&rsquo;s ⚠ badge.</p>
+          <p className="text-xs text-text-muted">Compare codes in a chat&rsquo;s ⚠ badge.</p>
         </Row>
         <Row>
           <AppLockToggle />
@@ -252,8 +256,8 @@ function PrivacyTab({
   return (
     <Section title="Privacy">
       <Row>
-        <label className="text-sm text-neutral-300">Cover traffic</label>
-        <p className="text-xs text-neutral-500">
+        <label className="text-sm text-text-secondary">Cover traffic</label>
+        <p className="text-xs text-text-muted">
           Sends steady fixed-size decoy messages so an observer can&rsquo;t tell from your
           traffic when you&rsquo;re really active. Higher = more protection,
           more battery/data. Off = no decoys (for metered data).
@@ -261,7 +265,7 @@ function PrivacyTab({
         <select
           value={cover}
           onChange={(e) => setCoverLevel(e.target.value)}
-          className="mt-2 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+          className="mt-2 w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-sm outline-none focus:border-border-focus"
         >
           <option value="off">Off</option>
           <option value="low">Low</option>
@@ -271,8 +275,8 @@ function PrivacyTab({
       </Row>
       <Row>
         <div className="flex items-center justify-between">
-          <span className="text-sm text-neutral-300">Connection mode</span>
-          <span className="text-sm text-neutral-500">Direct</span>
+          <span className="text-sm text-text-secondary">Connection mode</span>
+          <span className="text-sm text-text-muted">Direct</span>
         </div>
       </Row>
       <Row>
@@ -281,8 +285,8 @@ function PrivacyTab({
       <Row>
         <label className="flex items-start justify-between gap-3 cursor-pointer">
           <span>
-            <span className="block text-sm text-neutral-300">Push notifications</span>
-            <span className="block text-xs text-neutral-500">
+            <span className="block text-sm text-text-secondary">Push notifications</span>
+            <span className="block text-xs text-text-muted">
               Receive alerts when messages arrive. When off, messages arrive only while
               Privex is open. No message content is ever shown in notifications — only
               &ldquo;You have a new message.&rdquo;
@@ -292,7 +296,7 @@ function PrivacyTab({
             type="checkbox"
             checked={notifOn}
             onChange={() => void toggleNotification()}
-            className="mt-1 h-4 w-4 accent-indigo-500"
+            className="mt-1 h-4 w-4 accent-accent-hover"
           />
         </label>
       </Row>
@@ -302,8 +306,8 @@ function PrivacyTab({
       <Row>
         <label className="flex items-start justify-between gap-3 cursor-pointer">
           <span>
-            <span className="block text-sm text-neutral-300">Screen recording protection</span>
-            <span className="block text-xs text-neutral-500">
+            <span className="block text-sm text-text-secondary">Screen recording protection</span>
+            <span className="block text-xs text-text-muted">
               Blurs content when you switch away from Privex and overlays a discreet watermark
               to deter screen recording. This is a visual deterrent — it cannot prevent
               recording via external cameras or kernel-level capture.
@@ -313,7 +317,7 @@ function PrivacyTab({
             type="checkbox"
             checked={screenRecord}
             onChange={() => void setScreenRecord(!screenRecord)}
-            className="mt-1 h-4 w-4 accent-indigo-500"
+            className="mt-1 h-4 w-4 accent-accent-hover"
           />
         </label>
       </Row>
@@ -354,10 +358,10 @@ function RecoveryTab({
         <EmergencyContacts onConfigured={() => setHasContacts(true)} />
       </Row>
       <Row>
-        <Link to="/device-transfer" className="text-sm text-indigo-300 hover:underline">
+        <Link to="/device-transfer" className="text-sm text-accent-text hover:underline">
           Transfer history to another device
         </Link>
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-text-muted">
           Send your chat history directly to a new device (or receive it here). End-to-end
           encrypted, both devices online — nothing is stored on the server.
         </p>
@@ -372,10 +376,10 @@ function RecoveryTab({
 /* ───────── Tab: Guide ───────── */
 function GuideTab() {
   return (
-    <div className="space-y-6 text-sm text-neutral-300 leading-relaxed">
+    <div className="space-y-6 text-sm text-text-secondary leading-relaxed">
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Getting started</h2>
-        <div className="mt-2 rounded-xl border border-neutral-800 divide-y divide-neutral-800">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Getting started</h2>
+        <div className="mt-2 rounded-xl border border-divider divide-y divide-divider">
           <div className="px-4 py-3 space-y-2">
             <p>
               Privex is a zero-knowledge, end-to-end encrypted messenger. Your identity lives
@@ -384,18 +388,18 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">Adding contacts</h3>
-            <ol className="mt-2 list-inside list-decimal space-y-1 text-neutral-400">
-              <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
-              <li>Tap <span className="text-indigo-300">+ Add contact</span> on the home screen and paste their Privex ID.</li>
+<h3 className="font-medium text-text-primary-primary">Adding contacts</h3>
+            <ol className="mt-2 list-inside list-decimal space-y-1 text-text-secondary">
+             <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
+             <li>Tap <span className="text-accent-text">+ Add contact</span> on the home screen and paste their Privex ID.</li>
               <li>Privex fetches their keys, verifies them against the key transparency log, and sets up an encrypted session.</li>
               <li>Compare safety codes over a separate channel (in person, phone call, another app).</li>
               <li>If the codes match, tap <strong>Mark Verified</strong> — you&rsquo;re ready to chat.</li>
             </ol>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">Sending messages &amp; files</h3>
-            <p className="mt-1 text-neutral-400">
+            <h3 className="font-medium text-text-primary">Sending messages &amp; files</h3>
+            <p className="mt-1 text-text-secondary">
               Type in the composer at the bottom of a conversation and press Enter or tap Send.
               Use the paperclip icon to attach files (up to 100 MB). Drag-and-drop is also supported.
             </p>
@@ -404,19 +408,19 @@ function GuideTab() {
       </section>
 
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Privacy &amp; settings guide</h2>
-        <div className="mt-2 rounded-xl border border-neutral-800 divide-y divide-neutral-800">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Privacy &amp; settings guide</h2>
+        <div className="mt-2 rounded-xl border border-divider divide-y divide-divider">
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">Cover traffic</h3>
-            <p className="mt-1 text-neutral-400">
+            <h3 className="font-medium text-text-primary">Cover traffic</h3>
+            <p className="mt-1 text-text-secondary">
               Sends decoy messages at random intervals so an observer can&rsquo;t tell when you&rsquo;re
               actually active. <strong>Off</strong> = no decoys (saves battery/data). <strong>Low–High</strong> = increasing
               protection at the cost of more traffic. Recommended: <strong>Low</strong> or <strong>Medium</strong> for most users.
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">Delivery &amp; read receipts</h3>
-            <p className="mt-1 text-neutral-400">
+            <h3 className="font-medium text-text-primary">Delivery &amp; read receipts</h3>
+            <p className="mt-1 text-text-secondary">
               Receipts are mutual — turning them off means you neither send nor receive them.
               Each receipt is end-to-end encrypted and carries no timestamp. The privacy delay
               adds a random jitter (avg 5 min) before your receipts send, useful for high-threat
@@ -424,24 +428,24 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">History backup</h3>
-            <p className="mt-1 text-neutral-400">
+            <h3 className="font-medium text-text-primary">History backup</h3>
+            <p className="mt-1 text-text-secondary">
               Off by default. When on, your encrypted message history is stored on Privex servers.
               Only you can decrypt it. The trade-off: your data exists in more places. Not
               recommended if your threat model includes targeted surveillance.
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">App lock</h3>
-            <p className="mt-1 text-neutral-400">
+            <h3 className="font-medium text-text-primary">App lock</h3>
+            <p className="mt-1 text-text-secondary">
               Encrypts this device&rsquo;s data behind a passphrase or biometrics. Required after
               reload or 5 min idle. This is a deterrent lock — a short passphrase is not
               offline-brute-force-proof. Recommended for anyone who shares their device.
             </p>
           </div>
           <div className="px-4 py-3">
-            <h3 className="font-medium text-neutral-200">Recovery options</h3>
-            <p className="mt-1 text-neutral-400">
+            <h3 className="font-medium text-text-primary">Recovery options</h3>
+            <p className="mt-1 text-text-secondary">
               <strong>Password recovery (OPAQUE):</strong> Creates an encrypted server record. Off by default —
               the record becomes part of your server-side footprint. <br />
               <strong>Seed phrase:</strong> 24 words that are your master key. Store them offline.
@@ -462,20 +466,20 @@ function AboutTab() {
     <Section title="About">
       <Row>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-neutral-400">Version</span>
-          <span className="text-neutral-300">{APP_VERSION}</span>
+          <span className="text-text-secondary">Version</span>
+          <span className="text-text-secondary">{APP_VERSION}</span>
         </div>
       </Row>
       <Row>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-neutral-400">Source code</span>
-          <span className="text-neutral-500">github.com/Privex-chat/Privex</span>
+          <span className="text-text-secondary">Source code</span>
+          <span className="text-text-muted">github.com/Privex-chat/Privex</span>
         </div>
       </Row>
       <Row>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-neutral-400">Warrant canary</span>
-          <span className="text-neutral-500">privex.dpdns.org/canary</span>
+          <span className="text-text-secondary">Warrant canary</span>
+          <span className="text-text-muted">privex.dpdns.org/canary</span>
         </div>
       </Row>
     </Section>
@@ -493,13 +497,13 @@ function RecoveryStatus({
 }) {
   const Item = ({ ok, label }: { ok: boolean; label: string }) => (
     <div className="flex items-center gap-2 text-sm">
-      <span className={ok ? "text-green-400" : "text-neutral-600"}>{ok ? "✓" : "✗"}</span>
-      <span className={ok ? "text-neutral-200" : "text-neutral-500"}>{label}</span>
+      <span className={ok ? "text-success" : "text-text-subtle"}>{ok ? "✓" : "✗"}</span>
+      <span className={ok ? "text-text-primary" : "text-text-muted"}>{label}</span>
     </div>
   );
   return (
     <div className="space-y-1">
-      <div className="text-sm text-neutral-400 mb-1">Recovery methods</div>
+      <div className="text-sm text-text-secondary mb-1">Recovery methods</div>
       <Item ok={opaqueEnabled} label="Password recovery (OPAQUE)" />
       <Item ok={hasSeed} label="Seed phrase saved" />
       <Item ok={hasContacts} label="Emergency contacts" />
@@ -533,7 +537,7 @@ function OpaqueRecoveryToggle({
   const strongEnough = scorer !== null && score >= 3;
   const matches = pw.length > 0 && pw === confirm;
   const labels = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
-  const colors = ["bg-red-600", "bg-orange-600", "bg-yellow-600", "bg-lime-600", "bg-green-600"];
+  const colors = ["bg-password-weak", "bg-password-fair", "bg-password-good", "bg-password-strong", "bg-password-vstrong"];
 
   async function enable() {
     setBusy("Enabling...");
@@ -573,12 +577,12 @@ function OpaqueRecoveryToggle({
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-neutral-300">Password recovery</span>
+        <span className="text-sm text-text-secondary">Password recovery</span>
         {enabled ? (
           <button
             onClick={() => void disable()}
             disabled={!!busy}
-            className="rounded bg-red-600/80 hover:bg-red-600 disabled:opacity-40 px-2 py-1 text-xs"
+            className="rounded bg-danger-bg hover:bg-danger-hover disabled:opacity-40 px-2 py-1 text-xs"
           >
             {busy ?? "Turn off"}
           </button>
@@ -586,17 +590,17 @@ function OpaqueRecoveryToggle({
           <button
             onClick={() => setOpen((v) => !v)}
             disabled={!!busy || enabled === null}
-            className="rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-2 py-1 text-xs"
+            className="rounded bg-raised hover:bg-border-strong disabled:opacity-40 px-2 py-1 text-xs"
           >
             {open ? "Cancel" : "Turn on"}
           </button>
         )}
       </div>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-text-muted">
         Off means no OPAQUE recovery record exists on the server. On means password recovery is
         available, but the encrypted record becomes part of your server-side footprint.
       </p>
-      {msg && <p className="mt-1 text-xs text-green-400">{msg}</p>}
+      {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
       {open && !enabled && (
         <div className="mt-3 space-y-2">
           <input
@@ -606,14 +610,14 @@ function OpaqueRecoveryToggle({
             autoComplete="new-password"
             placeholder="Recovery password"
             minLength={8}
-            className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+            className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-sm outline-none focus:border-border-focus"
           />
           {pw && scorer && (
             <div>
-              <div className="h-1.5 w-full rounded bg-neutral-800 overflow-hidden">
+              <div className="h-1.5 w-full rounded bg-input overflow-hidden">
                 <div className={`h-full ${colors[score]}`} style={{ width: `${(score + 1) * 20}%` }} />
               </div>
-              <p className="mt-1 text-xs text-neutral-400">
+<p className="mt-1 text-xs text-text-secondary">
                 {labels[score]}
                 {!strongEnough && " - needs to be Strong or better"}
               </p>
@@ -626,19 +630,19 @@ function OpaqueRecoveryToggle({
             autoComplete="new-password"
             placeholder="Confirm password"
             minLength={8}
-            className="w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm outline-none focus:border-indigo-500"
+            className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-sm outline-none focus:border-border-focus"
           />
-          {confirm && !matches && <p className="text-xs text-red-400">Passwords don&rsquo;t match.</p>}
+          {confirm && !matches && <p className="text-xs text-danger">Passwords don&rsquo;t match.</p>}
           <button
             onClick={() => void enable()}
             disabled={!!busy || !strongEnough || !matches}
-            className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
+            className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
           >
             {busy ?? "Enable"}
           </button>
         </div>
       )}
-      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 }
@@ -659,11 +663,11 @@ function SeedPhraseView() {
 
   return (
     <div>
-      <div className="text-sm text-neutral-300">Recovery seed phrase</div>
+      <div className="text-sm text-text-secondary">Recovery seed phrase</div>
       {!words ? (
         <>
-          {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
-          <button onClick={() => void reveal()} className="mt-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 text-sm">
+          {error && <p className="mt-1 text-xs text-danger">{error}</p>}
+          <button onClick={() => void reveal()} className="mt-2 rounded-lg bg-raised hover:bg-border-strong px-3 py-1.5 text-sm">
             View seed phrase
           </button>
         </>
@@ -671,14 +675,14 @@ function SeedPhraseView() {
         <>
           <div className="mt-2 grid grid-cols-3 gap-2">
             {words.map((w, i) => (
-              <div key={i} className="rounded bg-neutral-900 px-2 py-1 text-xs font-mono">
-                <span className="text-neutral-600 mr-1">{i + 1}</span>
+              <div key={i} className="rounded bg-elevated px-2 py-1 text-xs font-mono">
+                <span className="text-text-subtle mr-1">{i + 1}</span>
                 {w}
               </div>
             ))}
           </div>
-          <p className="mt-2 text-xs text-yellow-500">Store these offline. We will never ask for them.</p>
-          <button onClick={() => setWords(null)} className="mt-2 text-xs text-neutral-500 hover:text-neutral-300">Hide</button>
+          <p className="mt-2 text-xs text-warning">Store these offline. We will never ask for them.</p>
+          <button onClick={() => setWords(null)} className="mt-2 text-xs text-text-muted hover:text-text-secondary">Hide</button>
         </>
       )}
     </div>
@@ -724,17 +728,17 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
 
   return (
     <div>
-      <div className="text-sm text-neutral-300">Emergency contacts</div>
-      <p className="text-xs text-neutral-500">Split your recovery key across 2–3 trusted friends.</p>
-      {msg && <p className="mt-1 text-xs text-green-400">{msg}</p>}
+      <div className="text-sm text-text-secondary">Emergency contacts</div>
+      <p className="text-xs text-text-muted">Split your recovery key across 2–3 trusted friends.</p>
+      {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
       {!open ? (
-        <button onClick={() => setOpen(true)} className="mt-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 text-sm">
+        <button onClick={() => setOpen(true)} className="mt-2 rounded-lg bg-raised hover:bg-border-strong px-3 py-1.5 text-sm">
           Choose contacts
         </button>
       ) : (
         <div className="mt-2">
           {contacts.length === 0 ? (
-            <p className="text-xs text-neutral-500">No eligible contacts yet.</p>
+            <p className="text-xs text-text-muted">No eligible contacts yet.</p>
           ) : (
             <ul className="space-y-1 max-h-40 overflow-y-auto">
               {contacts.map((c) => (
@@ -747,16 +751,16 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
               ))}
             </ul>
           )}
-          {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+          {error && <p className="mt-1 text-xs text-danger">{error}</p>}
           <div className="mt-2 flex gap-2">
             <button
               disabled={busy || picked.size < 2}
               onClick={() => void setup()}
-              className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-3 py-1.5 text-sm"
+              className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 text-sm"
             >
               {busy ? "Storing…" : `Protect with ${picked.size} contacts`}
             </button>
-            <button onClick={() => setOpen(false)} className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm">Cancel</button>
+            <button onClick={() => setOpen(false)} className="rounded-lg border border-border-strong px-3 py-1.5 text-sm">Cancel</button>
           </div>
         </div>
       )}
@@ -794,8 +798,8 @@ function DeviceSyncSettings() {
     <div>
       <label className="flex items-start justify-between gap-3 cursor-pointer">
         <span>
-          <span className="block text-sm text-neutral-300">Cross-device sync</span>
-          <span className="block text-xs text-neutral-500">
+          <span className="block text-sm text-text-secondary">Cross-device sync</span>
+          <span className="block text-xs text-text-muted">
             Messages you send also appear on your linked devices, as end-to-end encrypted
             copies routed through your own mailbox. Off by default: the extra self-addressed
             traffic is visible to the server as a pattern (not content).
@@ -805,29 +809,29 @@ function DeviceSyncSettings() {
           type="checkbox"
           checked={enabled}
           onChange={(e) => void toggle(e.target.checked)}
-          className="mt-1 h-4 w-4 accent-indigo-500"
+          className="mt-1 h-4 w-4 accent-accent-hover"
         />
       </label>
       {enabled && (
         <div className="mt-2">
-          <div className="text-xs text-neutral-400">
+          <div className="text-xs text-text-secondary">
             Linked devices {devices.length === 0 && "- none yet"}
           </div>
           {devices.length === 0 ? (
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-text-muted">
               Run &ldquo;Transfer history&rdquo; with this setting ON on both devices to link them.
             </p>
           ) : (
             <ul className="mt-1 space-y-1">
               {devices.map((d) => (
                 <li key={d.device_id} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-neutral-300">
+                  <span className="text-text-secondary">
                     {d.label}
-                    <span className="ml-2 font-mono text-neutral-600">{d.device_id.slice(0, 8)}…</span>
+                    <span className="ml-2 font-mono text-text-subtle">{d.device_id.slice(0, 8)}…</span>
                   </span>
                   <button
                     onClick={() => void unlink(d.device_id)}
-                    className="rounded px-2 py-0.5 text-red-400 hover:bg-neutral-800"
+                    className="rounded px-2 py-0.5 text-danger hover:bg-raised"
                   >
                     Unlink
                   </button>
@@ -868,22 +872,22 @@ function MessageStatusSettings() {
   }) => (
     <label className="flex items-start justify-between gap-3 py-1.5 cursor-pointer">
       <span>
-        <span className="block text-sm text-neutral-300">{label}</span>
-        <span className="block text-xs text-neutral-500">{hint}</span>
+        <span className="block text-sm text-text-secondary">{label}</span>
+        <span className="block text-xs text-text-muted">{hint}</span>
       </span>
       <input
         type="checkbox"
         checked={value}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-1 h-4 w-4 accent-indigo-500"
+        className="mt-1 h-4 w-4 accent-accent-hover"
       />
     </label>
   );
 
   return (
     <div>
-      <div className="text-sm text-neutral-300">Message status</div>
-      <p className="text-xs text-neutral-500">
+      <div className="text-sm text-text-secondary">Message status</div>
+      <p className="text-xs text-text-muted">
         Receipts are end-to-end encrypted, carry no timestamps, and are mutual - each
         toggle applies to both sending and receiving.
       </p>
@@ -969,41 +973,41 @@ function HistoryBackup() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-neutral-300">Chat history backup</span>
+        <span className="text-sm text-text-secondary">Chat history backup</span>
         <button
           onClick={() => void toggle()}
           disabled={!!busy}
           className={
             "rounded px-2 py-1 text-xs disabled:opacity-40 " +
-            (enabled ? "bg-red-600/80 hover:bg-red-600" : "bg-neutral-800 hover:bg-neutral-700")
+            (enabled ? "bg-danger-bg hover:bg-danger-hover" : "bg-raised hover:bg-border-strong")
           }
         >
           {busy ?? (enabled ? "Turn off" : "Turn on")}
         </button>
       </div>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-text-muted">
         Off by default. Encrypted with a key only you hold - the server can&rsquo;t read it. While on, your
         encrypted history lives on our servers; a backup means it exists in more places. Not for
         targeted-surveillance threat models.
       </p>
       {status && status.count > 0 && (
-        <p className="mt-1 text-xs text-neutral-400">
+        <p className="mt-1 text-xs text-text-secondary">
           {status.count} messages backed up ({Math.max(1, Math.round(status.bytes / 1024))} KB).
         </p>
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         {enabled && (
-          <button onClick={() => void run("Backing up…", () => backfillAll())} disabled={!!busy} className="rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-3 py-1.5 text-sm">
+          <button onClick={() => void run("Backing up…", () => backfillAll())} disabled={!!busy} className="rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 px-3 py-1.5 text-sm">
             Back up now
           </button>
         )}
         {status && status.count > 0 && (
-          <button onClick={() => void run("Restoring…", () => restoreHistory(), true)} disabled={!!busy} className="rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-3 py-1.5 text-sm">
+          <button onClick={() => void run("Restoring…", () => restoreHistory(), true)} disabled={!!busy} className="rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 px-3 py-1.5 text-sm">
             Restore to this device
           </button>
         )}
       </div>
-      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 }
@@ -1040,12 +1044,12 @@ function AppLockToggle() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-neutral-300">App lock</span>
+        <span className="text-sm text-text-secondary">App lock</span>
         {st.enabled ? (
           <button
             onClick={() => void run("Turning off…", () => disableLock())}
             disabled={!!busy}
-            className="rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-2 py-1 text-xs"
+            className="rounded bg-raised hover:bg-border-strong disabled:opacity-40 px-2 py-1 text-xs"
           >
             {busy ?? "Turn off"}
           </button>
@@ -1053,17 +1057,17 @@ function AppLockToggle() {
           <button
             onClick={() => setSetting((s) => !s)}
             disabled={!!busy}
-            className="rounded bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-2 py-1 text-xs"
+            className="rounded bg-raised hover:bg-border-strong disabled:opacity-40 px-2 py-1 text-xs"
           >
             {setting ? "Cancel" : "Set up"}
           </button>
         )}
       </div>
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-text-muted">
         Encrypts this device&rsquo;s data behind a passphrase{st.biometricAvailable ? " or biometrics" : ""}. Required
         after a reload or 5&nbsp;min idle - your messages can&rsquo;t be read without it, even from device storage.
       </p>
-      {msg && <p className="mt-1 text-xs text-green-400">{msg}</p>}
+      {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
 
       {!st.enabled && setting && (
         <div className="mt-2 flex gap-2">
@@ -1072,7 +1076,7 @@ function AppLockToggle() {
             value={pass}
             onChange={(e) => setPass(e.target.value)}
             placeholder={`Passphrase (min ${MIN_PASSPHRASE})`}
-            className="flex-1 rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm outline-none focus:border-indigo-500"
+            className="flex-1 rounded-lg border border-border-strong bg-input px-3 py-1.5 text-sm outline-none focus:border-border-focus"
           />
           <button
             disabled={!!busy || pass.length < MIN_PASSPHRASE}
@@ -1083,7 +1087,7 @@ function AppLockToggle() {
                 setMsg("App lock on. Your data is encrypted behind your passphrase.");
               })
             }
-            className="rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
+            className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
           >
             {busy ?? "Enable"}
           </button>
@@ -1096,7 +1100,7 @@ function AppLockToggle() {
             <button
               disabled={!!busy}
               onClick={() => void run("Setting up…", () => addBiometric(pxId), () => setMsg("Biometric unlock added."))}
-              className="rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-3 py-1.5 text-sm"
+              className="rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 px-3 py-1.5 text-sm"
             >
               Add biometrics
             </button>
@@ -1105,7 +1109,7 @@ function AppLockToggle() {
             <button
               disabled={!!busy}
               onClick={() => void run("Removing…", () => removeBiometric())}
-              className="rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-3 py-1.5 text-sm"
+              className="rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 px-3 py-1.5 text-sm"
             >
               Remove biometrics
             </button>
@@ -1116,13 +1120,13 @@ function AppLockToggle() {
               lock();
               location.reload();
             }}
-            className="rounded-lg bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 px-3 py-1.5 text-sm"
+            className="rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 px-3 py-1.5 text-sm"
           >
             Lock now
           </button>
         </div>
       )}
-      {error && <p className="mt-1 text-xs text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 }
@@ -1157,8 +1161,8 @@ function EraseDevice() {
 
   return (
     <div>
-      <div className="text-sm text-red-300">Erase this device</div>
-      <p className="text-xs text-neutral-500">
+      <div className="text-sm text-danger">Erase this device</div>
+      <p className="text-xs text-text-muted">
         Permanently delete all data and your identity on this device, returning to a clean
         slate. Irreversible without your recovery phrase, password, or backup. Other devices
         are untouched.
@@ -1166,7 +1170,7 @@ function EraseDevice() {
       <button
         onClick={() => void erase()}
         disabled={busy}
-        className="mt-2 rounded-lg border border-red-600/60 text-red-300 hover:bg-red-600/10 disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
+        className="mt-2 rounded-lg border border-danger hover:bg-danger-subtle text-danger disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
       >
         {busy ? "Erasing…" : "Erase this device"}
       </button>
@@ -1200,8 +1204,8 @@ function ActiveSessions() {
 
   return (
     <div>
-      <div className="text-sm text-neutral-300">Active sessions</div>
-      <p className="text-xs text-neutral-500">
+      <div className="text-sm text-text-secondary">Active sessions</div>
+      <p className="text-xs text-text-muted">
         Tokens live in memory only and can&rsquo;t be listed. &ldquo;Log out everywhere&rdquo;
         revokes every device&rsquo;s token and rotates your signed prekey. It does NOT erase
         this device&rsquo;s data &mdash; use &ldquo;Erase this device&rdquo; below for that.
@@ -1209,7 +1213,7 @@ function ActiveSessions() {
       <button
         onClick={() => void logoutEverywhere()}
         disabled={busy}
-        className="mt-2 rounded-lg bg-red-600/80 hover:bg-red-600 disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
+        className="mt-2 rounded-lg bg-danger-bg hover:bg-danger-hover disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
       >
         {busy ? "Logging out…" : "Log out everywhere"}
       </button>

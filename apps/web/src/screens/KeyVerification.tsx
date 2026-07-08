@@ -106,30 +106,30 @@ export default function KeyVerification() {
   const groups = code ? code.split(" ") : [];
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 p-6">
+    <main className="min-h-screen bg-surface text-text-primary p-6">
       <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/")} className="text-sm text-neutral-500 hover:text-neutral-300">
+        <button onClick={() => nav("/")} className="text-sm text-text-muted hover:text-text-secondary">
           ← Back
         </button>
         <h1 className="mt-4 text-xl font-semibold">Verify {name}</h1>
 
-        {error && <p className="mt-4 text-red-400 text-sm">{error}</p>}
+        {error && <p className="mt-4 text-danger text-sm">{error}</p>}
 
         {code && (
           <>
-            <div className="mt-6 grid grid-cols-4 gap-2 rounded-xl bg-neutral-900 p-4 font-mono text-lg tracking-widest">
+            <div className="mt-6 grid grid-cols-4 gap-2 rounded-xl bg-elevated p-4 font-mono text-lg tracking-widest">
               {groups.map((g, i) => (
-                <span key={i} className="text-center text-indigo-300">
+                <span key={i} className="text-center text-accent-subtle">
                   {g}
                 </span>
               ))}
             </div>
             {qr && (
               <div className="mt-4 flex justify-center">
-                <img src={qr} alt="Safety code QR" className="rounded-lg bg-white p-2" />
+                <img src={qr} alt="Safety code QR" className="rounded-lg bg-qr-bg p-2" />
               </div>
             )}
-            <p className="mt-4 text-neutral-400 text-sm">
+            <p className="mt-4 text-text-secondary text-sm">
               Compare this code with {name} over a separate channel — in person, a
               phone call, or another app. If it matches exactly, tap Verified.
             </p>
@@ -137,34 +137,34 @@ export default function KeyVerification() {
             <div id={QR_ELEMENT_ID} className={scanning ? "mt-4 overflow-hidden rounded-lg" : "hidden"} />
 
             {scanResult === "match" && (
-              <p className="mt-4 text-green-400 text-sm">✓ Codes match — automatically verified.</p>
+              <p className="mt-4 text-success text-sm">✓ Codes match — automatically verified.</p>
             )}
             {scanResult === "no-match" && (
-              <p className="mt-4 text-red-400 text-sm">✗ Codes do not match. Do not verify.</p>
+              <p className="mt-4 text-danger text-sm">✗ Codes do not match. Do not verify.</p>
             )}
 
             {verified ? (
-              <p className="mt-6 text-green-400">✓ Verified</p>
+              <p className="mt-6 text-success">✓ Verified</p>
             ) : (
               <div className="mt-6 space-y-3">
                 {scanning ? (
                   <button
                     onClick={() => void stopScan()}
-                    className="w-full rounded-lg border border-neutral-700 hover:bg-neutral-900 py-3 text-sm"
+                    className="w-full rounded-lg border border-border-strong hover:bg-elevated py-3 text-sm"
                   >
                     Cancel scan
                   </button>
                 ) : (
                   <button
                     onClick={() => void startScan()}
-                    className="w-full rounded-lg border border-neutral-700 hover:bg-neutral-900 py-3 text-sm"
+                    className="w-full rounded-lg border border-border-strong hover:bg-elevated py-3 text-sm"
                   >
                     Scan their QR
                   </button>
                 )}
                 <button
                   onClick={() => void markVerified()}
-                  className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 py-3 font-medium"
+                  className="w-full rounded-lg bg-accent hover:bg-accent-hover py-3 font-medium"
                 >
                   It matches — mark Verified
                 </button>

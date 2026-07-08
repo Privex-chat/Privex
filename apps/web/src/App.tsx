@@ -24,13 +24,14 @@ import InstallPrompt from "./components/InstallPrompt";
 import NotificationBanner from "./components/NotificationBanner";
 import AppLockGuard from "./components/AppLockGuard";
 import ScreenRecordGuard from "./components/ScreenRecordGuard";
+import ThemeProvider from "./components/ThemeProvider";
 import { isLockEnabled, isUnlocked } from "./services/applock";
 
 type Boot = "loading" | "ready" | "offline" | "locked";
 
 function Center({ children }: { children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 flex items-center justify-center p-6">
+    <main className="min-h-screen bg-surface text-text-primary flex items-center justify-center p-6">
       {children}
     </main>
   );
@@ -133,58 +134,55 @@ export default function App() {
     };
   }, []);
 
-  if (boot === "locked") {
-    return <UnlockScreen onUnlocked={onUnlocked} />;
-  }
-  if (boot === "loading") {
-    return (
-      <Center>
-        <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-neutral-600 border-t-indigo-400" />
-      </Center>
-    );
-  }
-  if (boot === "offline") {
-    return (
-      <Center>
-        <div className="text-center">
-          <p className="text-neutral-300">Can&rsquo;t reach Privex right now.</p>
-          <p className="mt-1 text-neutral-500 text-sm">Your identity is safe on this device.</p>
-          <button
-            onClick={tryRestore}
-            className="mt-6 rounded-lg bg-indigo-600 hover:bg-indigo-500 px-5 py-2 font-medium"
-          >
-            Retry
-          </button>
-        </div>
-      </Center>
-    );
-  }
-
   return (
-    <>
-      <AnnouncementBanner />
-      <HashRouter>
-        <Routes>
-          <Route
-            path="/"
-            element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
-          />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/recover" element={<Recovery />} />
-          <Route path="/add-contact" element={<AddContact />} />
-          <Route path="/chat/:id" element={<Chat />} />
-          <Route path="/call/:id" element={<Call />} />
-          <Route path="/settings/:tab?" element={<Settings />} />
-          <Route path="/device-transfer" element={<DeviceTransfer />} />
-          <Route path="/my-qr" element={<MyQr />} />
-          <Route path="/verify/:id" element={<KeyVerification />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </HashRouter>
-      <InstallPrompt />
-      <NotificationBanner />
-      <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
-      <AppLockGuard onLock={() => setBoot("locked")} />
-    </>
+    <ThemeProvider>
+      {boot === "locked" && <UnlockScreen onUnlocked={onUnlocked} />}
+      {boot === "loading" && (
+        <Center>
+          <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-text-subtle border-t-accent-text" />
+        </Center>
+      )}
+      {boot === "offline" && (
+        <Center>
+          <div className="text-center">
+            <p className="text-text-secondary">Can&rsquo;t reach Privex right now.</p>
+            <p className="mt-1 text-text-muted text-sm">Your identity is safe on this device.</p>
+            <button
+              onClick={tryRestore}
+              className="mt-6 rounded-lg bg-accent hover:bg-accent-hover px-5 py-2 font-medium"
+            >
+              Retry
+            </button>
+          </div>
+        </Center>
+      )}
+      {boot === "ready" && (
+        <>
+          <AnnouncementBanner />
+          <HashRouter>
+            <Routes>
+              <Route
+                path="/"
+                element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
+              />
+              <Route path="/onboarding" element={<Onboarding />} />
+              <Route path="/recover" element={<Recovery />} />
+              <Route path="/add-contact" element={<AddContact />} />
+              <Route path="/chat/:id" element={<Chat />} />
+              <Route path="/call/:id" element={<Call />} />
+              <Route path="/settings/:tab?" element={<Settings />} />
+              <Route path="/device-transfer" element={<DeviceTransfer />} />
+              <Route path="/my-qr" element={<MyQr />} />
+              <Route path="/verify/:id" element={<KeyVerification />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </HashRouter>
+          <InstallPrompt />
+          <NotificationBanner />
+          <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
+          <AppLockGuard onLock={() => setBoot("locked")} />
+        </>
+      )}
+    </ThemeProvider>
   );
 }

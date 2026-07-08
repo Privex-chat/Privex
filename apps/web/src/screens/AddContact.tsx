@@ -82,20 +82,20 @@ export default function AddContact() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0a0a] text-neutral-100 p-6">
+    <main className="min-h-screen bg-surface text-text-primary p-6">
       <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/")} className="text-sm text-neutral-500 hover:text-neutral-300">
+        <button onClick={() => nav("/")} className="text-sm text-text-muted hover:text-text-secondary">
           ← Back
         </button>
 
         {/* Add / Requests tabs - requests live here (not on the home list). */}
-        <div className="mt-4 flex gap-1 border-b border-neutral-800 text-sm">
+        <div className="mt-4 flex gap-1 border-b border-divider text-sm">
           <button
             onClick={() => setTab("add")}
             className={`-mb-px border-b-2 px-3 py-2 ${
               tab === "add"
-                ? "border-indigo-500 text-neutral-100"
-                : "border-transparent text-neutral-400 hover:text-neutral-200"
+                ? "border-border-focus text-text-primary"
+                : "border-transparent text-text-secondary hover:text-text"
             }`}
           >
             Add
@@ -104,13 +104,13 @@ export default function AddContact() {
             onClick={() => setTab("requests")}
             className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 ${
               tab === "requests"
-                ? "border-indigo-500 text-neutral-100"
-                : "border-transparent text-neutral-400 hover:text-neutral-200"
+                ? "border-border-focus text-text-primary"
+                : "border-transparent text-text-secondary hover:text-text"
             }`}
           >
             Requests
             {pendingCount > 0 && (
-              <span className="rounded-full bg-indigo-600 px-1.5 text-xs font-medium text-white">
+              <span className="rounded-full bg-accent px-1.5 text-xs font-medium text-white">
                 {pendingCount}
               </span>
             )}
@@ -122,12 +122,12 @@ export default function AddContact() {
         ) : (
           <>
             <h1 className="mt-5 text-xl font-semibold">Add a contact</h1>
-            <p className="mt-2 text-neutral-400 text-sm">
+            <p className="mt-2 text-text-secondary text-sm">
               Paste their Privex ID or scan their QR. We fetch their keys, verify them
               against the key transparency log, and reject anything tampered with.
             </p>
 
-            <label className="mt-6 block text-sm text-neutral-300">Privex ID</label>
+            <label className="mt-6 block text-sm text-text-secondary">Privex ID</label>
             <input
               value={pxId}
               onChange={(e) => setPxId(e.target.value)}
@@ -135,7 +135,7 @@ export default function AddContact() {
               maxLength={35}
               spellCheck={false}
               autoCapitalize="none"
-              className="mt-1 w-full rounded-lg bg-neutral-900 border border-neutral-700 px-3 py-2 font-mono text-sm outline-none focus:border-indigo-500"
+              className="mt-1 w-full rounded-lg bg-input border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-border-focus"
             />
 
             {/* html5-qrcode renders the camera preview into this element while scanning. */}
@@ -145,26 +145,26 @@ export default function AddContact() {
               {scanning ? (
                 <button
                   onClick={() => void stopScan()}
-                  className="rounded-lg border border-neutral-700 hover:bg-neutral-900 px-4 py-2 text-sm"
+                  className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm"
                 >
                   Cancel scan
                 </button>
               ) : (
                 <button
                   onClick={() => void startScan()}
-                  className="rounded-lg border border-neutral-700 hover:bg-neutral-900 px-4 py-2 text-sm"
+                  className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm"
                 >
                   Scan QR
                 </button>
               )}
             </div>
 
-            {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+            {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
             <button
               disabled={busy || pxId.trim().length === 0}
               onClick={() => void submit()}
-              className="mt-6 w-full rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed py-3 font-medium"
+              className="mt-6 w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed py-3 font-medium"
             >
               {busy ? "Verifying keys…" : "Add contact"}
             </button>

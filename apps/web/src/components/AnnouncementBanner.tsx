@@ -3,9 +3,9 @@ import type { Announcement } from "../services/announcement";
 import { dismissAnnouncement, fetchAnnouncement, getDismissedVersion } from "../services/announcement";
 
 const severityStyles: Record<Announcement["severity"], string> = {
-  info: "border-blue-800 bg-blue-950/80 text-blue-200",
-  warning: "border-amber-700 bg-amber-950/80 text-amber-200",
-  error: "border-red-700 bg-red-950/80 text-red-200",
+  info: "border-announce-info-border bg-announce-info-bg text-announce-info-text",
+  warning: "border-announce-warn-border bg-announce-warn-bg text-announce-warn-text",
+  error: "border-announce-err-border bg-announce-err-bg text-announce-err-text",
 };
 
 export default function AnnouncementBanner() {
@@ -21,14 +21,17 @@ export default function AnnouncementBanner() {
 
   if (!announcement) return null;
 
+  const style = severityStyles[announcement.severity];
+  const current = announcement;
+
   function handleDismiss() {
-    dismissAnnouncement(announcement.version);
+    dismissAnnouncement(current.version);
     setAnnouncement(null);
   }
 
   return (
     <div
-      className={`flex items-center gap-3 border-b px-4 py-2.5 text-sm ${severityStyles[announcement.severity]}`}
+      className={`flex items-center gap-3 border-b px-4 py-2.5 text-sm ${style}`}
     >
       <span className="flex-1 text-center font-medium">{announcement.message}</span>
       {announcement.dismissible && (
