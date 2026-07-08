@@ -22,4 +22,4 @@ CREATE TABLE IF NOT EXISTS history_blobs (
 );
 
 -- Pagination: ORDER BY (created_at, blob_id) with a strict composite cursor.
-CREATE INDEX history_blobs_user_created ON history_blobs (user_id, created_at, blob_id);
+CREATE INDEX IF NOT EXISTS history_blobs_user_created ON history_blobs (user_id, created_at, blob_id);

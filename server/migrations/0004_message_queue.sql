@@ -10,4 +10,4 @@ CREATE UNLOGGED TABLE IF NOT EXISTS message_queue (
     expires_at   INTEGER     NOT NULL,  -- queued_at + 30 days
     size_bytes   INTEGER     NOT NULL
 );
-CREATE INDEX idx_queue_recipient ON message_queue (recipient_id);
+CREATE INDEX IF NOT EXISTS idx_queue_recipient ON message_queue (recipient_id);
