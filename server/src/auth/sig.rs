@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fips204::ml_dsa_65;
-use fips204::traits::{KeyGen, SerDes, Verifier as DsaVerifier};
+use fips204::traits::{SerDes, Verifier as DsaVerifier};
 
 pub fn verify_hybrid(
     msg: &[u8],

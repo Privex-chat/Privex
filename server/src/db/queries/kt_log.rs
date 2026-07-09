@@ -36,7 +36,8 @@ pub struct KtEntry {
 }
 
 /// All entries in append order (by seq). The Merkle tree is built over these.
-/// O(N) full scan - acceptable for Phase 1; optimize with a cached tree later.
+/// O(N) full scan - callers should go through `KtCache` (kt_cache.rs) so this
+/// only runs when the log actually grew (PVX-23), not on every key fetch.
 pub async fn list_all_entries(pool: &PgPool) -> sqlx::Result<Vec<KtEntry>> {
     sqlx::query_as!(
         KtEntry,
@@ -44,6 +45,14 @@ pub async fn list_all_entries(pool: &PgPool) -> sqlx::Result<Vec<KtEntry>> {
     )
     .fetch_all(pool)
     .await
+}
+
+/// Cheap validity key for the cached Merkle tree: the log is append-only, so the
+/// row count uniquely identifies a snapshot.
+pub async fn count_entries(pool: &PgPool) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM kt_log"#)
+        .fetch_one(pool)
+        .await
 }
 
 /// The current log head (latest entry). The published signed Merkle root is

@@ -162,10 +162,6 @@ export default function Chat() {
       return;
     }
     if (!peerId || pending) return;
-    if (file.size > MAX_FILE_BYTES) {
-      setError(`File too large (max 100 MB).`);
-      return;
-    }
     setError(null);
     setUpload({ done: 0, total: 1 });
     try {

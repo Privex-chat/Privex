@@ -1817,6 +1817,7 @@ async fn revocation_check_fails_closed_when_redis_down() {
         store: Arc::new(MemoryStore::new()),
         online: Arc::new(ws::state::Online::new()),
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
+        kt_cache: privex_server::kt_cache::KtCache::new(),
     };
 
     // Mint with the config-derived token MAC subkey (PVX-24), not the raw root.

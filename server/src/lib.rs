@@ -20,6 +20,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod kt_cache;
 pub mod powcheck;
 pub mod rds;
 pub mod routes;
@@ -71,6 +72,7 @@ pub async fn build_state_with_store(
         store,
         online: Arc::new(ws::state::Online::new()),
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
+        kt_cache: kt_cache::KtCache::new(),
     })
 }
 
