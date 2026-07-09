@@ -53,7 +53,7 @@ We are actively building the following features to complete Phase 1:
 - ~~**Cross-Device Sync:** Real-time syncing of sent messages across multiple devices.~~
 - ~~**Delivery & Read Receipts:** Implementing secure receipts without timing correlations.~~
 - ~~**Timing Mitigations:** Polling schedules, fetch padding, and jittered receipt sending.~~
-- **File Sharing:** Disabled in Phase 1; pending client-side CSAM perceptual hashing implementation in Phase 2.
+- **File Sharing:** Disabled in Phase 1; pending client-side [CSAM protection](https://github.com/Privex-chat/Privex/blob/main/docs/ARCHITECTURE.md#17-csam-protection) perceptual hashing implementation in Phase 2.
 
 ---
 
