@@ -31,8 +31,8 @@ pub struct Config {
     pub file_uploads_enabled: bool,
     pub turn_secret: SecretString,
     pub cors_origins: Vec<String>,
-    /// Allowed WebSocket `Origin` headers. Empty = allow all (local dev default).
-    /// In production, set to the client origin(s), e.g. `https://privex.dpdns.org`.
+    /// Allowed WebSocket `Origin` headers. Required non-empty from the env
+    /// (startup error otherwise); an empty list (tests only) allows all.
     pub ws_allowed_origins: Vec<String>,
 }
 
@@ -42,6 +42,25 @@ fn req(key: &str) -> Result<String> {
 
 fn secret(key: &str) -> SecretString {
     SecretString::from(std::env::var(key).unwrap_or_default())
+}
+
+/// Required comma-separated origin list. Empty/missing is a startup error so a
+/// misconfigured deploy can never fall back to allow-all (PVX-09).
+fn req_origins(key: &str) -> Result<Vec<String>> {
+    parse_origins(key, &req(key)?)
+}
+
+fn parse_origins(key: &str, raw: &str) -> Result<Vec<String>> {
+    let origins: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    if origins.is_empty() {
+        return Err(anyhow!("{key} must list at least one origin (comma-separated)"));
+    }
+    Ok(origins)
 }
 
 impl Config {
@@ -106,18 +125,10 @@ impl Config {
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(true),
             turn_secret: secret("TURN_SECRET"),
-            cors_origins: std::env::var("CORS_ORIGIN")
-                .unwrap_or_default()
-                .split(',')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.trim().to_string())
-                .collect(),
-            ws_allowed_origins: std::env::var("WS_ALLOWED_ORIGINS")
-                .unwrap_or_default()
-                .split(',')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.trim().to_string())
-                .collect(),
+            // Fail CLOSED: an unset/empty origin allowlist must stop the server,
+            // never silently become allow-all. (Tests bypass via Config::for_test.)
+            cors_origins: req_origins("CORS_ORIGIN")?,
+            ws_allowed_origins: req_origins("WS_ALLOWED_ORIGINS")?,
         })
     }
 
@@ -140,7 +151,8 @@ impl Config {
     }
 
     /// Construct a config directly (used by integration tests - avoids mutating
-    /// process-global env).
+    /// process-global env). NOTE: unlike from_env, this permits an empty
+    /// ws_allowed_origins (tests connect without an Origin header).
     pub fn for_test(
         database_url: String,
         redis_url: String,
@@ -168,5 +180,21 @@ impl Config {
             cors_origins: vec!["http://localhost:3000".to_string()],
             ws_allowed_origins: Vec::new(), // allow all in tests
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_origins;
+
+    // PVX-09: an empty origin list must be a hard error, never allow-all.
+    #[test]
+    fn origins_required_non_empty() {
+        assert!(parse_origins("CORS_ORIGIN", "").is_err());
+        assert!(parse_origins("CORS_ORIGIN", " , ,").is_err());
+        assert_eq!(
+            parse_origins("CORS_ORIGIN", "https://a.example, https://b.example").unwrap(),
+            vec!["https://a.example", "https://b.example"]
+        );
     }
 }

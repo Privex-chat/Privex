@@ -1752,3 +1752,49 @@ async fn server_end_to_end() {
     );
     assert!(!logs.contains("px_"), "a px_ id leaked into logs");
 }
+
+// PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
+// an otherwise-valid session token is rejected by the AuthUser extractor (500,
+// treated as transient by clients) instead of silently skipping the check.
+// Needs no Docker: lazy PG pool + a Redis pool pointing at a dead port.
+#[tokio::test]
+async fn revocation_check_fails_closed_when_redis_down() {
+    use axum::extract::FromRequestParts;
+    use privex_server::auth::extract::AuthUser;
+    use privex_server::auth::token;
+    use privex_server::state::AppState;
+    use privex_server::ws;
+
+    let key = [7u8; 32];
+    let config = Config::for_test(
+        "postgres://unused:unused@127.0.0.1:1/unused".into(),
+        "redis://127.0.0.1:1".into(), // nothing listens here
+        key,
+        8,
+    );
+    let state = AppState {
+        db: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap(),
+        redis: deadpool_redis::Config::from_url("redis://127.0.0.1:1")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .unwrap(),
+        config: Arc::new(config),
+        store: Arc::new(MemoryStore::new()),
+        online: Arc::new(ws::state::Online::new()),
+        devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
+    };
+
+    let tok = token::mint(&key, "px_00000000000000000000000000000001", now_unix());
+    let req = axum::http::Request::builder()
+        .header("x-privex-auth", &tok)
+        .body(())
+        .unwrap();
+    let (mut parts, _) = req.into_parts();
+
+    let result = AuthUser::from_request_parts(&mut parts, &state).await;
+    assert!(
+        result.is_err(),
+        "a valid token must be REJECTED when the revocation store is unreachable"
+    );
+}

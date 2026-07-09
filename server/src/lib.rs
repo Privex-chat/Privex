@@ -9,11 +9,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::extract::DefaultBodyLimit;
-use axum::http::HeaderValue;
+use axum::http::{header, HeaderName, HeaderValue, Method};
 use axum::routing::{get, post};
 use axum::Router;
 use tokio::net::TcpListener;
-use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 pub mod auth;
 pub mod config;
@@ -110,21 +110,20 @@ fn spawn_cleanup(state: AppState) {
 
 /// The Axum router. No logging/tracing layers are mounted - by design.
 pub fn app(state: AppState) -> Router {
+    // Origins come from config (required non-empty at startup - PVX-09). A value
+    // that can't be a header is a config typo: fail fast, never silently drop it
+    // (a dropped-to-empty list would block the real client instead of allow-all).
     let origins: Vec<HeaderValue> = state
         .config
         .cors_origins
         .iter()
-        .filter_map(|o| o.parse().ok())
+        .map(|o| o.parse().unwrap_or_else(|_| panic!("invalid CORS_ORIGIN entry: {o}")))
         .collect();
 
     let cors = CorsLayer::new()
-        .allow_methods(Any)
-        .allow_headers(Any)
-        .allow_origin(if origins.is_empty() {
-            AllowOrigin::any()
-        } else {
-            AllowOrigin::list(origins)
-        });
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_headers([header::CONTENT_TYPE, HeaderName::from_static("x-privex-auth")])
+        .allow_origin(AllowOrigin::list(origins));
 
     Router::new()
         .route("/config/client", get(routes::config::client_settings))

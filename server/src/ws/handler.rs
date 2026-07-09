@@ -54,9 +54,11 @@ pub async fn ws_route(
         .on_upgrade(move |socket| handle_socket(socket, st2, user_id)))
 }
 
-/// Validate the `Origin` header against the configured allowlist. When the
-/// allowlist is empty (local dev default) all origins are accepted. Checked
-/// BEFORE consuming the single-use ticket so a rejected request doesn't burn it.
+/// Validate the `Origin` header against the configured allowlist. An empty
+/// allowlist accepts all origins - reachable only via Config::for_test, since
+/// Config::from_env rejects an empty WS_ALLOWED_ORIGINS at startup (PVX-09).
+/// Checked BEFORE consuming the single-use ticket so a rejected request doesn't
+/// burn it.
 pub(crate) fn check_ws_origin(st: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     if st.config.ws_allowed_origins.is_empty() {
         return Ok(());
