@@ -45,3 +45,7 @@ coverage/
 # Docker / data volumes
 infra/data/
 /ecosystem.config.js
+/.opencode
+/.claude
+/docs/private
+/graphify-out
