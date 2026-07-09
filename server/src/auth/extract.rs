@@ -25,7 +25,7 @@ impl FromRequestParts<AppState> for AuthUser {
             .and_then(|v| v.to_str().ok())
             .ok_or_else(ApiError::unauthorized)?;
         let (user_id, issued_at) =
-            token::verify_with_iat(&state.config.session_hmac_key, header, now_unix())
+            token::verify_with_iat(&state.config.token_mac_key, header, now_unix())
                 .ok_or_else(ApiError::unauthorized)?;
 
         // "Log out everywhere": reject tokens issued before the user's revocation
@@ -35,7 +35,7 @@ impl FromRequestParts<AppState> for AuthUser {
         // down (rate limits, challenges, tickets all live there). 500 (not 401) so
         // clients treat it as transient, not as a bad token.
         let cutoff =
-            rds::get_revoke_cutoff(&state.redis, &state.config.session_hmac_key, &user_id)
+            rds::get_revoke_cutoff(&state.redis, &state.config.redis_ns_key, &user_id)
                 .await
                 .map_err(|_| ApiError::internal())?;
         if let Some(cutoff) = cutoff {

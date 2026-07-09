@@ -8,8 +8,15 @@ pub struct Config {
     pub bind_addr: String,
     pub database_url: String,
     pub redis_url: String,
-    /// HMAC key for session tokens. 32 bytes, never logged, never leaves process.
-    pub session_hmac_key: [u8; 32],
+    /// HMAC key for session-token MACs. Derived from SESSION_HMAC_KEY via
+    /// HKDF-Expand("privex-session-token") - never the root directly (PVX-24).
+    /// 32 bytes, never logged, never leaves process.
+    pub token_mac_key: [u8; 32],
+    /// PRF key for Redis key namespacing (challenges, tickets, revocation,
+    /// rate-limit buckets). Derived via HKDF-Expand("privex-redis-namespace");
+    /// per-purpose separation inside Redis comes from the scope string that
+    /// rds::keyed() folds into each HMAC.
+    pub redis_ns_key: [u8; 32],
     /// Ed25519 seed for signing published KT roots. 32 bytes.
     pub kt_signing_key: [u8; 32],
     /// Ed25519 seed for signing WS delivery timestamps (docs 9.6). 32 bytes,
@@ -48,6 +55,18 @@ fn secret(key: &str) -> SecretString {
 /// misconfigured deploy can never fall back to allow-all (PVX-09).
 fn req_origins(key: &str) -> Result<Vec<String>> {
     parse_origins(key, &req(key)?)
+}
+
+/// Purpose-bound subkey from the SESSION_HMAC_KEY root: single-block
+/// HKDF-Expand, i.e. HMAC-SHA256(root, label || 0x01). The root is uniform
+/// random (openssl rand), so the Extract step is unnecessary. A weakness or
+/// rotation need in one use no longer forces churn across the others (PVX-24).
+fn derive_subkey(root: &[u8; 32], label: &str) -> [u8; 32] {
+    use hmac::{Hmac, Mac};
+    let mut mac = <Hmac<sha2::Sha256> as Mac>::new_from_slice(root).expect("hmac key");
+    mac.update(label.as_bytes());
+    mac.update(&[0x01]);
+    mac.finalize().into_bytes().into()
 }
 
 fn parse_origins(key: &str, raw: &str) -> Result<Vec<String>> {
@@ -108,7 +127,8 @@ impl Config {
             bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
             database_url: req("DATABASE_URL")?,
             redis_url: req("REDIS_URL")?,
-            session_hmac_key,
+            token_mac_key: derive_subkey(&session_hmac_key, "privex-session-token"),
+            redis_ns_key: derive_subkey(&session_hmac_key, "privex-redis-namespace"),
             kt_signing_key,
             time_signing_key,
             opaque_server_setup,
@@ -163,7 +183,8 @@ impl Config {
             bind_addr: "127.0.0.1:0".into(),
             database_url,
             redis_url,
-            session_hmac_key,
+            token_mac_key: derive_subkey(&session_hmac_key, "privex-session-token"),
+            redis_ns_key: derive_subkey(&session_hmac_key, "privex-redis-namespace"),
             kt_signing_key: [9u8; 32], // deterministic test KT signer
             time_signing_key: [11u8; 32], // deterministic test time signer
             opaque_server_setup: crate::crypto::opaque::new_setup(),
@@ -185,7 +206,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_origins;
+    use super::{derive_subkey, parse_origins};
 
     // PVX-09: an empty origin list must be a hard error, never allow-all.
     #[test]
@@ -196,5 +217,17 @@ mod tests {
             parse_origins("CORS_ORIGIN", "https://a.example, https://b.example").unwrap(),
             vec!["https://a.example", "https://b.example"]
         );
+    }
+
+    // PVX-24: purpose subkeys are deterministic, label-distinct, and never the root.
+    #[test]
+    fn subkeys_are_separated() {
+        let root = [7u8; 32];
+        let a = derive_subkey(&root, "privex-session-token");
+        let b = derive_subkey(&root, "privex-redis-namespace");
+        assert_eq!(a, derive_subkey(&root, "privex-session-token"));
+        assert_ne!(a, b);
+        assert_ne!(a, root);
+        assert_ne!(b, root);
     }
 }

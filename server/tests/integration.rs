@@ -26,7 +26,7 @@ use futures_util::{SinkExt, StreamExt};
 use sqlx::types::Uuid;
 use sqlx::Row;
 
-use privex_server::auth::sig::challenge_signing_input;
+use privex_server::auth::sig::{challenge_signing_input, challenge_signing_input_v1};
 use privex_server::config::Config;
 use privex_server::crypto::{kt_log as ktree, pow_difficulty};
 use privex_server::store::MemoryStore;
@@ -198,7 +198,8 @@ async fn register_and_auth(http: &reqwest::Client, base: &str) -> (Identity, Str
         .unwrap();
     let chal_bytes = hex::decode(chal["challenge"].as_str().unwrap()).unwrap();
     let ts = now_unix();
-    let msg = challenge_signing_input(&chal_bytes, &id.user_id, ts);
+    // Current v1 (domain-separated) signing input - what real clients send.
+    let msg = challenge_signing_input_v1(&chal_bytes, &id.user_id, ts);
     let sig_ed = id.signing.sign(&msg).to_bytes();
     let sig_dil = id.dsk.try_sign(&msg, &[]).unwrap();
     let vr: serde_json::Value = http
@@ -615,6 +616,9 @@ async fn server_end_to_end() {
         .unwrap();
     let chal_bytes = hex::decode(chal["challenge"].as_str().unwrap()).unwrap();
     let ts = now_unix();
+    // Deliberately the LEGACY (pre-domain-separation) input: the server must keep
+    // accepting it while cached PWA builds age out (PVX-21 transitional fallback).
+    // register_and_auth() covers the current v1 layout.
     let msg = challenge_signing_input(&chal_bytes, &id.user_id, ts);
     let sig_ed = id.signing.sign(&msg).to_bytes();
     let sig_dil = id.dsk.try_sign(&msg, &[]).unwrap();
@@ -664,6 +668,36 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     assert_eq!(r.status(), 401, "bad signature must be a generic 401");
+
+    // 6b. unknown-but-valid px_id → the SAME generic 401 (PVX-08 dummy-verify
+    // path). Timing equality isn't CI-assertable; this at least exercises the
+    // absent-user branch end-to-end.
+    let ghost = format!("px_{}", rand_hex(16));
+    let gchal: serde_json::Value = http
+        .post(format!("{base}/auth/challenge"))
+        .json(&serde_json::json!({ "user_id": ghost }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gchal_bytes = hex::decode(gchal["challenge"].as_str().unwrap()).unwrap();
+    let gts = now_unix();
+    let gmsg = challenge_signing_input_v1(&gchal_bytes, &ghost, gts);
+    let r = http
+        .post(format!("{base}/auth/verify"))
+        .json(&serde_json::json!({
+            "user_id": ghost,
+            "challenge": hex::encode(&gchal_bytes),
+            "sig_ed": hex::encode(id.signing.sign(&gmsg).to_bytes()),
+            "sig_dil": hex::encode(id.dsk.try_sign(&gmsg, &[]).unwrap()),
+            "timestamp": gts,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401, "unknown user must be a generic 401");
 
     // ===== Session 9: messages + blobs =====
 
@@ -1785,7 +1819,12 @@ async fn revocation_check_fails_closed_when_redis_down() {
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
     };
 
-    let tok = token::mint(&key, "px_00000000000000000000000000000001", now_unix());
+    // Mint with the config-derived token MAC subkey (PVX-24), not the raw root.
+    let tok = token::mint(
+        &state.config.token_mac_key,
+        "px_00000000000000000000000000000001",
+        now_unix(),
+    );
     let req = axum::http::Request::builder()
         .header("x-privex-auth", &tok)
         .body(())

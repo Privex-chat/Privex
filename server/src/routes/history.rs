@@ -42,7 +42,7 @@ pub async fn upload(
     // Backfill is bursty (a fresh enable uploads the whole local history in batches).
     let allowed = rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         "histup",
         &user,
         600,

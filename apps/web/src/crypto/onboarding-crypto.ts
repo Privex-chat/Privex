@@ -241,16 +241,24 @@ export function solvePow(
 
 // --- auth challenge signing (docs 4.9) ---
 
-/** Canonical signing input: challenge || user_id(utf8) || timestamp(BE u64).
- *  Must byte-match server/src/auth/sig.rs::challenge_signing_input. */
+/** Domain-separation context (PVX-21). Must byte-match
+ *  server/src/auth/sig.rs::AUTH_CONTEXT_V1. */
+const AUTH_CONTEXT_V1 = "privex-auth-v1";
+
+/** Canonical signing input: "privex-auth-v1" || challenge || user_id(utf8) ||
+ *  timestamp(BE u64). Must byte-match
+ *  server/src/auth/sig.rs::challenge_signing_input_v1. (The server still
+ *  accepts the pre-context layout transitionally for cached PWA builds.) */
 export function challengeSigningInput(challenge: Uint8Array, userId: string, timestamp: number): Uint8Array {
+  const ctx = new TextEncoder().encode(AUTH_CONTEXT_V1);
   const idBytes = new TextEncoder().encode(userId);
   const ts = new Uint8Array(8);
   new DataView(ts.buffer).setBigUint64(0, BigInt(timestamp), false); // big-endian
-  const out = new Uint8Array(challenge.length + idBytes.length + 8);
-  out.set(challenge, 0);
-  out.set(idBytes, challenge.length);
-  out.set(ts, challenge.length + idBytes.length);
+  const out = new Uint8Array(ctx.length + challenge.length + idBytes.length + 8);
+  out.set(ctx, 0);
+  out.set(challenge, ctx.length);
+  out.set(idBytes, ctx.length + challenge.length);
+  out.set(ts, ctx.length + challenge.length + idBytes.length);
   return out;
 }
 

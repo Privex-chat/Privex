@@ -138,7 +138,7 @@ pub async fn get_key_bundle(
     // defense in depth behind the PoW.
     let allowed = rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         "keyfetch",
         &user_id,
         30,

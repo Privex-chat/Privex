@@ -98,7 +98,7 @@ pub(crate) async fn rate_limit(
 ) -> Result<(), ApiError> {
     let ok = crate::rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         scope,
         identity,
         limit,

@@ -70,6 +70,11 @@ describe("identity generation", () => {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const ts = 1_900_000_000;
     const input = challengeSigningInput(challenge, b.userId, ts);
+    // Domain separation (PVX-21): the input must start with the v1 context tag,
+    // byte-matching server/src/auth/sig.rs::challenge_signing_input_v1.
+    const ctx = new TextEncoder().encode("privex-auth-v1");
+    expect(Array.from(input.subarray(0, ctx.length))).toEqual(Array.from(ctx));
+    expect(input.length).toBe(ctx.length + 32 + b.userId.length + 8);
     const sig = signHybrid(wasm, input, b.identity.ed25519_priv, b.identity.dilithium3_priv);
     expect(
       wasm.verify_hybrid(input, sig.ed, b.identity.ed25519_pub, sig.dil, b.identity.dilithium3_pub),

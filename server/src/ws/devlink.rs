@@ -110,7 +110,7 @@ pub async fn devlink_route(
         .map(|s| s.trim())
         .find(|s| *s != "privex" && !s.is_empty())
         .ok_or_else(ApiError::unauthorized)?;
-    rds::take_ws_ticket(&st.redis, &st.config.session_hmac_key, ticket)
+    rds::take_ws_ticket(&st.redis, &st.config.redis_ns_key, ticket)
         .await
         .map_err(|_| ApiError::internal())?
         .ok_or_else(ApiError::unauthorized)?;

@@ -97,7 +97,7 @@ pub async fn challenge(
 
     rds::store_challenge(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         &body.user_id,
         &c,
         90,
@@ -146,13 +146,14 @@ pub async fn verify(
         return Err(ApiError::unauthorized());
     }
 
-    // Resource-abuse cap, 30 / 60s per user.
+    // Resource-abuse cap, 5 / 60s per user (docs 11 - PVX-20). Legit use is ~1
+    // verify per boot restore + one silent renewal every ~22h.
     let allowed = rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         "authverify",
         &body.user_id,
-        30,
+        5,
         60,
     )
     .await
@@ -161,7 +162,7 @@ pub async fn verify(
         return Err(ApiError::rate_limited());
     }
 
-    let stored = rds::take_challenge(&st.redis, &st.config.session_hmac_key, &body.user_id)
+    let stored = rds::take_challenge(&st.redis, &st.config.redis_ns_key, &body.user_id)
         .await
         .map_err(|_| ApiError::internal())?;
     let stored = stored.ok_or_else(ApiError::unauthorized)?;
@@ -182,16 +183,30 @@ pub async fn verify(
 
     let bundle = crate::db::queries::key_directory::get_key(&st.db, &body.user_id)
         .await
-        .map_err(|_| ApiError::internal())?
-        .ok_or_else(ApiError::unauthorized)?;
+        .map_err(|_| ApiError::internal())?;
 
     let sig_ed = hex::decode(&body.sig_ed).map_err(|_| ApiError::unauthorized())?;
     let sig_dil = validate::validate_hex_max(&body.sig_dil, ml_dsa_65::SIG_LEN)
         .map_err(|_| ApiError::unauthorized())?;
-    let msg = sig::challenge_signing_input(&stored, &body.user_id, body.timestamp);
 
-    if !sig::verify_hybrid(
-        &msg,
+    // Timing-oracle defense (PVX-08): an unknown user does the SAME hybrid
+    // verification work against fixed dummy keys before the same generic 401,
+    // so response latency cannot confirm whether a px_id exists.
+    let Some(bundle) = bundle else {
+        let _ = sig::dummy_verify_auth_challenge(
+            &stored,
+            &body.user_id,
+            body.timestamp,
+            &sig_ed,
+            &sig_dil,
+        );
+        return Err(ApiError::unauthorized());
+    };
+
+    if !sig::verify_auth_challenge(
+        &stored,
+        &body.user_id,
+        body.timestamp,
         &sig_ed,
         &bundle.ik_ed25519,
         &sig_dil,
@@ -200,7 +215,7 @@ pub async fn verify(
         return Err(ApiError::unauthorized());
     }
 
-    let session_token = token::mint(&st.config.session_hmac_key, &body.user_id, now);
+    let session_token = token::mint(&st.config.token_mac_key, &body.user_id, now);
     Ok(Json(VerifyResp {
         session_token,
         expires_at: now + token::TTL_SECS,
@@ -232,7 +247,7 @@ pub async fn ws_ticket(
 
     rds::store_ws_ticket(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         &ticket,
         &user_id,
         WS_TICKET_TTL,
@@ -268,7 +283,7 @@ pub async fn logout_all(
     // caller's) is revoked; a fresh login must wait until the next second.
     rds::set_revoke_cutoff(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         &user_id,
         now_unix() + 1,
         token::TTL_SECS,

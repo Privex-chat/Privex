@@ -42,7 +42,7 @@ pub async fn ws_route(
         .find(|s| *s != "privex" && !s.is_empty())
         .ok_or_else(ApiError::unauthorized)?;
 
-    let user_id = rds::take_ws_ticket(&st.redis, &st.config.session_hmac_key, ticket)
+    let user_id = rds::take_ws_ticket(&st.redis, &st.config.redis_ns_key, ticket)
         .await
         .map_err(|_| ApiError::internal())?
         .ok_or_else(ApiError::unauthorized)?;
