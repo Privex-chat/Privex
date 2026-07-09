@@ -61,8 +61,8 @@ pub async fn upload(
     let now = now_unix() as i32;
     let mut stored = 0;
     for b in &body.blobs {
-        // blob_id must be non-empty, not too long, and contain only safe chars.
-        let safe_id = validate::sanitize_string(&b.blob_id, validate::MAX_HISTORY_BLOB_ID_CHARS)?;
+        // blob_id must be a UUID or contact-key shape - reject anything else (PVX-18).
+        let safe_id = validate::validate_history_blob_id(&b.blob_id)?;
         let ct = validate::validate_b64(&b.ciphertext, validate::MAX_HISTORY_BLOB_BYTES)?;
         history::upsert(&st.db, &user, &safe_id, &ct, now)
             .await

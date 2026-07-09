@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { CHUNK_SIZE, encryptFile, reassembleAndVerify } from "../services/files";
+import { describe, expect, it, vi } from "vitest";
+import {
+  CHUNK_SIZE,
+  encryptFile,
+  materializeIncoming,
+  reassembleAndVerify,
+  type FileCryptoApi,
+} from "../services/files";
 import { decodeContent, encodeFile, type FileFields } from "../services/envelope";
 import { toHex } from "../crypto/onboarding-crypto";
 import { src } from "../services/bytes";
@@ -91,5 +97,41 @@ describe("file manifest protobuf", () => {
       sentAt: 100,
     };
     expect(decodeContent(encodeFile(fields)).file?.thumbnailEnc).toBeUndefined();
+  });
+});
+
+describe("file manifest validation (PVX-10)", () => {
+  // A sender controls chunkIds; a path-traversal id must be rejected before it
+  // can reach a fetch URL. unwrapCek is stubbed - we never get that far.
+  const stubCrypto: FileCryptoApi = {
+    generateCek: vi.fn(),
+    wrapCek: vi.fn(),
+    unwrapCek: vi.fn(async () => crypto.getRandomValues(new Uint8Array(32))),
+  };
+  const baseFields = (chunkIds: string[]): FileFields => ({
+    filenameEnc: new Uint8Array([1]),
+    mimeEnc: new Uint8Array([2]),
+    totalSize: 10,
+    sha256: new Uint8Array(32),
+    chunkIds,
+    wrappedCek: new Uint8Array(40),
+    ephPub: new Uint8Array(32),
+    sentAt: 100,
+  });
+
+  it("rejects a path-traversal chunk id", async () => {
+    const f = baseFields(["../auth/ws_ticket"]);
+    await expect(materializeIncoming(f, new Uint8Array(32), stubCrypto)).rejects.toThrow(
+      /invalid chunk id/i,
+    );
+  });
+
+  it("rejects a non-hex / wrong-length chunk id", async () => {
+    await expect(
+      materializeIncoming(baseFields(["zz".repeat(32)]), new Uint8Array(32), stubCrypto),
+    ).rejects.toThrow(/invalid chunk id/i);
+    await expect(
+      materializeIncoming(baseFields(["aa".repeat(20)]), new Uint8Array(32), stubCrypto),
+    ).rejects.toThrow(/invalid chunk id/i);
   });
 });

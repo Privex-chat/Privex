@@ -14,6 +14,19 @@ import { b64encode, src } from "./bytes";
 export const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB (docs 4.7)
 const IV_LEN = 12;
 
+// A chunk_id / CEK is exactly 64 lowercase hex chars (SHA-256 / 32-byte key).
+// A file manifest is fully sender-controlled, so every id from it must match
+// this BEFORE it reaches a fetch URL or fromHex (PVX-10) - a value like
+// "../auth/ws_ticket" would otherwise drive an authenticated GET to an arbitrary
+// same-origin endpoint. Mirrors the server's valid_chunk_id.
+const HEX64 = /^[0-9a-f]{64}$/;
+function assertChunkId(id: string): void {
+  if (!HEX64.test(id)) throw new Error("invalid chunk id in file manifest");
+}
+function assertCek(cekHex: string): void {
+  if (!HEX64.test(cekHex)) throw new Error("invalid file key");
+}
+
 // What we persist locally (encrypted at rest) per file message: enough to render
 // + re-download. `cek` is the raw key (the recipient unwraps it once on receive).
 export interface FileMeta {
@@ -225,6 +238,8 @@ export async function materializeIncoming(
   myIkX25519Priv: Uint8Array,
   fileCrypto: FileCryptoApi = workerFileCrypto,
 ): Promise<FileMeta> {
+  // Reject a hostile manifest before any chunk id is persisted or fetched.
+  for (const id of f.chunkIds) assertChunkId(id);
   const cek = await fileCrypto.unwrapCek(f.wrappedCek, f.ephPub, myIkX25519Priv);
   const mime = await decMeta(cek, f.mimeEnc);
   let thumb: string | undefined;
@@ -249,6 +264,10 @@ export async function downloadAndDecrypt(
   meta: FileMeta,
   onProgress?: (done: number, total: number) => void,
 ): Promise<Blob> {
+  // Defense in depth: re-validate before fetch even though meta came from our own
+  // store (a manifest validated at receive time could predate this check).
+  assertCek(meta.cek);
+  for (const id of meta.chunks) assertChunkId(id);
   const tok = token();
   const blobs: Uint8Array[] = [];
   for (let i = 0; i < meta.chunks.length; i++) {

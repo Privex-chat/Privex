@@ -58,5 +58,59 @@ async function doRestore(): Promise<boolean> {
   const token = await authenticateBundle(bundle);
   useAuth.getState().setSession(token, bundle.userId);
   useAuth.getState().setAuthenticated(bundle.userId);
+  scheduleRenewal();
+  return true;
+}
+
+// --- silent token renewal + 401 recovery (docs 4.9, PVX-07) ---
+// The 24h session token never rotated in-session: a tab open past 24h got a 401
+// nothing recovered from. Renew in the background at ~T-2h, and re-mint on demand
+// when an authenticated call 401s (stale token / post-renewal race).
+
+const TOKEN_TTL_MS = 24 * 3600 * 1000; // server token::TTL_SECS
+const RENEW_LEAD_MS = 2 * 3600 * 1000; // renew 2h before expiry (docs 4.9)
+let renewTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ponytail: fixed-lead schedule (TTL is a server constant). If the server TTL
+// ever varies, thread authVerify's expires_at through and schedule against that.
+function scheduleRenewal(): void {
+  if (renewTimer) clearTimeout(renewTimer);
+  renewTimer = setTimeout(() => {
+    void reauthenticate();
+  }, Math.max(60_000, TOKEN_TTL_MS - RENEW_LEAD_MS));
+}
+
+/** Start/reset the background renewal timer. Idempotent - safe to call on every
+ *  session change (App wires it to the authenticated+token effect). */
+export function startTokenRenewal(): void {
+  scheduleRenewal();
+}
+
+/** Stop the renewal timer (sign-out / socket teardown). */
+export function stopTokenRenewal(): void {
+  if (renewTimer) clearTimeout(renewTimer);
+  renewTimer = null;
+}
+
+let reauthInFlight: Promise<boolean> | null = null;
+
+/** Re-mint the session token from the locally-stored identity and reschedule
+ *  renewal. Deduped so concurrent 401s don't race two auth challenges (each
+ *  fetch is single-use and would invalidate the other). Returns false when not
+ *  onboarded or the re-auth fails (server unreachable). */
+export function reauthenticate(): Promise<boolean> {
+  if (reauthInFlight) return reauthInFlight;
+  reauthInFlight = doReauth().finally(() => {
+    reauthInFlight = null;
+  });
+  return reauthInFlight;
+}
+
+async function doReauth(): Promise<boolean> {
+  const bundle = await loadBundle();
+  if (!bundle) return false;
+  const token = await authenticateBundle(bundle);
+  useAuth.getState().setSession(token, bundle.userId);
+  scheduleRenewal();
   return true;
 }

@@ -39,6 +39,7 @@ import {
   type SyncRecord,
 } from "./device-sync";
 import { checkDeliveryTime, type VerifyEd25519 } from "./time-sync";
+import { reauthenticate } from "./auth-session";
 import { fromHex, toHex } from "../crypto/onboarding-crypto";
 import { backupMessage } from "./history-backup";
 import { b64decode, b64encode } from "./bytes";
@@ -176,11 +177,15 @@ async function sealAndSend(
     const resp = await api.sendMessage(peerId, sealedB64, token());
     msgId = resp.message_id;
   } catch (e) {
-    // A real server error (auth, rate-limit) should surface. A bare network failure
-    // (offline) → queue the sealed blob for background-sync delivery on reconnect.
-    if (e instanceof api.ApiError) throw e;
+    // The ratchet already stepped; `sealed` is that step's only ciphertext, so a
+    // recoverable failure must PARK it, never drop it (dropping = a permanent gap
+    // the receiver sees as a skipped key). Transient = offline (bare error), 401
+    // (stale token), or 429 (rate-limit) → outbox. Any other ApiError surfaces.
+    if (e instanceof api.ApiError && e.status !== 401 && e.status !== 429) throw e;
     status = "queued";
     await enqueue(peerId, sealedB64, store ? localId : "");
+    // 401 → token went stale; re-mint so the outbox retry uses a fresh one (PVX-07).
+    if (e instanceof api.ApiError && e.status === 401) void reauthenticate();
   }
 
   // store === null → a control message (contact hello / receipt): no visible row.
@@ -398,7 +403,14 @@ export async function receiveMessage(
 
   let plaintextBytes: Uint8Array;
   if (!adoptHandshake) {
-    if (!existing) throw new Error("first message from new peer lacks PQXDH init");
+    if (!existing) {
+      // A first message from an unknown peer with no handshake can NEVER be
+      // decrypted (no session to open it). Leaving it un-acked made the server
+      // redeliver it on every reconnect for its full 30-day TTL. Ack-and-drop
+      // (mirrors the glare path below) so it can't wedge the queue (PVX-13).
+      await api.ackMessages([ws.message_id], token());
+      return;
+    }
     let dec;
     try {
       dec = await crypto.ratchetDecrypt(existing.ratchetState, env.ciphertext, env.header);

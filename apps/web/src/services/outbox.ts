@@ -6,6 +6,7 @@
 import * as api from "../api/client";
 import { db } from "../db";
 import { useAuth } from "../store/auth";
+import { reauthenticate } from "./auth-session";
 import { emitMessage, emitOutboxChanged } from "./events";
 
 type SendFn = (peerId: string, contentB64: string, token: string) => Promise<{ message_id: string }>;
@@ -57,6 +58,13 @@ export async function flushOutbox(
         // Transient (offline, 401 stale token, 429 rate-limit, 5xx) → keep it and
         // stop; the next flush retries the whole queue (with a fresh token).
         await db.outbox.update(row.id!, { attempts: row.attempts + 1 });
+        // 401 → the token expired; re-mint and re-flush once so the queue drains
+        // without waiting for the next reconnect (PVX-07). reauthenticate dedupes.
+        if (e instanceof api.ApiError && e.status === 401) {
+          void reauthenticate().then((ok) => {
+            if (ok) void flushOutbox();
+          });
+        }
         break;
       }
       await db.outbox.delete(row.id!);

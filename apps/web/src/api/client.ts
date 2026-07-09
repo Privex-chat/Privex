@@ -102,7 +102,7 @@ export interface KeyBundleResp {
   kt_proof: KtProof;
 }
 export const fetchKeyBundle = (userId: string, pow: PowProof) =>
-  post<KeyBundleResp>(`/keys/${userId}`, { pow });
+  post<KeyBundleResp>(`/keys/${encodeURIComponent(userId)}`, { pow });
 
 // --- prekey replenish (authenticated) ---
 
@@ -132,7 +132,7 @@ export const ackMessages = (messageIds: string[], token: string) =>
 // Raw bytes, not JSON. chunk_id MUST equal SHA-256 of the body (server enforces).
 
 export async function putBlob(chunkId: string, bytes: Uint8Array, token: string): Promise<void> {
-  const res = await fetch(`${BASE}/blobs/${chunkId}`, {
+  const res = await fetch(`${BASE}/blobs/${encodeURIComponent(chunkId)}`, {
     method: "POST",
     headers: { "X-Privex-Auth": token, "Content-Type": "application/octet-stream" },
     body: bytes as unknown as BodyInit,
@@ -141,7 +141,9 @@ export async function putBlob(chunkId: string, bytes: Uint8Array, token: string)
 }
 
 export async function getBlob(chunkId: string, token: string): Promise<Uint8Array> {
-  const res = await fetch(`${BASE}/blobs/${chunkId}`, { headers: { "X-Privex-Auth": token } });
+  const res = await fetch(`${BASE}/blobs/${encodeURIComponent(chunkId)}`, {
+    headers: { "X-Privex-Auth": token },
+  });
   if (!res.ok) throw new ApiError(res.status);
   return new Uint8Array(await res.arrayBuffer());
 }

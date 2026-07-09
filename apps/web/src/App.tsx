@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./store/auth";
-import { restoreSession } from "./services/auth-session";
+import { restoreSession, startTokenRenewal, stopTokenRenewal } from "./services/auth-session";
 import { connectWebSocket, disconnectWebSocket } from "./services/websocket";
 import { flushOutbox } from "./services/outbox";
 import { startCoverTraffic, stopCoverTraffic } from "./services/cover-traffic";
@@ -107,9 +107,11 @@ export default function App() {
     if (authenticated && token) {
       void connectWebSocket(token);
       void startCoverTraffic();
+      startTokenRenewal(); // silent re-mint at ~T-2h (PVX-07)
       return () => {
         stopCoverTraffic();
         disconnectWebSocket();
+        stopTokenRenewal();
       };
     }
   }, [authenticated, token]);
