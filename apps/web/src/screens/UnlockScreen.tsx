@@ -2,22 +2,36 @@
 // when the lock is on and this session hasn't unlocked yet - so a reload or URL
 // change can't bypass it. Unlocks via biometric (WebAuthn) or the Argon2id
 // passphrase; both unwrap the in-memory data key.
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { lockStatus, unlockWithBiometric, unlockWithPassphrase } from "../services/applock";
 
 export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void }) {
   const [pass, setPass] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"bio" | "pass" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [biometric, setBiometric] = useState(false);
+  const autoTried = useRef(false);
+  const passRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    void lockStatus().then((s) => setBiometric(s.biometric && s.biometricAvailable));
+    void lockStatus().then((s) => {
+      const available = s.biometric && s.biometricAvailable;
+      setBiometric(available);
+      if (available && !autoTried.current) {
+        // Auto-prompt biometrics once; a failure/cancel just falls through to the
+        // passphrase form below (always usable). Focus is left alone so the native
+        // biometric sheet - not the soft keyboard - is what comes up.
+        autoTried.current = true;
+        void unlockBio(true);
+      } else if (!available) {
+        passRef.current?.focus();
+      }
+    });
   }, []);
 
   async function unlockPass(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
+    setBusy("pass");
     setError(null);
     try {
       await unlockWithPassphrase(pass);
@@ -25,19 +39,21 @@ export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void })
       onUnlocked();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't unlock.");
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function unlockBio() {
-    setBusy(true);
+  async function unlockBio(auto = false) {
+    setBusy("bio");
     setError(null);
     try {
       await unlockWithBiometric();
       onUnlocked();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Biometric unlock failed.");
-      setBusy(false);
+      // Stay quiet on the automatic attempt - a browser that blocks WebAuthn
+      // without a tap would otherwise flash an error before the user acted.
+      if (!auto) setError(err instanceof Error ? err.message : "Biometric unlock failed.");
+      setBusy(null);
     }
   }
 
@@ -51,15 +67,15 @@ export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void })
           <button
             type="button"
             onClick={() => void unlockBio()}
-            disabled={busy}
+            disabled={!!busy}
             className="mt-5 w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-2.5 font-medium"
           >
-            Unlock with biometrics
+            {busy === "bio" ? "Waiting for biometrics…" : "Unlock with biometrics"}
           </button>
         )}
 
         <input
-          autoFocus
+          ref={passRef}
           type="password"
           value={pass}
           onChange={(e) => setPass(e.target.value)}
@@ -70,10 +86,10 @@ export default function UnlockScreen({ onUnlocked }: { onUnlocked: () => void })
         {error && <p className="mt-2 text-xs text-danger">{error}</p>}
         <button
           type="submit"
-          disabled={busy || pass.length === 0}
+          disabled={!!busy || pass.length === 0}
           className="mt-4 w-full rounded-lg bg-raised hover:bg-border-strong disabled:opacity-40 py-2.5 font-medium"
         >
-          {busy ? "Unlocking…" : "Unlock"}
+          {busy === "pass" ? "Unlocking…" : "Unlock"}
         </button>
       </form>
     </main>
