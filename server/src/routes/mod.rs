@@ -60,6 +60,12 @@ fn log_suspicious_pow_solve(suspicion: u32, solve_time_ms: u64, min_expected: u6
 /// - never rejected, since fast hardware is legitimate. No IP/user/identity is read
 /// or logged. This is the only privacy-preserving gate for the public,
 /// target-revealing endpoints (key fetch, KT proof, OPAQUE login init).
+///
+/// The scheme is whatever was BOUND to the challenge at issue time: legacy
+/// SHA-only, or the Argon2id hybrid (docs 8.5.1). The server's own Argon2id
+/// verification work is bounded by the /auth/pow_challenge issuance cap (a
+/// verify requires consuming a real challenge) and by the cheap SHA pre-filter
+/// inside hybrid_valid (garbage dies before the memory-hard evaluation).
 pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiError> {
     // Validate PoW proof structure BEFORE touching Redis
     if !validate::validate_pow_challenge_id(&pow.challenge_id) {
@@ -73,12 +79,44 @@ pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiE
         .await
         .map_err(|_| ApiError::internal())?
         .ok_or_else(ApiError::bad_request)?; // unknown / used / expired
-    if !crate::powcheck::pow_valid(&consumed.challenge_data, pow.nonce, consumed.difficulty, &sol) {
+
+    let (valid, min_expected) = match consumed.argon {
+        Some(argon) => {
+            // The Argon2id evaluation is tens of ms of sync CPU + a ~32 MiB
+            // allocation - run it off the async worker threads. Bound how many
+            // run at once: the challenge-issuance cap limits the RATE, but an
+            // attacker can hoard valid challenges (10-min TTL) and burst their
+            // solutions, so a concurrency permit is what actually caps peak
+            // memory. The permit is held across the blocking eval.
+            let _permit = st
+                .pow_verify_sem
+                .acquire()
+                .await
+                .map_err(|_| ApiError::internal())?;
+            let challenge = consumed.challenge_data.clone();
+            let nonce = pow.nonce;
+            let sha_difficulty = consumed.difficulty;
+            let sol_owned = sol.clone();
+            let valid = tokio::task::spawn_blocking(move || {
+                crate::powcheck::hybrid_valid(&challenge, nonce, sha_difficulty, &argon, &sol_owned)
+            })
+            .await
+            .map_err(|_| ApiError::internal())?;
+            (
+                valid,
+                pow_difficulty::minimum_hybrid_solve_ms(consumed.difficulty, argon.difficulty),
+            )
+        }
+        None => (
+            crate::powcheck::pow_valid(&consumed.challenge_data, pow.nonce, consumed.difficulty, &sol),
+            pow_difficulty::minimum_solve_ms(consumed.difficulty),
+        ),
+    };
+    if !valid {
         return Err(ApiError::bad_request());
     }
 
     let solve_time_ms = now_ms.saturating_sub(consumed.issued_at_ms);
-    let min_expected = pow_difficulty::minimum_solve_ms(consumed.difficulty);
     if solve_time_ms < min_expected {
         let suspicion = pow_difficulty::increment_suspicion(&st.redis).await.unwrap_or(0);
         log_suspicious_pow_solve(suspicion, solve_time_ms, min_expected, consumed.difficulty);

@@ -38,6 +38,9 @@ OPAQUE_SERVER_SETUP=
 
 # --- Proof-of-Work ---
 POW_DIFFICULTY=22
+# Argon2id hybrid Layer-2 PoW (docs 8.5.1). Default ON (unset = enabled);
+# "false" is the emergency rollback only.
+POW_ARGON2_ENABLED=true
 
 # --- WebSocket ---
 WS_PING_SECS=30

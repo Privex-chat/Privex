@@ -43,9 +43,16 @@ const handlers: Record<string, (args: unknown[], emit: Emit) => unknown> = {
     ),
   // Fresh signed prekey for rotation (16E "log out everywhere"). Struct → plain.
   generate_signed_spk: (a) => oc.generateSignedSpk(wasm, a[0] as Uint8Array, a[1] as Uint8Array),
-  // Synchronous solve blocks this worker (~500ms at difficulty 22); progress is
-  // posted live to the calling tab as it runs.
-  solve_pow: (a, emit) => oc.solvePow(wasm, a[0] as Uint8Array, a[1] as number, emit),
+  // Synchronous solve blocks this worker (~500ms at difficulty 22, plus the
+  // Argon2id evals on hybrid challenges); progress posts live to the tab.
+  solve_pow: (a, emit) =>
+    oc.solvePow(
+      wasm,
+      a[0] as Uint8Array,
+      a[1] as number,
+      emit,
+      a[2] as oc.PowArgonParams | undefined,
+    ),
   // Contact / messaging crypto. These wasm fns return structs (PqxdhInitResult)
   // that aren't structured-cloneable, so the pure helpers convert to plain data.
   // verify_bundle throws on any KT/SPK failure → surfaced as a rejected call.

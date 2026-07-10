@@ -37,7 +37,10 @@ pub use applock::applock_derive_key;
 pub use devlink::devlink_channel_key;
 pub use file::{generate_cek, unwrap_cek, wrap_cek, WrappedCek};
 pub use kt::{kt_bundle_hash, kt_leaf_hash, kt_verify_inclusion, kt_verify_root_sig};
-pub use pow::{pow_solve, pow_solve_native, pow_verify, PowSolution};
+pub use pow::{
+    pow_solve, pow_solve_hybrid, pow_solve_hybrid_native, pow_solve_native, pow_verify,
+    pow_verify_hybrid, PowSolution,
+};
 pub use psi::{psi_blind_hash, psi_check_membership, psi_unblind, PSIBlindResult};
 pub use seed::{derive_keypairs_from_seed, generate_seed_phrase, seed_phrase_to_master_seed};
 pub use shamir::{shamir_reconstruct, shamir_split};

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::auth::extract::AuthUser;
 use crate::auth::{sig, token};
 use fips204::ml_dsa_65;
-use crate::crypto::pow_difficulty::{compute_difficulty, record_challenge_request, unix_ts_ms};
+use crate::crypto::pow_difficulty::{self, compute_difficulty, record_challenge_request, unix_ts_ms};
 use crate::error::ApiError;
 use crate::now_unix;
 use crate::rds;
@@ -19,16 +19,34 @@ use sqlx::types::Uuid;
 
 // --- POST /auth/pow_challenge ---
 
+/// Argon2id Layer-2 parameters echoed to the client (docs 8.5.1). Absent on
+/// legacy SHA-only challenges (rollback mode) - old clients ignore the field,
+/// new clients solve legacy challenges when it is absent.
+#[derive(Serialize)]
+pub struct PowArgonResp {
+    m_cost_kib: u32,
+    t_cost: u32,
+    difficulty: u32,
+}
+
 #[derive(Serialize)]
 pub struct PowChallengeResp {
     challenge_id: String,
     challenge: String, // hex
+    /// SHA-256 leading-zero-bit target. For hybrid challenges this is the
+    /// PRE-FILTER difficulty (already reduced by the argon bits, so total
+    /// nonce-grinding work stays ~2^final).
     difficulty: u32,
     expires_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    argon: Option<PowArgonResp>,
 }
 
 pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallengeResp>, ApiError> {
-    // Endpoint-wide cap: unauthenticated Redis write per call.
+    // Endpoint-wide cap: unauthenticated Redis write per call. This cap also
+    // bounds the server's own hybrid VERIFICATION cost - every verify must
+    // first consume a challenge issued here, so at most `limit` Argon2id
+    // evaluations per window can ever be forced on the server.
     crate::routes::rate_limit(&st, "powchal", "global", 60, 60).await?;
     let mut data = [0u8; 32];
     getrandom::getrandom(&mut data).map_err(|_| ApiError::internal())?;
@@ -44,16 +62,32 @@ pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallen
     record_challenge_request(&st.redis)
         .await
         .map_err(|_| ApiError::internal())?;
-    let difficulty = compute_difficulty(&st.redis)
+    let final_difficulty = compute_difficulty(&st.redis)
         .await
         .map_err(|_| ApiError::internal())?
         .final_difficulty;
+
+    // Hybrid split (docs 8.5.1): pressure drives BOTH layers from one number.
+    let (sha_difficulty, argon) = if st.config.pow_argon2_enabled {
+        let bits = pow_difficulty::argon_difficulty(final_difficulty);
+        (
+            pow_difficulty::sha_difficulty_for_hybrid(final_difficulty, bits),
+            Some(crate::powcheck::ArgonParams {
+                m_cost_kib: pow_difficulty::ARGON_M_COST_KIB,
+                t_cost: pow_difficulty::ARGON_T_COST,
+                difficulty: bits,
+            }),
+        )
+    } else {
+        (final_difficulty, None)
+    };
 
     rds::store_pow_challenge(
         &st.redis,
         &id.to_string(),
         &data,
-        difficulty,
+        sha_difficulty,
+        argon,
         unix_ts_ms(),
         10 * 60,
     )
@@ -63,8 +97,13 @@ pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallen
     Ok(Json(PowChallengeResp {
         challenge_id: id.to_string(),
         challenge: hex::encode(data),
-        difficulty,
+        difficulty: sha_difficulty,
         expires_at,
+        argon: argon.map(|a| PowArgonResp {
+            m_cost_kib: a.m_cost_kib,
+            t_cost: a.t_cost,
+            difficulty: a.difficulty,
+        }),
     }))
 }
 

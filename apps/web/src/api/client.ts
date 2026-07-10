@@ -36,16 +36,27 @@ async function del<T>(path: string, token?: string): Promise<T> {
 
 // --- PoW + registration ---
 
+/** Argon2id Layer-2 parameters (docs 8.5.1). Present on hybrid challenges;
+ *  absent = legacy SHA-only challenge (old server / emergency rollback). */
+export interface PowArgon {
+  m_cost_kib: number;
+  t_cost: number;
+  difficulty: number; // leading-zero-bit target over the Argon2id output
+}
+
 export interface PowChallenge {
   challenge_id: string;
   challenge: string; // hex
+  /** SHA-256 target; for hybrid challenges this is the pre-filter difficulty. */
   difficulty: number;
   expires_at: number;
+  argon?: PowArgon;
 }
 export const powChallenge = () => post<PowChallenge>("/auth/pow_challenge", {});
 
 /** A solved PoW the server consumes single-use (registration + the PoW-gated
- *  public fetches). solution_hash is hex SHA-256(challenge || nonce_le). */
+ *  public fetches). solution_hash is hex SHA-256(challenge || nonce_le) for
+ *  legacy challenges, or the Argon2id output for hybrid ones (docs 8.5.1). */
 export interface PowProof {
   challenge_id: string;
   nonce: number;

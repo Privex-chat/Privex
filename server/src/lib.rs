@@ -82,6 +82,10 @@ pub async fn build_state_with_store(
         online: Arc::new(ws::state::Online::new()),
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
         kt_cache: kt_cache::KtCache::new(),
+        ready_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        pow_verify_sem: Arc::new(tokio::sync::Semaphore::new(
+            state::POW_VERIFY_MAX_CONCURRENCY,
+        )),
     })
 }
 

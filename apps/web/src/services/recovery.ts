@@ -26,7 +26,6 @@ import {
   type OpaqueFinish,
   type OpaqueLoginResult,
   type OpaqueStart,
-  type PowResult,
 } from "../crypto/onboarding-crypto";
 
 export interface RecoveryCryptoApi {
@@ -45,7 +44,7 @@ export interface RecoveryCryptoApi {
   ): Promise<OpaqueLoginResult>;
   recoverBundleFromSeed(masterSeed: Uint8Array): Promise<IdentityBundle>;
   seedToMasterSeed(mnemonic: string): Promise<Uint8Array>;
-  solvePow(challenge: Uint8Array, difficulty: number): Promise<PowResult>;
+  solvePow: import("./pow").SolvePow;
 }
 
 export const workerRecoveryCrypto: RecoveryCryptoApi = {
@@ -55,7 +54,7 @@ export const workerRecoveryCrypto: RecoveryCryptoApi = {
   opaqueLoginFinish: (cs, sr, pw) => cryptoCall("opaque_login_finish", [cs, sr, pw]),
   recoverBundleFromSeed: (seed) => cryptoCall("recover_bundle", [seed]),
   seedToMasterSeed: (m) => cryptoCall("seed_phrase_to_master_seed", [m]),
-  solvePow: (c, d) => cryptoCall("solve_pow", [c, d]),
+  solvePow: (c, d, a) => cryptoCall("solve_pow", [c, d, a]),
 };
 
 /** Upload the recovered device's fresh signed prekey + one-time prekeys so peers

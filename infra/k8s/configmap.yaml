@@ -17,5 +17,8 @@ data:
   R2_REGION: "auto"
   R2_BUCKET: "privex-files"
   FILE_UPLOADS_ENABLED: "true"
+  # Argon2id hybrid Layer-2 PoW (docs 8.5.1). "false" is the emergency rollback
+  # only (cached pre-hybrid PWA clients can't solve hybrid challenges).
+  POW_ARGON2_ENABLED: "true"
   # PVX-05: serving pods NEVER migrate on boot - the pre-deploy Job owns it.
   PRIVEX_SKIP_MIGRATIONS: "1"

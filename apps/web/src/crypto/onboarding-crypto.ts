@@ -225,17 +225,37 @@ export interface PowResult {
   solutionHash: Uint8Array;
 }
 
+/** Argon2id Layer-2 parameters as issued with the challenge (docs 8.5.1). */
+export interface PowArgonParams {
+  m_cost_kib: number;
+  t_cost: number;
+  difficulty: number;
+}
+
 /** Solve a PoW challenge. `onProgress` receives the attempt count. nonce is
  *  returned as a JS number: difficulty-22 nonces are far below 2^53, so JSON is
- *  safe. ponytail: holds while difficulty stays sane (<~45 bits). */
+ *  safe. ponytail: holds while difficulty stays sane (<~45 bits).
+ *  With `argon` present (hybrid challenge, docs 8.5.1) the memory-hard solver
+ *  runs instead; the returned hash is then the Argon2id output. */
 export function solvePow(
   w: WasmModule,
   challenge: Uint8Array,
   difficulty: number,
   onProgress?: (attempts: number) => void,
+  argon?: PowArgonParams,
 ): PowResult {
   const cb = onProgress ? (n: number) => onProgress(n) : undefined;
-  const sol = w.pow_solve(challenge, difficulty, cb, undefined);
+  const sol = argon
+    ? w.pow_solve_hybrid(
+        challenge,
+        difficulty,
+        argon.m_cost_kib,
+        argon.t_cost,
+        argon.difficulty,
+        cb,
+        undefined,
+      )
+    : w.pow_solve(challenge, difficulty, cb, undefined);
   return { nonce: Number(sol.nonce), solutionHash: sol.solution_hash };
 }
 

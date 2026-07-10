@@ -156,6 +156,47 @@ pub fn minimum_solve_ms(difficulty: u32) -> u64 {
     }
 }
 
+// --- Argon2id Layer 2 (docs 8.5.1) ---
+//
+// The memory-hard layer that blunts GPU/ASIC advantage: SHA-256 alone is what
+// mining hardware is optimized for; every Argon2id evaluation instead demands
+// its own ARGON_M_COST_KIB of memory bandwidth. Parameters are bound to each
+// challenge at issue time (stored in Redis), so changing these constants never
+// breaks an in-flight challenge.
+
+/// 32 MiB per evaluation - the same cost class as the app-lock KDF, chosen so a
+/// mid-range phone browser solves one eval in a few hundred ms while a GPU rig
+/// is memory-bandwidth-bound instead of compute-bound.
+pub const ARGON_M_COST_KIB: u32 = 32 * 1024;
+pub const ARGON_T_COST: u32 = 1;
+
+/// Leading-zero-bit target over the Argon2id output, derived from the SAME
+/// pressure state as the SHA difficulty: baseline 1 bit (expected 2 evals),
+/// climbing to 4 bits (expected 16 evals) at the difficulty-31 ceiling.
+pub fn argon_difficulty(final_difficulty: u32) -> u32 {
+    (1 + final_difficulty.saturating_sub(22) / 3).min(4)
+}
+
+/// SHA pre-filter bits for a hybrid challenge: the total nonce-grinding work
+/// stays ~2^final (expected SHA hashes = 2^(sha + argon)), so turning the
+/// hybrid on does NOT slow honest clients' SHA phase - it adds the memory-hard
+/// evals on top. Floor of 12 keeps the pre-filter meaningful (bounds server
+/// verification to solutions that already cost ~4k hashes).
+pub fn sha_difficulty_for_hybrid(final_difficulty: u32, argon_difficulty: u32) -> u32 {
+    final_difficulty.saturating_sub(argon_difficulty).max(12)
+}
+
+/// Suspicion floor for a hybrid solve. The SHA hash runs for EVERY nonce, and a
+/// full solution takes ~2^(sha+argon) nonces on average (that's the whole
+/// "total work stays 2^final" design), so the SHA floor must use the COMBINED
+/// bits, not just the pre-filter bits. Plus the ~2^argon Argon2id evaluations
+/// at a conservative 15 ms each (fast native hardware; browsers take 10-30x
+/// longer). Both are conservative underestimates, so this stays a floor that
+/// only flags impossibly-fast solves, not merely fast hardware.
+pub fn minimum_hybrid_solve_ms(sha_difficulty: u32, argon_difficulty: u32) -> u64 {
+    minimum_solve_ms(sha_difficulty + argon_difficulty) + (1u64 << argon_difficulty.min(16)) * 15
+}
+
 pub async fn record_challenge_request(redis: &RedisPool) -> anyhow::Result<()> {
     let minute = unix_ts() / 60;
     incr_expiring(
@@ -249,5 +290,36 @@ mod tests {
         assert_eq!(suspicion_bonus(11), 1);
         assert_eq!(suspicion_bonus(31), 2);
         assert_eq!(suspicion_bonus(61), 3);
+    }
+
+    #[test]
+    fn argon_layer_scales_with_pressure() {
+        // Baseline → 1 bit; ceiling → 4 bits.
+        assert_eq!(argon_difficulty(22), 1);
+        assert_eq!(argon_difficulty(25), 2);
+        assert_eq!(argon_difficulty(28), 3);
+        assert_eq!(argon_difficulty(31), 4);
+        // Below-baseline (test configs) never underflows.
+        assert_eq!(argon_difficulty(8), 1);
+    }
+
+    #[test]
+    fn hybrid_sha_bits_preserve_total_work() {
+        // sha + argon == final at every pressure level (down to the floor).
+        for f in 22..=31 {
+            let a = argon_difficulty(f);
+            assert_eq!(sha_difficulty_for_hybrid(f, a) + a, f);
+        }
+        // Tiny test difficulties clamp to the floor instead of underflowing.
+        assert_eq!(sha_difficulty_for_hybrid(8, 1), 12);
+    }
+
+    #[test]
+    fn hybrid_minimum_uses_combined_sha_bits() {
+        // final 22 = 21 SHA + 1 argon: combined-22 SHA floor (100ms) + 2^1*15ms.
+        assert_eq!(minimum_hybrid_solve_ms(21, 1), 100 + 30);
+        // Ceiling final 31 = 27 SHA + 4 argon: combined-31 SHA floor (51200ms)
+        // + 2^4*15ms. (The pre-filter-only floor would undercount by 16x.)
+        assert_eq!(minimum_hybrid_solve_ms(27, 4), 51_200 + 240);
     }
 }
