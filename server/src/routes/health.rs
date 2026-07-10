@@ -6,6 +6,8 @@
 //                 instead of sending traffic to a broken one.
 // /health       - retained alias for /health/live (external monitors / proxies).
 
+use std::time::{Duration, Instant};
+
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -19,17 +21,41 @@ pub async fn health_live() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
+/// Readiness cache TTL. /health/ready is public and unauthenticated but each
+/// probe costs a Postgres query + Redis PING + an object-store GET (real money
+/// on S3/R2 op pricing) - an unauthenticated hammer must not amplify into
+/// dependency load. Probes run at most once per TTL per process; every request
+/// in between is answered from memory (state.ready_cache). 2 s is far fresher
+/// than any LB probe interval.
+const READY_CACHE_TTL: Duration = Duration::from_secs(2);
+
 /// Readiness: every hard dependency answers. 200 when all pass, 503 otherwise,
 /// with a body naming which check failed (no user data - just dependency names).
 pub async fn health_ready(State(st): State<AppState>) -> (StatusCode, Json<Value>) {
-    // Run the three probes concurrently so readiness waits only for the slowest
-    // dependency, not their sum. A get of a missing key returns Ok(None); only a
-    // transport/auth failure errs, so it's a cheap store reachability probe.
-    let (db_ok, redis_ok, store_ok) = tokio::join!(
-        async { sqlx::query("SELECT 1").execute(&st.db).await.is_ok() },
-        redis_ping(&st.redis),
-        async { st.store.get("__health_probe__").await.is_ok() },
-    );
+    let cached = st
+        .ready_cache
+        .lock()
+        .expect("ready cache lock")
+        .as_ref()
+        .filter(|(at, _)| at.elapsed() < READY_CACHE_TTL)
+        .map(|(_, checks)| *checks);
+
+    let (db_ok, redis_ok, store_ok) = match cached {
+        Some(checks) => checks,
+        None => {
+            // Run the three probes concurrently so readiness waits only for the
+            // slowest dependency, not their sum. A get of a missing key returns
+            // Ok(None); only a transport/auth failure errs, so it's a cheap
+            // store reachability probe.
+            let checks = tokio::join!(
+                async { sqlx::query("SELECT 1").execute(&st.db).await.is_ok() },
+                redis_ping(&st.redis),
+                async { st.store.get("__health_probe__").await.is_ok() },
+            );
+            *st.ready_cache.lock().expect("ready cache lock") = Some((Instant::now(), checks));
+            checks
+        }
+    };
 
     let ready = db_ok && redis_ok && store_ok;
     let status = if ready {

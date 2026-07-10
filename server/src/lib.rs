@@ -82,6 +82,7 @@ pub async fn build_state_with_store(
         online: Arc::new(ws::state::Online::new()),
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
         kt_cache: kt_cache::KtCache::new(),
+        ready_cache: Arc::new(std::sync::Mutex::new(None)),
     })
 }
 

@@ -28,6 +28,12 @@ pub struct Config {
     pub opaque_server_setup: Vec<u8>,
     /// PoW leading-zero-bit difficulty for registration challenges.
     pub pow_difficulty: i16,
+    /// Argon2id hybrid Layer-2 PoW (docs 8.5.1). ON by default - the memory-hard
+    /// layer is what blunts GPU/ASIC farms on every PoW-gated endpoint. The env
+    /// switch (POW_ARGON2_ENABLED=false) exists ONLY as an emergency rollback
+    /// during a rolling deploy (cached PWA clients that predate the hybrid
+    /// solver cannot solve hybrid challenges until they pick up the new bundle).
+    pub pow_argon2_enabled: bool,
     /// WebSocket heartbeat interval (seconds).
     pub ws_ping_secs: u64,
     pub r2_bucket: String,
@@ -144,6 +150,11 @@ impl Config {
                 .ok()
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(true),
+            // Secure by default; "false"/"0" is the emergency rollback only.
+            pow_argon2_enabled: std::env::var("POW_ARGON2_ENABLED")
+                .ok()
+                .map(|v| v == "1" || v.to_lowercase() == "true")
+                .unwrap_or(true),
             turn_secret: secret("TURN_SECRET"),
             // Fail CLOSED: an unset/empty origin allowlist must stop the server,
             // never silently become allow-all. (Tests bypass via Config::for_test.)
@@ -189,6 +200,7 @@ impl Config {
             time_signing_key: [11u8; 32], // deterministic test time signer
             opaque_server_setup: crate::crypto::opaque::new_setup(),
             pow_difficulty,
+            pow_argon2_enabled: true, // integration covers the hybrid path
             ws_ping_secs: 2, // fast heartbeat for tests
 
             r2_bucket: String::new(),

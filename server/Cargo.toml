@@ -86,3 +86,11 @@ rand_core = { version = "0.6.4", features = ["getrandom"] }
 [profile.release]
 debug = false
 strip = "symbols"
+
+# The hybrid PoW (docs 8.5.1) evaluates Argon2id at 32 MiB in tests; unoptimized
+# argon2/sha2 make the integration suite crawl. Optimize just the hash crates in
+# dev/test builds — everything else keeps fast debug compiles.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3

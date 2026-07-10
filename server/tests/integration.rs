@@ -161,6 +161,29 @@ fn register_body(
 type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
+/// Solve a challenge exactly as issued by /auth/pow_challenge: legacy SHA-only
+/// when the `argon` block is absent, the Argon2id hybrid (docs 8.5.1) when
+/// present — the same dispatch the real client makes.
+fn solve_issued_pow(pow: &serde_json::Value) -> (u64, String) {
+    let challenge = hex::decode(pow["challenge"].as_str().unwrap()).unwrap();
+    let difficulty = pow["difficulty"].as_u64().unwrap() as u32;
+    match pow.get("argon").filter(|a| !a.is_null()) {
+        Some(a) => {
+            let argon = powcheck::ArgonParams {
+                m_cost_kib: a["m_cost_kib"].as_u64().unwrap() as u32,
+                t_cost: a["t_cost"].as_u64().unwrap() as u32,
+                difficulty: a["difficulty"].as_u64().unwrap() as u32,
+            };
+            let (nonce, sol) = powcheck::hybrid_solve(&challenge, difficulty, &argon);
+            (nonce, hex::encode(sol))
+        }
+        None => {
+            let (nonce, sol) = powcheck::pow_solve(&challenge, difficulty);
+            (nonce, hex::encode(sol))
+        }
+    }
+}
+
 async fn register_and_auth(http: &reqwest::Client, base: &str) -> (Identity, String) {
     let pow: serde_json::Value = http
         .post(format!("{base}/auth/pow_challenge"))
@@ -171,12 +194,10 @@ async fn register_and_auth(http: &reqwest::Client, base: &str) -> (Identity, Str
         .await
         .unwrap();
     let challenge_id = pow["challenge_id"].as_str().unwrap().to_string();
-    let challenge_bytes = hex::decode(pow["challenge"].as_str().unwrap()).unwrap();
-    let difficulty = pow["difficulty"].as_u64().unwrap() as u32;
 
     let id = new_identity();
-    let (nonce, sol) = powcheck::pow_solve(&challenge_bytes, difficulty);
-    let body = register_body(&id, &challenge_id, nonce, &hex::encode(sol));
+    let (nonce, sol) = solve_issued_pow(&pow);
+    let body = register_body(&id, &challenge_id, nonce, &sol);
     assert_eq!(
         http.post(format!("{base}/keys/register"))
             .json(&body)
@@ -387,6 +408,7 @@ async fn test_pow_proof(redis: &RedisPool) -> serde_json::Value {
         &challenge_id,
         &challenge,
         difficulty,
+        None, // legacy SHA-only challenge — keeps the pre-hybrid verify path covered
         pow_difficulty::unix_ts_ms().saturating_sub(10_000),
         30 * 60,
     )
@@ -474,7 +496,9 @@ async fn server_end_to_end() {
     assert!(metrics_body.contains("privex_cleanup_failures_total"));
     assert!(!metrics_body.contains("px_"), "metrics must carry no user ids");
 
-    // 2. PoW challenge issuance
+    // 2. PoW challenge issuance — hybrid (docs 8.5.1): baseline final difficulty
+    // 22 splits into a 21-bit SHA pre-filter + 1 Argon2id bit, at the published
+    // memory-hard parameters.
     let pow: serde_json::Value = http
         .post(format!("{base}/auth/pow_challenge"))
         .send()
@@ -484,17 +508,19 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     let challenge_id = pow["challenge_id"].as_str().unwrap().to_string();
-    let challenge_bytes = hex::decode(pow["challenge"].as_str().unwrap()).unwrap();
     let difficulty = pow["difficulty"].as_u64().unwrap() as u32;
     assert_eq!(
-        difficulty, 22,
-        "normal conditions should return difficulty 22"
+        difficulty, 21,
+        "normal conditions: 22 final = 21 SHA bits + 1 argon bit"
     );
+    assert_eq!(pow["argon"]["difficulty"].as_u64().unwrap(), 1);
+    assert_eq!(pow["argon"]["m_cost_kib"].as_u64().unwrap(), 32 * 1024);
+    assert_eq!(pow["argon"]["t_cost"].as_u64().unwrap(), 1);
 
     // 3. registration with a valid PoW solution
     let id = new_identity();
-    let (nonce, sol) = powcheck::pow_solve(&challenge_bytes, difficulty);
-    let body = register_body(&id, &challenge_id, nonce, &hex::encode(sol));
+    let (nonce, sol) = solve_issued_pow(&pow);
+    let body = register_body(&id, &challenge_id, nonce, &sol);
     let r = http
         .post(format!("{base}/keys/register"))
         .json(&body)
@@ -528,8 +554,6 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     let invalid_challenge_id = invalid_pow["challenge_id"].as_str().unwrap().to_string();
-    let invalid_challenge_bytes = hex::decode(invalid_pow["challenge"].as_str().unwrap()).unwrap();
-    let invalid_difficulty = invalid_pow["difficulty"].as_u64().unwrap() as u32;
     let invalid_id = new_identity();
     let invalid_body = register_body(&invalid_id, &invalid_challenge_id, 0, &"00".repeat(32));
     let r = http
@@ -539,13 +563,12 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     assert_eq!(r.status(), 400, "invalid PoW must be rejected");
-    let (valid_nonce_after_invalid, valid_sol_after_invalid) =
-        powcheck::pow_solve(&invalid_challenge_bytes, invalid_difficulty);
+    let (valid_nonce_after_invalid, valid_sol_after_invalid) = solve_issued_pow(&invalid_pow);
     let retry_after_invalid = register_body(
         &invalid_id,
         &invalid_challenge_id,
         valid_nonce_after_invalid,
-        &hex::encode(valid_sol_after_invalid),
+        &valid_sol_after_invalid,
     );
     let r = http
         .post(format!("{base}/keys/register"))
@@ -560,7 +583,9 @@ async fn server_end_to_end() {
     );
 
     // 4c. Dynamic Redis pressure: 20 recent registrations raises the next
-    // challenge to difficulty 25 without any IP/user/device key.
+    // challenge to final difficulty 25 without any IP/user/device key. Under the
+    // hybrid split that is 23 SHA bits + 2 Argon2id bits — BOTH layers climb
+    // from the same aggregate pressure.
     set_current_registration_pressure(&state.redis, 20).await;
     let pressured_pow: serde_json::Value = http
         .post(format!("{base}/auth/pow_challenge"))
@@ -572,8 +597,13 @@ async fn server_end_to_end() {
         .unwrap();
     assert_eq!(
         pressured_pow["difficulty"].as_u64().unwrap(),
-        25,
-        "20 recent registrations should raise difficulty to 25"
+        23,
+        "20 recent registrations: final 25 = 23 SHA bits + 2 argon bits"
+    );
+    assert_eq!(
+        pressured_pow["argon"]["difficulty"].as_u64().unwrap(),
+        2,
+        "the memory-hard layer climbs with the same pressure"
     );
     clear_pow_pressure(&state.redis).await;
 
@@ -589,6 +619,7 @@ async fn server_end_to_end() {
         &fast_challenge_id,
         &fast_challenge,
         fast_difficulty,
+        None, // legacy SHA-only challenge (fast-solve suspicion path)
         pow_difficulty::unix_ts_ms() + 60_000,
         30 * 60,
     )
@@ -1858,6 +1889,7 @@ async fn revocation_check_fails_closed_when_redis_down() {
         online: Arc::new(ws::state::Online::new()),
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
         kt_cache: privex_server::kt_cache::KtCache::new(),
+        ready_cache: Arc::new(std::sync::Mutex::new(None)),
     };
 
     // Mint with the config-derived token MAC subkey (PVX-24), not the raw root.
@@ -1910,6 +1942,7 @@ async fn readiness_returns_503_when_deps_down() {
         online: Arc::new(privex_server::ws::state::Online::new()),
         devlink: Arc::new(privex_server::ws::devlink::DevlinkRooms::new()),
         kt_cache: privex_server::kt_cache::KtCache::new(),
+        ready_cache: Arc::new(std::sync::Mutex::new(None)),
     };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

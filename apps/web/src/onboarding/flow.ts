@@ -14,6 +14,7 @@ import {
   fromHex,
   toHex,
   type IdentityBundle,
+  type PowArgonParams,
   type PowResult,
   type HybridSig,
 } from "../crypto/onboarding-crypto";
@@ -22,7 +23,12 @@ import { finalizeIdentity, loadBundle, persistGeneratedIdentity, saveProgress } 
 
 export interface CryptoApi {
   genIdentity(entropy: Uint8Array): Promise<IdentityBundle>;
-  solvePow(challenge: Uint8Array, difficulty: number, onProgress?: (n: number) => void): Promise<PowResult>;
+  solvePow(
+    challenge: Uint8Array,
+    difficulty: number,
+    onProgress?: (n: number) => void,
+    argon?: PowArgonParams,
+  ): Promise<PowResult>;
   signChallenge(
     challenge: Uint8Array,
     userId: string,
@@ -35,7 +41,7 @@ export interface CryptoApi {
 /** Production crypto: routes to the SharedWorker. */
 export const workerCrypto: CryptoApi = {
   genIdentity: (e) => cryptoCall("gen_identity", [e]),
-  solvePow: (c, d, onP) => cryptoCall("solve_pow", [c, d], onP),
+  solvePow: (c, d, onP, a) => cryptoCall("solve_pow", [c, d, a], onP),
   signChallenge: (c, uid, ts, ed, dil) => cryptoCall("sign_challenge", [c, uid, ts, ed, dil]),
 };
 
@@ -85,11 +91,18 @@ export async function completeRegistration(
 
   const chal = await api.powChallenge();
   // Progress is best-effort: PoW attempt count → a rough percent of the expected
-  // ~2^difficulty/2 average. Capped at 99% until the solution lands.
-  const expected = Math.pow(2, chal.difficulty - 1);
-  const pow = await crypto.solvePow(fromHex(chal.challenge), chal.difficulty, (n) => {
-    onPow?.(Math.min(99, Math.floor((n / expected) * 100)));
-  });
+  // ~2^(total bits)/2 average nonce count. Hybrid challenges (docs 8.5.1) grind
+  // 2^(sha + argon) nonces on average. Capped at 99% until the solution lands.
+  const totalBits = chal.difficulty + (chal.argon?.difficulty ?? 0);
+  const expected = Math.pow(2, totalBits - 1);
+  const pow = await crypto.solvePow(
+    fromHex(chal.challenge),
+    chal.difficulty,
+    (n) => {
+      onPow?.(Math.min(99, Math.floor((n / expected) * 100)));
+    },
+    chal.argon,
+  );
 
   try {
     await api.register({

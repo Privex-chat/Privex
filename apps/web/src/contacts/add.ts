@@ -10,7 +10,6 @@ import {
   type PqxdhInit,
   type VerifiedBundle,
 } from "../crypto/contact-crypto";
-import type { PowResult } from "../crypto/onboarding-crypto";
 import { cryptoCall } from "../workers/crypto-client";
 import { addVerifiedContact, isKeyChanged } from "../data/contacts";
 import { loadBundle } from "../onboarding/store";
@@ -18,7 +17,7 @@ import { sendContactHello } from "../services/messaging";
 import { solveServerPow } from "../services/pow";
 
 export interface ContactCryptoApi {
-  solvePow(challenge: Uint8Array, difficulty: number): Promise<PowResult>;
+  solvePow: import("../services/pow").SolvePow;
   verifyBundle(pinnedKtPubHex: string, resp: api.KeyBundleResp): Promise<VerifiedBundle>;
   pqxdhInitiate(myIkX25519Priv: Uint8Array, b: PqxdhBundleInput): Promise<PqxdhInit>;
   ratchetInitAlice(sharedSecret: Uint8Array, bobRatchetPub: Uint8Array): Promise<Uint8Array>;
@@ -27,7 +26,7 @@ export interface ContactCryptoApi {
 /** Production crypto: routes to the SharedWorker. ratchet_init_alice returns
  *  plain bytes (bincode session state) → the existing passthrough handles it. */
 export const workerContactCrypto: ContactCryptoApi = {
-  solvePow: (c, d) => cryptoCall("solve_pow", [c, d]),
+  solvePow: (c, d, a) => cryptoCall("solve_pow", [c, d, a]),
   verifyBundle: (pin, resp) => cryptoCall("verify_bundle", [pin, resp]),
   pqxdhInitiate: (priv, b) => cryptoCall("pqxdh_initiate", [priv, b]),
   ratchetInitAlice: (ss, pub) => cryptoCall("ratchet_init_alice", [ss, pub]),
