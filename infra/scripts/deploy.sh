@@ -51,23 +51,22 @@ docker compose -f infra/docker-compose.yml exec -T minio \
 docker compose -f infra/docker-compose.yml exec -T minio \
   mc mb "local/${BUCKET}" --ignore-existing 2>/dev/null || true
 
-# ── 3. Apply database migrations ──
-echo "[3/9] Applying database migrations..."
-for f in server/migrations/*.sql; do
-  echo "  Running $(basename "$f")..."
-  docker compose -f infra/docker-compose.yml exec -T postgres \
-    psql -U privex -d privex -q -f - < "$f"
-done
-
-# ── 4. Install frontend dependencies ──
-echo "[4/9] Installing frontend dependencies..."
+# ── 3. Install frontend dependencies ──
+echo "[3/9] Installing frontend dependencies..."
 pnpm install --frozen-lockfile
 
-# ── 5. Build Rust backend (includes helper binaries) ──
-echo "[5/9] Building Rust server..."
+# ── 4. Build Rust backend (includes helper binaries) ──
+echo "[4/9] Building Rust server..."
 cd server
 cargo build --release --bin privex-server --bin gen_opaque_setup --bin derive_pubkeys
 cd "$PRIVEX_HOME"
+
+# ── 5. Apply database migrations (single source of truth: sqlx) ──
+# PVX-05: run the migrator ONCE here, not via a raw-psql loop and not on every
+# pod boot. sqlx tracks applied migrations in _sqlx_migrations, so this is
+# idempotent and won't diverge from the app's own view of the schema.
+echo "[5/9] Applying database migrations (privex-server migrate)..."
+./server/target/release/privex-server migrate
 
 # ── 6. Derive KT + TIME signing public keys for the frontend build ──
 echo "[6/9] Deriving signing public keys..."

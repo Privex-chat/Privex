@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: privex-server
+  namespace: privex
+  labels:
+    app.kubernetes.io/name: privex-server
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5 # keep prior ReplicaSets so `kubectl rollout undo` works
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: privex-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below `replicas` healthy pods during a roll
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: privex-server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: privex-server
+          # Immutable, tagged image. CI sets the digest/tag per release; rollback
+          # = redeploy the prior tag (or `kubectl rollout undo`). Never :latest.
+          image: ghcr.io/privex-chat/privex-server:REPLACE_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: privex-config
+            - secretRef:
+                name: privex-secrets
+          # Liveness = process up (cheap constant). Readiness = deps reachable
+          # (PG/Redis/store); a failing dep sheds this pod instead of serving
+          # errors (PVX-02). Liveness is lenient so a transient dep blip doesn't
+          # kill an otherwise-healthy process - readiness handles shedding.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30 # up to ~60s for a cold start
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              # Strict caps bound side-channel exfil surface (docs 8.4).
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true # no writes to the container FS (docs 8.4)
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Memory-backed scratch so any incidental temp write never hits disk
+            # and doesn't fail against the read-only root.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

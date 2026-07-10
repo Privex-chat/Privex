@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Core workload. The real `privex-secrets` Secret is created out-of-band
+# (SOPS/Vault) - secret.example.yaml is documentation and is intentionally NOT
+# listed here. Monitoring (NetworkPolicy, ServiceMonitor, Grafana) is layered by
+# the monitoring manifests (see monitoring/).
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml
+  - hpa.yaml
+  - migration-job.yaml
+  # Monitoring / metrics wiring (PVX-02/04).
+  - monitoring/networkpolicy.yaml
+  - monitoring/servicemonitor.yaml
+  - monitoring/grafana-dashboard.yaml
+
+# CI pins the release tag here (or via `kustomize edit set image`), so the
+# Deployment and the migration Job always run the SAME build.
+images:
+  - name: ghcr.io/privex-chat/privex-server
+    newTag: REPLACE_TAG

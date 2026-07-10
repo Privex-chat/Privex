@@ -1,0 +1,42 @@
+# Default-deny ingress for the whole namespace, then explicitly allow (a) the
+# ingress controller to reach the API port and (b) Prometheus to scrape it.
+# NOTE: /metrics and the API share port 8080, so an L3/L4 NetworkPolicy cannot
+# hide /metrics by path - that block lives at the edge/ingress (see README
+# "keeping /metrics private"). This policy limits WHO can reach the pod port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: privex
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  # No ingress rules = deny all ingress by default.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: privex-server-ingress
+  namespace: privex
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: privex-server
+  policyTypes: ["Ingress"]
+  ingress:
+    # Public API traffic arrives via the ingress controller only.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # In-cluster Prometheus scrape of /metrics (never from the public edge).
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
