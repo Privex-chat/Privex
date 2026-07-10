@@ -157,10 +157,15 @@ async function sendLinkFrame(t: Transport, key: CryptoKey): Promise<void> {
   t.send(frame("enc", { d: await seal(key, link) }));
 }
 
+const MAX_LABEL_CHARS = 64;
+
 async function handleLinkFrame(inner: LinkFrame, channelSecret: Uint8Array): Promise<void> {
   if (!(await deviceSyncEnabled())) return; // mutual opt-in
   if (!/^[0-9a-f]{32}$/.test(inner.id)) return;
-  await storeLinkedDevice(channelSecret, inner.id, String(inner.label ?? "Linked device"));
+  // The label is peer-supplied (authenticated channel, but still validate): cap
+  // its length before storing/displaying (PVX-19).
+  const label = String(inner.label ?? "Linked device").slice(0, MAX_LABEL_CHARS);
+  await storeLinkedDevice(channelSecret, inner.id, label);
 }
 
 /** Exporter (the existing device): shows the QR, waits for the peer, streams local

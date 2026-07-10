@@ -70,6 +70,16 @@ describe("identity generation", () => {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const ts = 1_900_000_000;
     const input = challengeSigningInput(challenge, b.userId, ts);
+    // Exact layout cross-check against server challenge_signing_input_v1 (PVX-21):
+    // "privex-auth-v1" || challenge(32) || user_id(utf8) || timestamp(BE u64).
+    // Reconstructed independently here so a layout drift on either side is caught.
+    const enc = new TextEncoder();
+    const ctxB = enc.encode("privex-auth-v1");
+    const idB = enc.encode(b.userId);
+    const tsB = new Uint8Array(8);
+    new DataView(tsB.buffer).setBigUint64(0, BigInt(ts), false);
+    const expected = new Uint8Array([...ctxB, ...challenge, ...idB, ...tsB]);
+    expect(Array.from(input)).toEqual(Array.from(expected));
     const sig = signHybrid(wasm, input, b.identity.ed25519_priv, b.identity.dilithium3_priv);
     expect(
       wasm.verify_hybrid(input, sig.ed, b.identity.ed25519_pub, sig.dil, b.identity.dilithium3_pub),

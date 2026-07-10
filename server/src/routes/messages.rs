@@ -60,7 +60,7 @@ pub async fn send(
     // only ever a Redis HMAC key - never stored with the message.
     let allowed = rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         "msgsend",
         &sender,
         120,

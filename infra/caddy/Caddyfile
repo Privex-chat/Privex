@@ -20,11 +20,13 @@
 		-Server
 	}
 
-	# Health check (short-circuits before hitting the backend).
-	respond /health 200 {
-		body "{\"status\":\"ok\"}"
-		close
-	}
+	# Health probes must hit the REAL backend so external monitors observe true
+	# readiness, not a constant 200 (PVX-02). No short-circuit here.
+
+	# /metrics is internal-only aggregate telemetry (PVX-04) - never expose it at
+	# the public edge. The deploy setup scrapes it on the internal network.
+	@metrics path /metrics
+	respond @metrics 404
 
 	# Reverse proxy to the Rust server.
 	reverse_proxy privex-server:8080

@@ -26,7 +26,7 @@ use futures_util::{SinkExt, StreamExt};
 use sqlx::types::Uuid;
 use sqlx::Row;
 
-use privex_server::auth::sig::challenge_signing_input;
+use privex_server::auth::sig::{challenge_signing_input, challenge_signing_input_v1};
 use privex_server::config::Config;
 use privex_server::crypto::{kt_log as ktree, pow_difficulty};
 use privex_server::store::MemoryStore;
@@ -198,7 +198,8 @@ async fn register_and_auth(http: &reqwest::Client, base: &str) -> (Identity, Str
         .unwrap();
     let chal_bytes = hex::decode(chal["challenge"].as_str().unwrap()).unwrap();
     let ts = now_unix();
-    let msg = challenge_signing_input(&chal_bytes, &id.user_id, ts);
+    // Current v1 (domain-separated) signing input - what real clients send.
+    let msg = challenge_signing_input_v1(&chal_bytes, &id.user_id, ts);
     let sig_ed = id.signing.sign(&msg).to_bytes();
     let sig_dil = id.dsk.try_sign(&msg, &[]).unwrap();
     let vr: serde_json::Value = http
@@ -447,13 +448,31 @@ async fn server_end_to_end() {
     let base = format!("http://{addr}");
     let http = reqwest::Client::new();
 
-    // 1. /health
-    let r = http.get(format!("{base}/health")).send().await.unwrap();
+    // 1. /health (+ /health/live alias): liveness constant 200.
+    for path in ["/health", "/health/live"] {
+        let r = http.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+        assert_eq!(
+            r.json::<serde_json::Value>().await.unwrap(),
+            serde_json::json!({"status":"ok"})
+        );
+    }
+
+    // 1b. /health/ready: all deps up here → 200 with per-check booleans.
+    let r = http.get(format!("{base}/health/ready")).send().await.unwrap();
+    assert_eq!(r.status(), 200, "readiness should pass when deps are up");
+    let ready = r.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(ready["ready"], true);
+    assert_eq!(ready["checks"]["db"], true);
+    assert_eq!(ready["checks"]["redis"], true);
+
+    // 1c. /metrics: label-free Prometheus text, and it carries NO px_ ids.
+    let r = http.get(format!("{base}/metrics")).send().await.unwrap();
     assert_eq!(r.status(), 200);
-    assert_eq!(
-        r.json::<serde_json::Value>().await.unwrap(),
-        serde_json::json!({"status":"ok"})
-    );
+    let metrics_body = r.text().await.unwrap();
+    assert!(metrics_body.contains("privex_requests_total"));
+    assert!(metrics_body.contains("privex_cleanup_failures_total"));
+    assert!(!metrics_body.contains("px_"), "metrics must carry no user ids");
 
     // 2. PoW challenge issuance
     let pow: serde_json::Value = http
@@ -615,6 +634,9 @@ async fn server_end_to_end() {
         .unwrap();
     let chal_bytes = hex::decode(chal["challenge"].as_str().unwrap()).unwrap();
     let ts = now_unix();
+    // Deliberately the LEGACY (pre-domain-separation) input: the server must keep
+    // accepting it while cached PWA builds age out (PVX-21 transitional fallback).
+    // register_and_auth() covers the current v1 layout.
     let msg = challenge_signing_input(&chal_bytes, &id.user_id, ts);
     let sig_ed = id.signing.sign(&msg).to_bytes();
     let sig_dil = id.dsk.try_sign(&msg, &[]).unwrap();
@@ -664,6 +686,36 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     assert_eq!(r.status(), 401, "bad signature must be a generic 401");
+
+    // 6b. unknown-but-valid px_id → the SAME generic 401 (PVX-08 dummy-verify
+    // path). Timing equality isn't CI-assertable; this at least exercises the
+    // absent-user branch end-to-end.
+    let ghost = format!("px_{}", rand_hex(16));
+    let gchal: serde_json::Value = http
+        .post(format!("{base}/auth/challenge"))
+        .json(&serde_json::json!({ "user_id": ghost }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let gchal_bytes = hex::decode(gchal["challenge"].as_str().unwrap()).unwrap();
+    let gts = now_unix();
+    let gmsg = challenge_signing_input_v1(&gchal_bytes, &ghost, gts);
+    let r = http
+        .post(format!("{base}/auth/verify"))
+        .json(&serde_json::json!({
+            "user_id": ghost,
+            "challenge": hex::encode(&gchal_bytes),
+            "sig_ed": hex::encode(id.signing.sign(&gmsg).to_bytes()),
+            "sig_dil": hex::encode(id.dsk.try_sign(&gmsg, &[]).unwrap()),
+            "timestamp": gts,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401, "unknown user must be a generic 401");
 
     // ===== Session 9: messages + blobs =====
 
@@ -1734,6 +1786,28 @@ async fn server_end_to_end() {
         "token must be revoked after logout_all"
     );
 
+    // 6c. /metrics is non-vacuous now: after real registration/auth/message
+    // traffic with known px_ids, the label-free counters still carry NO px_ id
+    // and NO message id (PVX-04). This scrape AFTER the flows is what makes the
+    // assertion meaningful (the earlier one only checks the endpoint works).
+    let metrics_after = http
+        .get(format!("{base}/metrics"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(metrics_after.contains("privex_requests_total"));
+    assert!(
+        !metrics_after.contains("px_"),
+        "metrics leaked a px_ id after real user traffic"
+    );
+    assert!(
+        !metrics_after.contains(&online_mid),
+        "metrics leaked a message id after real traffic"
+    );
+
     // 7. no PII in logs (now also covers WS identities, ticket, content)
     let logs = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(!logs.contains(password), "password leaked into logs");
@@ -1751,4 +1825,110 @@ async fn server_end_to_end() {
         "message content leaked into logs"
     );
     assert!(!logs.contains("px_"), "a px_ id leaked into logs");
+}
+
+// PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
+// an otherwise-valid session token is rejected by the AuthUser extractor (500,
+// treated as transient by clients) instead of silently skipping the check.
+// Needs no Docker: lazy PG pool + a Redis pool pointing at a dead port.
+#[tokio::test]
+async fn revocation_check_fails_closed_when_redis_down() {
+    use axum::extract::FromRequestParts;
+    use privex_server::auth::extract::AuthUser;
+    use privex_server::auth::token;
+    use privex_server::state::AppState;
+    use privex_server::ws;
+
+    let key = [7u8; 32];
+    let config = Config::for_test(
+        "postgres://unused:unused@127.0.0.1:1/unused".into(),
+        "redis://127.0.0.1:1".into(), // nothing listens here
+        key,
+        8,
+    );
+    let state = AppState {
+        db: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap(),
+        redis: deadpool_redis::Config::from_url("redis://127.0.0.1:1")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .unwrap(),
+        config: Arc::new(config),
+        store: Arc::new(MemoryStore::new()),
+        online: Arc::new(ws::state::Online::new()),
+        devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
+        kt_cache: privex_server::kt_cache::KtCache::new(),
+    };
+
+    // Mint with the config-derived token MAC subkey (PVX-24), not the raw root.
+    let tok = token::mint(
+        &state.config.token_mac_key,
+        "px_00000000000000000000000000000001",
+        now_unix(),
+    );
+    let req = axum::http::Request::builder()
+        .header("x-privex-auth", &tok)
+        .body(())
+        .unwrap();
+    let (mut parts, _) = req.into_parts();
+
+    use axum::response::IntoResponse;
+    let err = AuthUser::from_request_parts(&mut parts, &state)
+        .await
+        .err()
+        .expect("a valid token must be REJECTED when the revocation store is unreachable");
+    // Specifically 500 (transient), NOT 401 - a 401 would read to the client as a
+    // bad token and trigger a pointless re-auth instead of a retry.
+    assert_eq!(
+        err.into_response().status(),
+        500,
+        "Redis-unreachable must map to 500 Internal Server Error, not 401"
+    );
+}
+
+// PVX-02: /health/ready must return 503 when a dependency is unreachable, so a
+// broken pod is drained instead of served. Docker-free: point DB + Redis at dead
+// ports, serve the real router on a loopback port, and probe over HTTP.
+#[tokio::test]
+async fn readiness_returns_503_when_deps_down() {
+    let config = Config::for_test(
+        "postgres://unused:unused@127.0.0.1:1/unused".into(),
+        "redis://127.0.0.1:1".into(),
+        [7u8; 32],
+        8,
+    );
+    let state = privex_server::state::AppState {
+        db: sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(300))
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap(),
+        redis: deadpool_redis::Config::from_url("redis://127.0.0.1:1")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .unwrap(),
+        config: Arc::new(config),
+        store: Arc::new(MemoryStore::new()),
+        online: Arc::new(privex_server::ws::state::Online::new()),
+        devlink: Arc::new(privex_server::ws::devlink::DevlinkRooms::new()),
+        kt_cache: privex_server::kt_cache::KtCache::new(),
+    };
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    // Liveness stays 200 (the process is up) regardless of deps.
+    assert_eq!(
+        http.get(format!("{base}/health/live")).send().await.unwrap().status(),
+        200
+    );
+    // Readiness fails: DB + Redis are unreachable.
+    assert_eq!(
+        http.get(format!("{base}/health/ready")).send().await.unwrap().status(),
+        503,
+        "readiness must fail when deps are down"
+    );
 }

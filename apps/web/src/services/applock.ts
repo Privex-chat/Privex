@@ -15,7 +15,10 @@ import * as webauthn from "../crypto/webauthn-prf";
 // Argon2id cost for the passphrase factor (stored per-wrap so it's tunable later).
 const ARGON_M = 32768; // 32 MiB
 const ARGON_T = 3;
-export const MIN_PASSPHRASE = 6;
+// 8-char floor: the wrap blob is offline-guessable straight from IndexedDB, so
+// the only real barrier is Argon2id + passphrase entropy - 6 chars was too weak
+// against a local at-rest attacker (PVX-22).
+export const MIN_PASSPHRASE = 8;
 export const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 const IDLE_KEY = "app_lock_idle_ms";
 const FAIL_KEY = "app_lock_fail";

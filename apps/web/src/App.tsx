@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./store/auth";
-import { restoreSession } from "./services/auth-session";
+import { restoreSession, startTokenRenewal, stopTokenRenewal } from "./services/auth-session";
 import { connectWebSocket, disconnectWebSocket } from "./services/websocket";
 import { flushOutbox } from "./services/outbox";
 import { startCoverTraffic, stopCoverTraffic } from "./services/cover-traffic";
@@ -104,15 +104,20 @@ export default function App() {
   // Open the realtime socket whenever we hold a live token (restore or onboarding),
   // and run the Poisson cover-traffic ticks that drain queued receipts (docs 4.10/5.3).
   useEffect(() => {
-    if (authenticated && token) {
+    // Gate on boot === "ready": entering "locked" tears all of this down (WS,
+    // cover traffic, and token renewal) so a locked app - whose master key is
+    // gone - can't keep renewing in the background. Unlocking re-runs setup.
+    if (boot === "ready" && authenticated && token) {
       void connectWebSocket(token);
       void startCoverTraffic();
+      startTokenRenewal(); // silent re-mint at ~T-2h (PVX-07)
       return () => {
         stopCoverTraffic();
         disconnectWebSocket();
+        stopTokenRenewal();
       };
     }
-  }, [authenticated, token]);
+  }, [boot, authenticated, token]);
 
   // Drain the offline outbox when the network returns, or when the Service Worker's
   // background-sync/push wakes us (it can't send itself - no key/token). Gated on an

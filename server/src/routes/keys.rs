@@ -43,16 +43,6 @@ fn sign_root(seed: &[u8; 32], root: &[u8; 32]) -> [u8; 64] {
     SigningKey::from_bytes(seed).sign(root).to_bytes()
 }
 
-fn entries_to_leaves(entries: &[ktdb::KtEntry]) -> Result<Vec<[u8; 32]>, ApiError> {
-    entries
-        .iter()
-        .map(|e| {
-            let bh = hex::decode(&e.bundle_hash).map_err(|_| ApiError::internal())?;
-            Ok(ktree::leaf_hash(&e.user_id, &bh, e.timestamp as i64))
-        })
-        .collect()
-}
-
 #[derive(Serialize)]
 pub struct ProofNodeResp {
     left: bool,
@@ -69,23 +59,25 @@ pub struct KtProofResp {
 }
 
 async fn build_kt_proof(st: &AppState, user_id: &str) -> Result<Option<KtProofResp>, ApiError> {
-    let entries = ktdb::list_all_entries(&st.db)
+    // Cached tree: the O(N) rebuild runs only when the log grew (PVX-23).
+    let snap = st
+        .kt_cache
+        .snapshot(&st.db)
         .await
         .map_err(|_| ApiError::internal())?;
-    let leaves = entries_to_leaves(&entries)?;
 
-    // The user's latest entry = the last one (entries are seq-ordered).
-    let idx = match entries.iter().rposition(|e| e.user_id == user_id) {
+    // O(1) lookup of the user's latest entry via the snapshot's index (PVX-23),
+    // instead of an O(N) reverse scan on every fetch.
+    let idx = match snap.index_by_user.get(user_id).copied() {
         Some(i) => i,
         None => return Ok(None),
     };
 
-    let root = ktree::compute_root(&leaves);
-    let proof = ktree::inclusion_proof(&leaves, idx);
-    let sig = sign_root(&st.config.kt_signing_key, &root);
+    let proof = ktree::inclusion_proof(&snap.leaves, idx);
+    let sig = sign_root(&st.config.kt_signing_key, &snap.root);
 
     Ok(Some(KtProofResp {
-        leaf: hex::encode(leaves[idx]),
+        leaf: hex::encode(snap.leaves[idx]),
         path: proof
             .iter()
             .map(|p| ProofNodeResp {
@@ -93,9 +85,9 @@ async fn build_kt_proof(st: &AppState, user_id: &str) -> Result<Option<KtProofRe
                 hash: hex::encode(p.hash),
             })
             .collect(),
-        root: hex::encode(root),
+        root: hex::encode(snap.root),
         root_sig_ed: hex::encode(sig),
-        timestamp: entries[idx].timestamp as i64,
+        timestamp: snap.entries[idx].timestamp as i64,
     }))
 }
 
@@ -138,7 +130,7 @@ pub async fn get_key_bundle(
     // defense in depth behind the PoW.
     let allowed = rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         "keyfetch",
         &user_id,
         30,
@@ -232,16 +224,17 @@ pub struct KtRootResp {
 }
 
 pub async fn kt_root(State(st): State<AppState>) -> Result<Json<KtRootResp>, ApiError> {
-    // Unauthenticated + O(N) full-log scan + Merkle root per call → endpoint-wide cap.
+    // Unauthenticated Merkle-root fetch → endpoint-wide cap. Tree is cached, so
+    // this recomputes only when the log grew (PVX-23).
     crate::routes::rate_limit(&st, "ktroot", "global", 120, 60).await?;
-    let entries = ktdb::list_all_entries(&st.db)
+    let snap = st
+        .kt_cache
+        .snapshot(&st.db)
         .await
         .map_err(|_| ApiError::internal())?;
-    let leaves = entries_to_leaves(&entries)?;
-    let root = ktree::compute_root(&leaves);
-    let sig = sign_root(&st.config.kt_signing_key, &root);
+    let sig = sign_root(&st.config.kt_signing_key, &snap.root);
     Ok(Json(KtRootResp {
-        root: hex::encode(root),
+        root: hex::encode(snap.root),
         root_sig_ed: hex::encode(sig),
         timestamp: now_unix(),
     }))

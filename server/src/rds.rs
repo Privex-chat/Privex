@@ -1,6 +1,7 @@
 // Redis access (deadpool-redis). NO raw user_id ever stored as a key: every key
-// is namespaced by HMAC-SHA256(session_hmac_key, identity). Redis runs with no
-// persistence (save "" / appendonly no) - nothing here touches disk.
+// is namespaced by HMAC-SHA256(redis_ns_key, identity) - a purpose-bound subkey
+// of the root secret (PVX-24), separate from the session-token MAC key. Redis
+// runs with no persistence (save "" / appendonly no) - nothing here touches disk.
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;

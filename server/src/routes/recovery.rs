@@ -205,7 +205,7 @@ pub async fn opaque_login_init(
 
     rds::store_login_state(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         &login_id,
         &body.user_id,
         login_record_tag.as_deref(),
@@ -252,7 +252,7 @@ pub async fn opaque_login_complete(
     // so this just bounds churn / brute attempts).
     crate::routes::rate_limit(&st, "opqcomplete", "global", 120, 60).await?;
     // Single-use consume of the login state (GETDEL).
-    let consumed = rds::take_login_state(&st.redis, &st.config.session_hmac_key, &body.login_id)
+    let consumed = rds::take_login_state(&st.redis, &st.config.redis_ns_key, &body.login_id)
         .await
         .map_err(|_| ApiError::internal())?;
     let (user_id, login_record_tag, login_state) = consumed.ok_or_else(ApiError::unauthorized)?;
@@ -271,7 +271,7 @@ pub async fn opaque_login_complete(
     // Verified → issue the normal 24h session token.
     let now = now_unix();
     Ok(Json(LoginCompleteResp {
-        session_token: token::mint(&st.config.session_hmac_key, &user_id, now),
+        session_token: token::mint(&st.config.token_mac_key, &user_id, now),
         expires_at: now + token::TTL_SECS,
     }))
 }

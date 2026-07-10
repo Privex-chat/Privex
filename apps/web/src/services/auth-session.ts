@@ -58,5 +58,93 @@ async function doRestore(): Promise<boolean> {
   const token = await authenticateBundle(bundle);
   useAuth.getState().setSession(token, bundle.userId);
   useAuth.getState().setAuthenticated(bundle.userId);
+  // Renewal is started by App's boot==="ready" effect (startTokenRenewal), so it
+  // stops correctly on lock/sign-out - don't schedule a detached timer here.
   return true;
+}
+
+// --- silent token renewal + 401 recovery (docs 4.9, PVX-07) ---
+// The 24h session token never rotated in-session: a tab open past 24h got a 401
+// nothing recovered from. Renew in the background at ~T-2h, and re-mint on demand
+// when an authenticated call 401s (stale token / post-renewal race).
+
+const TOKEN_TTL_MS = 24 * 3600 * 1000; // server token::TTL_SECS
+const RENEW_LEAD_MS = 2 * 3600 * 1000; // renew 2h before expiry (docs 4.9)
+const MAX_BACKOFF_MS = 15 * 60 * 1000; // cap retry cadence after a failed renewal
+let renewTimer: ReturnType<typeof setTimeout> | null = null;
+let renewEnabled = false;
+let renewBackoffMs = 0;
+
+// ponytail: fixed-lead schedule (TTL is a server constant). If the server TTL
+// ever varies, thread authVerify's expires_at through and schedule against that.
+function scheduleRenewal(delayMs = TOKEN_TTL_MS - RENEW_LEAD_MS): void {
+  if (renewTimer) clearTimeout(renewTimer);
+  renewTimer = setTimeout(runRenewal, Math.max(60_000, delayMs));
+}
+
+/** Timer body: re-mint, then schedule the next fire. On success go back to the
+ *  normal T-2h cadence; on a transient failure (server unreachable) retry with
+ *  bounded exponential backoff so a token can't silently lapse (PVX-07). */
+async function runRenewal(): Promise<void> {
+  if (!renewEnabled) return;
+  const ok = await reauthenticate(); // never throws (doReauth catches)
+  if (!renewEnabled) return; // stopped while awaiting
+  if (ok) {
+    renewBackoffMs = 0;
+    scheduleRenewal();
+  } else {
+    renewBackoffMs = renewBackoffMs ? Math.min(renewBackoffMs * 2, MAX_BACKOFF_MS) : 60_000;
+    scheduleRenewal(renewBackoffMs);
+  }
+}
+
+/** Start/reset the background renewal timer. Idempotent - safe to call on every
+ *  session change (App wires it to the boot==="ready" + token effect). */
+export function startTokenRenewal(): void {
+  renewEnabled = true;
+  renewBackoffMs = 0;
+  scheduleRenewal();
+}
+
+/** Stop the renewal timer (sign-out / lock / socket teardown). */
+export function stopTokenRenewal(): void {
+  renewEnabled = false;
+  if (renewTimer) clearTimeout(renewTimer);
+  renewTimer = null;
+}
+
+let reauthInFlight: Promise<boolean> | null = null;
+
+/** Re-mint the session token from the locally-stored identity. Deduped so
+ *  concurrent 401s don't race two auth challenges (each fetch is single-use and
+ *  would invalidate the other). Resolves false (never rejects) when not onboarded
+ *  or the re-auth fails, so fire-and-forget callers can't cause an unhandled
+ *  rejection. Does NOT touch the renewal timer - the 401 callers just need a
+ *  fresh token; runRenewal owns the schedule. */
+export function reauthenticate(): Promise<boolean> {
+  if (reauthInFlight) return reauthInFlight;
+  reauthInFlight = doReauth().finally(() => {
+    reauthInFlight = null;
+  });
+  return reauthInFlight;
+}
+
+async function doReauth(): Promise<boolean> {
+  try {
+    const bundle = await loadBundle();
+    if (!bundle) return false;
+    const token = await authenticateBundle(bundle);
+    // Guard a stale result: the session can be torn down (lock / sign-out /
+    // erase all clear `authenticated`) or switched to another identity while the
+    // auth round trip is in flight. Applying `token` then would revive a dead
+    // session or clobber a different account, so drop it unless the session is
+    // still authenticated AND still this identity.
+    const s = useAuth.getState();
+    if (!s.authenticated || s.userId !== bundle.userId) return false;
+    useAuth.getState().setSession(token, bundle.userId);
+    return true;
+  } catch {
+    // Server unreachable / transient - the caller (or the renewal backoff) retries.
+    return false;
+  }
 }

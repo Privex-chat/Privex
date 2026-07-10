@@ -37,7 +37,7 @@ pub async fn upload(
     }
     let allowed = rds::check_rate_limit(
         &st.redis,
-        &st.config.session_hmac_key,
+        &st.config.redis_ns_key,
         "blobput",
         &user,
         60,
