@@ -79,6 +79,34 @@ The safe order rebuilds the **schema** first, then loads **data**:
    `/auth/verify`) and OPAQUE recovery (`/recovery/opaque/init` → `/complete`)
    succeeds.
 
+## Restoring from the scheduled `pg_dumpall` backup (USB)
+
+The host's existing `backup-all.sh` already dumps the whole Privex database with
+`pg_dumpall` (plain SQL, gzip, gpg) to USB, 2×/day, with verify + rotation. That
+is a **full-cluster** logical backup and already protects every account table.
+Its format is plain SQL, so restore it with `psql` (NOT `restore.sh`, which
+expects the `-Fc` custom format from `backup.sh`):
+
+```bash
+# Into a fresh/empty privex database:
+gpg --batch --pinentry-mode loopback --passphrase-file /home/sonix/.backup-secrets/passphrase \
+    -d /mnt/backup-usb/daily/infra-postgres/infra-postgres_<TS>.sql.gz.gpg \
+  | gunzip \
+  | docker exec -i infra-postgres-1 psql -U privex -d postgres
+```
+
+`pg_dumpall` includes `CREATE DATABASE`/roles and every table (incl. the empty
+UNLOGGED ones), so it restores the full cluster in one shot - no separate
+migrate step needed. After restore, run `privex-server migrate` once anyway to
+confirm the schema matches the current binary (it's a no-op if already current).
+
+**Redis is intentionally NOT part of Privex recovery.** Privex's Redis runs
+no-persistence by design (`save ""`, docs §8.5): sessions re-mint, challenges and
+rate-limit counters expire, and in-flight OPAQUE logins are retried by the
+client. Backing it up is unnecessary and puts a durable copy of session/OPAQUE
+state on disk, slightly undercutting the "Redis never persists" property - safe
+to drop `infra-redis-1` from the backup set.
+
 ### RPO / RTO
 
 - **RPO**: up to one backup interval (nightly ⇒ ≤24h of new registrations /
