@@ -5,5 +5,10 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
+    // `privex-server migrate` applies migrations and exits - the entrypoint for
+    // the pre-deploy K8s Job (PVX-05), so serving pods never migrate on boot.
+    if std::env::args().nth(1).as_deref() == Some("migrate") {
+        return privex_server::run_migrations_cli().await;
+    }
     privex_server::run().await
 }

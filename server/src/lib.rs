@@ -59,7 +59,15 @@ pub async fn build_state_with_store(
     store: Arc<dyn store::ObjectStore>,
 ) -> anyhow::Result<AppState> {
     let db = db::init_pool_with(&config.database_url).await?;
-    db::run_migrations(&db).await?;
+    // PVX-05: in production, migrations run as a dedicated pre-deploy Job
+    // (`privex-server migrate`), and serving pods set PRIVEX_SKIP_MIGRATIONS so N
+    // replicas don't race the migrator on boot. Default (unset) still migrates -
+    // preserves single-node dev + the test harness.
+    if migrations_skipped() {
+        tracing::info!("migrations_skipped_by_env");
+    } else {
+        db::run_migrations(&db).await?;
+    }
     // Rebuild missing kt_log entries if the previous UNLOGGED table was
     // truncated by an unclean shutdown (key_directory is LOGGED and survived).
     if let Err(e) = db::queries::kt_log::repair_kt_log(&db).await {
@@ -82,6 +90,23 @@ pub async fn build_state_with_store(
 pub async fn build_state(config: Config) -> anyhow::Result<AppState> {
     let store = Arc::new(store::S3Store::from_config(&config));
     build_state_with_store(config, store).await
+}
+
+fn migrations_skipped() -> bool {
+    std::env::var("PRIVEX_SKIP_MIGRATIONS")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Apply migrations and exit (pre-deploy Job entrypoint, PVX-05). Needs only
+/// DATABASE_URL - not the full server config - so the migration Job can run with
+/// a minimal environment. Idempotent (forward-only `CREATE ... IF NOT EXISTS`).
+pub async fn run_migrations_cli() -> anyhow::Result<()> {
+    init_tracing();
+    let db = db::init_pool().await?;
+    db::run_migrations(&db).await?;
+    tracing::info!("migrations_applied");
+    Ok(())
 }
 
 /// Delete expired queued messages and blobs (objects + index rows). PoW challenge
