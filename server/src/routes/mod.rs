@@ -82,9 +82,17 @@ pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiE
 
     let (valid, min_expected) = match consumed.argon {
         Some(argon) => {
-            // The Argon2id evaluation is tens of ms of sync CPU + a 32 MiB
-            // allocation - run it off the async worker threads. Total server
-            // exposure stays bounded by the challenge-issuance cap.
+            // The Argon2id evaluation is tens of ms of sync CPU + a ~32 MiB
+            // allocation - run it off the async worker threads. Bound how many
+            // run at once: the challenge-issuance cap limits the RATE, but an
+            // attacker can hoard valid challenges (10-min TTL) and burst their
+            // solutions, so a concurrency permit is what actually caps peak
+            // memory. The permit is held across the blocking eval.
+            let _permit = st
+                .pow_verify_sem
+                .acquire()
+                .await
+                .map_err(|_| ApiError::internal())?;
             let challenge = consumed.challenge_data.clone();
             let nonce = pow.nonce;
             let sha_difficulty = consumed.difficulty;

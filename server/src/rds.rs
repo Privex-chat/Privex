@@ -244,9 +244,17 @@ fn pow_challenge_key(challenge_id: &str) -> String {
     format!("pow:challenge:{challenge_id}")
 }
 
+/// Hard ceiling on the per-verify Argon2id memory a stored challenge may
+/// request. The server only ever ISSUES `ARGON_M_COST_KIB` (32 MiB); this caps
+/// the blast radius if a challenge is ever tampered (Redis compromise) so a
+/// single verify can't be coerced into a pathological allocation. 64 MiB leaves
+/// 2x headroom for a future memory-cost bump (docs 8.5.1 escalation) — raise
+/// this in lockstep if the issued cost is ever raised past it.
+const MAX_ARGON_M_COST_KIB: u32 = 64 * 1024;
+
 fn validate_argon(argon: &crate::powcheck::ArgonParams) -> anyhow::Result<()> {
-    // Argon2 spec minimum m is 8 KiB/lane; 1 GiB is far beyond any sane issue.
-    if !(8..=1_048_576).contains(&argon.m_cost_kib)
+    // Argon2 spec minimum m is 8 KiB/lane.
+    if !(8..=MAX_ARGON_M_COST_KIB).contains(&argon.m_cost_kib)
         || !(1..=8).contains(&argon.t_cost)
         || !(1..=16).contains(&argon.difficulty)
     {

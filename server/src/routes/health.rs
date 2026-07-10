@@ -32,15 +32,16 @@ const READY_CACHE_TTL: Duration = Duration::from_secs(2);
 /// Readiness: every hard dependency answers. 200 when all pass, 503 otherwise,
 /// with a body naming which check failed (no user data - just dependency names).
 pub async fn health_ready(State(st): State<AppState>) -> (StatusCode, Json<Value>) {
-    let cached = st
-        .ready_cache
-        .lock()
-        .expect("ready cache lock")
+    // Hold the cache lock across the whole check→probe→update so concurrent
+    // misses SINGLE-FLIGHT: exactly one probe runs per TTL, the rest await the
+    // guard and read the just-written result. (Serializing readiness requests is
+    // fine - they're rare, and single-flighting is the point of the cache.)
+    let mut guard = st.ready_cache.lock().await;
+    let (db_ok, redis_ok, store_ok) = match guard
         .as_ref()
         .filter(|(at, _)| at.elapsed() < READY_CACHE_TTL)
-        .map(|(_, checks)| *checks);
-
-    let (db_ok, redis_ok, store_ok) = match cached {
+        .map(|(_, checks)| *checks)
+    {
         Some(checks) => checks,
         None => {
             // Run the three probes concurrently so readiness waits only for the
@@ -52,10 +53,11 @@ pub async fn health_ready(State(st): State<AppState>) -> (StatusCode, Json<Value
                 redis_ping(&st.redis),
                 async { st.store.get("__health_probe__").await.is_ok() },
             );
-            *st.ready_cache.lock().expect("ready cache lock") = Some((Instant::now(), checks));
+            *guard = Some((Instant::now(), checks));
             checks
         }
     };
+    drop(guard);
 
     let ready = db_ok && redis_ok && store_ok;
     let status = if ready {

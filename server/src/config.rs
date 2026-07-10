@@ -57,6 +57,26 @@ fn secret(key: &str) -> SecretString {
     SecretString::from(std::env::var(key).unwrap_or_default())
 }
 
+/// Strict boolean parse. `None` → `default`. `Some` → only `true`/`1`/`false`/
+/// `0` (case-insensitive, trimmed) are accepted; anything else is an error. This
+/// matters for SECURITY flags where the silent-failure direction is dangerous:
+/// a typo like `POW_ARGON2_ENABLED=yes` must NOT quietly disable the hardening,
+/// it must stop the deploy (same fail-fast stance as the origin allowlists).
+fn parse_bool(key: &str, raw: Option<&str>, default: bool) -> Result<bool> {
+    match raw {
+        None => Ok(default),
+        Some(v) => match v.trim().to_lowercase().as_str() {
+            "true" | "1" => Ok(true),
+            "false" | "0" => Ok(false),
+            other => Err(anyhow!("{key} must be one of true/false/1/0 (got `{other}`)")),
+        },
+    }
+}
+
+fn parse_bool_env(key: &str, default: bool) -> Result<bool> {
+    parse_bool(key, std::env::var(key).ok().as_deref(), default)
+}
+
 /// Required comma-separated origin list. Empty/missing is a startup error so a
 /// misconfigured deploy can never fall back to allow-all (PVX-09).
 fn req_origins(key: &str) -> Result<Vec<String>> {
@@ -150,11 +170,9 @@ impl Config {
                 .ok()
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(true),
-            // Secure by default; "false"/"0" is the emergency rollback only.
-            pow_argon2_enabled: std::env::var("POW_ARGON2_ENABLED")
-                .ok()
-                .map(|v| v == "1" || v.to_lowercase() == "true")
-                .unwrap_or(true),
+            // Secure by default; "false"/"0" is the emergency rollback only. A
+            // malformed value fails fast rather than silently disabling.
+            pow_argon2_enabled: parse_bool_env("POW_ARGON2_ENABLED", true)?,
             turn_secret: secret("TURN_SECRET"),
             // Fail CLOSED: an unset/empty origin allowlist must stop the server,
             // never silently become allow-all. (Tests bypass via Config::for_test.)
@@ -218,7 +236,24 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{derive_subkey, parse_origins};
+    use super::{derive_subkey, parse_bool, parse_origins};
+
+    // A security flag must fail fast on a typo, never silently disable itself.
+    #[test]
+    fn bool_parse_is_strict_with_secure_default() {
+        assert!(parse_bool("F", None, true).unwrap()); // unset keeps the default
+        assert!(!parse_bool("F", None, false).unwrap());
+        for v in ["true", "TRUE", " 1 ", "1"] {
+            assert!(parse_bool("F", Some(v), false).unwrap(), "{v} should be true");
+        }
+        for v in ["false", "FALSE", "0"] {
+            assert!(!parse_bool("F", Some(v), true).unwrap(), "{v} should be false");
+        }
+        // A near-miss that would previously have silently disabled the feature.
+        for v in ["yes", "tru", "on", "enabled", ""] {
+            assert!(parse_bool("F", Some(v), true).is_err(), "{v} must error");
+        }
+    }
 
     // PVX-09: an empty origin list must be a hard error, never allow-all.
     #[test]

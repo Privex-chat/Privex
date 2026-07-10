@@ -177,7 +177,9 @@ pub fn pow_solve_hybrid(
     }
 }
 
-/// Verify a hybrid solution without solving (mirrors the server's check).
+/// Verify a hybrid solution without solving. Faithful mirror of the server's
+/// `powcheck::hybrid_valid`: BOTH difficulty checks AND an exact byte match of
+/// the submitted `solution_hash` against the recomputed Argon2id output.
 #[wasm_bindgen]
 pub fn pow_verify_hybrid(
     challenge: &[u8],
@@ -186,13 +188,14 @@ pub fn pow_verify_hybrid(
     m_cost_kib: u32,
     t_cost: u32,
     argon_difficulty: u32,
+    solution_hash: &[u8],
 ) -> Result<bool, JsError> {
     let h1 = pow_hash(challenge, nonce);
     if leading_zero_bits(&h1) < sha_difficulty {
         return Ok(false);
     }
     let h2 = argon2id_32(&h1, challenge, m_cost_kib, t_cost)?;
-    Ok(leading_zero_bits(&h2) >= argon_difficulty)
+    Ok(leading_zero_bits(&h2) >= argon_difficulty && h2.as_slice() == solution_hash)
 }
 
 #[cfg(test)]
@@ -230,5 +233,12 @@ mod tests {
             || leading_zero_bits(&argon2id_32(&h1x, challenge, m, t).unwrap()) < argon_d
             || argon2id_32(&h1x, challenge, m, t).unwrap() != h2;
         assert!(failed);
+
+        // The public verifier accepts the exact solution and rejects a tampered
+        // wire hash even with the correct nonce (exact-match, like the server).
+        assert!(pow_verify_hybrid(challenge, nonce, sha_d, m, t, argon_d, &h2).unwrap());
+        let mut wrong = h2;
+        wrong[0] ^= 0x80;
+        assert!(!pow_verify_hybrid(challenge, nonce, sha_d, m, t, argon_d, &wrong).unwrap());
     }
 }

@@ -21,13 +21,37 @@ const ARGON: PowArgonParams = { m_cost_kib: 64, t_cost: 1, difficulty: 1 };
 const CHALLENGE = new Uint8Array(32).fill(0xab);
 
 describe("hybrid PoW solver", () => {
-  it("solves a hybrid challenge; the wire hash is the Argon2id output", () => {
+  it("solves a hybrid challenge; the exact wire hash verifies, a tampered one doesn't", () => {
     const sol = solvePow(wasm, CHALLENGE, 8, undefined, ARGON);
+    // The verifier (like the server's hybrid_valid) recomputes the Argon2id
+    // output and requires an EXACT byte match of the returned solution hash.
     expect(
-      wasm.pow_verify_hybrid(CHALLENGE, BigInt(sol.nonce), 8, ARGON.m_cost_kib, ARGON.t_cost, ARGON.difficulty),
+      wasm.pow_verify_hybrid(
+        CHALLENGE,
+        BigInt(sol.nonce),
+        8,
+        ARGON.m_cost_kib,
+        ARGON.t_cost,
+        ARGON.difficulty,
+        sol.solutionHash,
+      ),
     ).toBe(true);
-    // The submitted hash is NOT the plain SHA hashcash hash: a hybrid solution
-    // can never be replayed against a legacy SHA-only verifier.
+    // Same nonce, a single flipped byte in the wire hash → rejected.
+    const tampered = new Uint8Array(sol.solutionHash);
+    tampered[0] ^= 0x80;
+    expect(
+      wasm.pow_verify_hybrid(
+        CHALLENGE,
+        BigInt(sol.nonce),
+        8,
+        ARGON.m_cost_kib,
+        ARGON.t_cost,
+        ARGON.difficulty,
+        tampered,
+      ),
+    ).toBe(false);
+    // And the hybrid wire hash is the Argon2id output, never the plain SHA hash:
+    // it can't be replayed against the legacy SHA-only verifier.
     const sha = solvePow(wasm, CHALLENGE, 8);
     expect(toHex(sol.solutionHash)).not.toBe(toHex(sha.solutionHash));
   });

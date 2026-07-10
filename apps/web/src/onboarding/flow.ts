@@ -91,10 +91,11 @@ export async function completeRegistration(
 
   const chal = await api.powChallenge();
   // Progress is best-effort: PoW attempt count → a rough percent of the expected
-  // ~2^(total bits)/2 average nonce count. Hybrid challenges (docs 8.5.1) grind
+  // nonce count. Finding a hash with N leading zero bits is geometric, so the
+  // mean number of attempts is 2^N. Hybrid challenges (docs 8.5.1) grind
   // 2^(sha + argon) nonces on average. Capped at 99% until the solution lands.
   const totalBits = chal.difficulty + (chal.argon?.difficulty ?? 0);
-  const expected = Math.pow(2, totalBits - 1);
+  const expected = Math.pow(2, totalBits);
   const pow = await crypto.solvePow(
     fromHex(chal.challenge),
     chal.difficulty,

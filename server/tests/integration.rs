@@ -1858,6 +1858,61 @@ async fn server_end_to_end() {
     assert!(!logs.contains("px_"), "a px_ id leaked into logs");
 }
 
+// Rollback mode (docs 8.5.1): POW_ARGON2_ENABLED=false must issue LEGACY
+// SHA-only challenges - no `argon` block, the full unsplit difficulty - and the
+// server must accept a SHA-only solution. This is the emergency lever for a
+// deploy where cached pre-hybrid PWA clients can't solve hybrid challenges.
+#[tokio::test]
+async fn pow_argon2_rollback_issues_legacy_sha_only() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+
+    let mut config = Config::for_test(database_url, redis_url, [7u8; 32], 8);
+    config.pow_argon2_enabled = false; // emergency rollback
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    clear_pow_pressure(&state.redis).await;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let pow: serde_json::Value = http
+        .post(format!("{base}/auth/pow_challenge"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    // No hybrid params, and the difficulty is the FULL 22 (not split to 21+1).
+    assert!(pow.get("argon").is_none(), "rollback must omit the argon block");
+    assert_eq!(
+        pow["difficulty"].as_u64().unwrap(),
+        22,
+        "rollback issues the full unsplit SHA difficulty"
+    );
+
+    // A SHA-only solution registers successfully (solve_issued_pow takes the
+    // legacy branch when there's no argon block).
+    let id = new_identity();
+    let challenge_id = pow["challenge_id"].as_str().unwrap().to_string();
+    let (nonce, sol) = solve_issued_pow(&pow);
+    let r = http
+        .post(format!("{base}/keys/register"))
+        .json(&register_body(&id, &challenge_id, nonce, &sol))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200, "SHA-only registration must succeed in rollback");
+}
+
 // PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
 // an otherwise-valid session token is rejected by the AuthUser extractor (500,
 // treated as transient by clients) instead of silently skipping the check.
@@ -1889,7 +1944,10 @@ async fn revocation_check_fails_closed_when_redis_down() {
         online: Arc::new(ws::state::Online::new()),
         devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
         kt_cache: privex_server::kt_cache::KtCache::new(),
-        ready_cache: Arc::new(std::sync::Mutex::new(None)),
+        ready_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        pow_verify_sem: Arc::new(tokio::sync::Semaphore::new(
+            privex_server::state::POW_VERIFY_MAX_CONCURRENCY,
+        )),
     };
 
     // Mint with the config-derived token MAC subkey (PVX-24), not the raw root.
@@ -1942,7 +2000,10 @@ async fn readiness_returns_503_when_deps_down() {
         online: Arc::new(privex_server::ws::state::Online::new()),
         devlink: Arc::new(privex_server::ws::devlink::DevlinkRooms::new()),
         kt_cache: privex_server::kt_cache::KtCache::new(),
-        ready_cache: Arc::new(std::sync::Mutex::new(None)),
+        ready_cache: Arc::new(tokio::sync::Mutex::new(None)),
+        pow_verify_sem: Arc::new(tokio::sync::Semaphore::new(
+            privex_server::state::POW_VERIFY_MAX_CONCURRENCY,
+        )),
     };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

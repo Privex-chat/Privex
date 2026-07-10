@@ -186,11 +186,15 @@ pub fn sha_difficulty_for_hybrid(final_difficulty: u32, argon_difficulty: u32) -
     final_difficulty.saturating_sub(argon_difficulty).max(12)
 }
 
-/// Suspicion floor for a hybrid solve: the SHA floor for the issued pre-filter
-/// bits PLUS the expected Argon2id evaluations at a conservative 15 ms each
-/// (fast native hardware; browsers take 10-30x longer).
+/// Suspicion floor for a hybrid solve. The SHA hash runs for EVERY nonce, and a
+/// full solution takes ~2^(sha+argon) nonces on average (that's the whole
+/// "total work stays 2^final" design), so the SHA floor must use the COMBINED
+/// bits, not just the pre-filter bits. Plus the ~2^argon Argon2id evaluations
+/// at a conservative 15 ms each (fast native hardware; browsers take 10-30x
+/// longer). Both are conservative underestimates, so this stays a floor that
+/// only flags impossibly-fast solves, not merely fast hardware.
 pub fn minimum_hybrid_solve_ms(sha_difficulty: u32, argon_difficulty: u32) -> u64 {
-    minimum_solve_ms(sha_difficulty) + (1u64 << argon_difficulty.min(16)) * 15
+    minimum_solve_ms(sha_difficulty + argon_difficulty) + (1u64 << argon_difficulty.min(16)) * 15
 }
 
 pub async fn record_challenge_request(redis: &RedisPool) -> anyhow::Result<()> {
@@ -311,10 +315,11 @@ mod tests {
     }
 
     #[test]
-    fn hybrid_minimum_adds_argon_floor() {
-        // 21 SHA bits (60ms) + 2^1 evals * 15ms = 90ms.
-        assert_eq!(minimum_hybrid_solve_ms(21, 1), 90);
-        // Ceiling: 27 SHA bits (3200ms) + 16 evals * 15ms.
-        assert_eq!(minimum_hybrid_solve_ms(27, 4), 3_440);
+    fn hybrid_minimum_uses_combined_sha_bits() {
+        // final 22 = 21 SHA + 1 argon: combined-22 SHA floor (100ms) + 2^1*15ms.
+        assert_eq!(minimum_hybrid_solve_ms(21, 1), 100 + 30);
+        // Ceiling final 31 = 27 SHA + 4 argon: combined-31 SHA floor (51200ms)
+        // + 2^4*15ms. (The pre-filter-only floor would undercount by 16x.)
+        assert_eq!(minimum_hybrid_solve_ms(27, 4), 51_200 + 240);
     }
 }
