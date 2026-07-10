@@ -39,13 +39,14 @@ Privex is currently in **Phase 1 (Web App Foundation)**. We have made significan
 - Offline message delivery via an UNLOGGED server queue.
 - Installable PWA with a React/Vite/Tailwind frontend.
 - Zero-knowledge account recovery using OPAQUE and Shamir's Secret Sharing.
-- Proof-of-Work (Hashcash SHA-256) rate limiting to protect public endpoints without IP logging.
+- Proof-of-Work rate limiting to protect public endpoints without IP logging — Hashcash SHA-256 with a memory-hard Argon2id hybrid layer on top (blunts GPU/ASIC farms; both difficulty layers climb automatically under load).
 - Client-side data secured using WebCrypto and IndexedDB.
 
 ### 🚧 What is Missing / Needs Help
 We are actively building the following features to complete Phase 1:
-- **Nym Integration:** Transitioning from direct WebSockets to full Nym mixnet routing.
-- **PoW Hardening:** Argon2id, in a hybrid with SHA-256. Not instead of SHA-256, on top of it.
+- **Nym Integration:** Transitioning from direct WebSockets to full Nym mixnet routing. *(Client worker is a skeleton today; the full gateway wiring is the headline Phase 2 deliverable.)*
+- ~~**PoW Hardening:** Argon2id, in a hybrid with SHA-256. Not instead of SHA-256, on top of it.~~
+- **Message TTL controls:** The server queue enforces a fixed 30-day TTL. The 60-day opt-in and per-message TTL override (docs 4.12) are not built yet.
 - **Emergency Recovery Contacts:** Recover-via-contacts (Shamir) retrieval is setup only, retrieval needs a relationship free share rendezvous the server doesn't know who your contacts are.
 - ~~**Session Management:** Fixing token invalidation on Signed Pre-Key rotation.~~
 - **Push Notifications:** Service Worker push event handling needs fixing.

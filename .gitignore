@@ -49,3 +49,5 @@ infra/data/
 /.claude
 /docs/private
 /graphify-out
+# Private verification harness (local-only, referenced by docs/private/PHASE1_VERIFICATION.md)
+/infra/verify_phase1.sh
