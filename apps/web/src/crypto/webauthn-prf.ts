@@ -15,18 +15,31 @@ const bs = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
 // `prf` isn't in the TS WebAuthn extension types yet - narrow casts below.
 type PrfExt = { prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } } };
 
-// Some Android/Chrome + fingerprint-sensor combos advertise the WebAuthn API but
-// can't actually do a resident key + `prf` ceremony - they just hang until the
-// create() timeout, surfacing a generic NotAllowedError. getClientCapabilities()
-// (Chrome 132+) reports PRF support up front with no user-facing ceremony, so we
-// can hide the "Add biometrics" button instead of walking into that dead end.
-// ponytail: no capability probe on older browsers - if getClientCapabilities is
-// missing we fall back to the loose existence check; upgrade when it's not needed.
+// Many browsers (esp. lightweight/third-party Android builds) expose the WebAuthn
+// API surface without wiring up the OS credential-manager bridge behind it, so
+// `navigator.credentials.create` existing proves nothing - the ceremony just hangs
+// to the create() timeout with a generic NotAllowedError. Two real capability
+// checks, both called through the original receiver (not detached - static WebIDL
+// operations can brand-check `this`):
+//   - isUserVerifyingPlatformAuthenticatorAvailable (WebAuthn L1, near-universal):
+//     is there a working platform-authenticator bridge at all. Missing entirely ⇒
+//     treat as unsupported, this is old enough that its absence signals a partial
+//     WebAuthn implementation, not just an old browser.
+//   - getClientCapabilities (Chrome 132+): PRF support specifically. Not every
+//     browser with a real platform authenticator has this yet, so its absence
+//     falls back to "assume PRF is fine" rather than hiding biometrics everywhere.
 export async function webauthnSupported(): Promise<boolean> {
   if (typeof PublicKeyCredential === "undefined" || !navigator.credentials?.create) return false;
-  // Call through the original receiver (not a detached reference) - static WebIDL
-  // operations can brand-check `this` in some engines.
-  const pkc = PublicKeyCredential as unknown as { getClientCapabilities?: () => Promise<Record<string, boolean>> };
+  const pkc = PublicKeyCredential as unknown as {
+    isUserVerifyingPlatformAuthenticatorAvailable?: () => Promise<boolean>;
+    getClientCapabilities?: () => Promise<Record<string, boolean>>;
+  };
+  if (!pkc.isUserVerifyingPlatformAuthenticatorAvailable) return false;
+  try {
+    if (!(await pkc.isUserVerifyingPlatformAuthenticatorAvailable())) return false;
+  } catch {
+    return false;
+  }
   if (!pkc.getClientCapabilities) return true;
   try {
     const caps = await pkc.getClientCapabilities();
