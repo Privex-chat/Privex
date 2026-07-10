@@ -134,6 +134,13 @@ async function doReauth(): Promise<boolean> {
     const bundle = await loadBundle();
     if (!bundle) return false;
     const token = await authenticateBundle(bundle);
+    // Guard a stale result: the session can be torn down (lock / sign-out /
+    // erase all clear `authenticated`) or switched to another identity while the
+    // auth round trip is in flight. Applying `token` then would revive a dead
+    // session or clobber a different account, so drop it unless the session is
+    // still authenticated AND still this identity.
+    const s = useAuth.getState();
+    if (!s.authenticated || s.userId !== bundle.userId) return false;
     useAuth.getState().setSession(token, bundle.userId);
     return true;
   } catch {
