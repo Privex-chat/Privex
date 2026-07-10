@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: privex-server
+  namespace: privex
+spec:
+  # Keep a quorum available during voluntary disruptions (node drains, upgrades).
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: privex-server

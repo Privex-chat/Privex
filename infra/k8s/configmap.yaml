@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: privex-config
+  namespace: privex
+data:
+  # Non-secret runtime config. Secrets (keys, DB/Redis URLs, object-store creds)
+  # come from the `privex-secrets` Secret, created out-of-band (SOPS/Vault) - see
+  # secret.example.yaml. NEVER put a key, URL with a password, or token here.
+  BIND_ADDR: "0.0.0.0:8080"
+  WS_PING_SECS: "30"
+  # Fail-closed origin allowlists (PVX-09) - required non-empty at startup.
+  CORS_ORIGIN: "https://privex.dpdns.org"
+  WS_ALLOWED_ORIGINS: "https://privex.dpdns.org"
+  # Object store (non-secret half).
+  R2_ENDPOINT: "https://minio.privex.svc.cluster.local:9000"
+  R2_REGION: "auto"
+  R2_BUCKET: "privex-files"
+  FILE_UPLOADS_ENABLED: "true"
+  # PVX-05: serving pods NEVER migrate on boot - the pre-deploy Job owns it.
+  PRIVEX_SKIP_MIGRATIONS: "1"

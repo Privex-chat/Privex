@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: privex-migrate
+  namespace: privex
+  labels:
+    app.kubernetes.io/name: privex-migrate
+spec:
+  backoffLimit: 3
+  # Auto-clean the finished Job so the next release can re-create the same name.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: privex-migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          # SAME image/tag as the Deployment being rolled - migrations match code.
+          image: ghcr.io/privex-chat/privex-server:REPLACE_TAG
+          args: ["migrate"] # `privex-server migrate`: apply + exit (PVX-05)
+          env:
+            # The migrator needs only DATABASE_URL - not the full server config.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: privex-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
