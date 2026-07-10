@@ -55,7 +55,7 @@ export async function lockStatus(): Promise<LockStatus> {
     enabled: !!meta,
     passphrase: !!meta?.passphrase,
     biometric: !!meta?.webauthn,
-    biometricAvailable: webauthn.webauthnSupported(),
+    biometricAvailable: await webauthn.webauthnSupported(),
   };
 }
 

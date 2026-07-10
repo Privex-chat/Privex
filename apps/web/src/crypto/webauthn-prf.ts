@@ -15,8 +15,25 @@ const bs = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
 // `prf` isn't in the TS WebAuthn extension types yet - narrow casts below.
 type PrfExt = { prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } } };
 
-export function webauthnSupported(): boolean {
-  return typeof PublicKeyCredential !== "undefined" && !!navigator.credentials?.create;
+// Some Android/Chrome + fingerprint-sensor combos advertise the WebAuthn API but
+// can't actually do a resident key + `prf` ceremony - they just hang until the
+// create() timeout, surfacing a generic NotAllowedError. getClientCapabilities()
+// (Chrome 132+) reports PRF support up front with no user-facing ceremony, so we
+// can hide the "Add biometrics" button instead of walking into that dead end.
+// ponytail: no capability probe on older browsers - if getClientCapabilities is
+// missing we fall back to the loose existence check; upgrade when it's not needed.
+export async function webauthnSupported(): Promise<boolean> {
+  if (typeof PublicKeyCredential === "undefined" || !navigator.credentials?.create) return false;
+  // Call through the original receiver (not a detached reference) - static WebIDL
+  // operations can brand-check `this` in some engines.
+  const pkc = PublicKeyCredential as unknown as { getClientCapabilities?: () => Promise<Record<string, boolean>> };
+  if (!pkc.getClientCapabilities) return true;
+  try {
+    const caps = await pkc.getClientCapabilities();
+    return caps["extension:prf"] !== false && caps["passkeyPlatformAuthenticator"] !== false;
+  } catch {
+    return true;
+  }
 }
 
 export interface EnrollResult {
@@ -32,24 +49,29 @@ export async function enrollWebauthn(userId: string): Promise<EnrollResult> {
   const prfSalt = crypto.getRandomValues(new Uint8Array(32));
   const userHandle = new TextEncoder().encode(`privex:${userId}`.slice(0, 64));
 
-  const cred = (await navigator.credentials.create({
-    publicKey: {
-      rp: { name: RP_NAME, id: rpId() },
-      user: { id: bs(userHandle), name: "Privex", displayName: "Privex" },
-      challenge: bs(challenge),
-      pubKeyCredParams: [
-        { type: "public-key", alg: -7 }, // ES256
-        { type: "public-key", alg: -257 }, // RS256
-      ],
-      authenticatorSelection: {
-        authenticatorAttachment: "platform",
-        residentKey: "required",
-        userVerification: "required",
+  let cred: PublicKeyCredential | null;
+  try {
+    cred = (await navigator.credentials.create({
+      publicKey: {
+        rp: { name: RP_NAME, id: rpId() },
+        user: { id: bs(userHandle), name: "Privex", displayName: "Privex" },
+        challenge: bs(challenge),
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7 }, // ES256
+          { type: "public-key", alg: -257 }, // RS256
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          residentKey: "required",
+          userVerification: "required",
+        },
+        timeout: 60_000,
+        extensions: { prf: { eval: { first: bs(prfSalt) } } } as AuthenticationExtensionsClientInputs,
       },
-      timeout: 60_000,
-      extensions: { prf: { eval: { first: bs(prfSalt) } } } as AuthenticationExtensionsClientInputs,
-    },
-  })) as PublicKeyCredential | null;
+    })) as PublicKeyCredential | null;
+  } catch {
+    throw new Error("biometric setup was cancelled or timed out - this device may not support it");
+  }
   if (!cred) throw new Error("biometric setup was cancelled");
 
   const ext = cred.getClientExtensionResults() as PrfExt;
@@ -65,16 +87,21 @@ export async function enrollWebauthn(userId: string): Promise<EnrollResult> {
 /** Re-derive the PRF output for an existing credential (the unlock path). */
 export async function derivePrf(credId: Uint8Array, prfSalt: Uint8Array): Promise<Uint8Array> {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const assertion = (await navigator.credentials.get({
-    publicKey: {
-      challenge: bs(challenge),
-      rpId: rpId(),
-      allowCredentials: [{ type: "public-key", id: bs(credId) }],
-      userVerification: "required",
-      timeout: 60_000,
-      extensions: { prf: { eval: { first: bs(prfSalt) } } } as AuthenticationExtensionsClientInputs,
-    },
-  })) as PublicKeyCredential | null;
+  let assertion: PublicKeyCredential | null;
+  try {
+    assertion = (await navigator.credentials.get({
+      publicKey: {
+        challenge: bs(challenge),
+        rpId: rpId(),
+        allowCredentials: [{ type: "public-key", id: bs(credId) }],
+        userVerification: "required",
+        timeout: 60_000,
+        extensions: { prf: { eval: { first: bs(prfSalt) } } } as AuthenticationExtensionsClientInputs,
+      },
+    })) as PublicKeyCredential | null;
+  } catch {
+    throw new Error("biometric unlock was cancelled or timed out");
+  }
   if (!assertion) throw new Error("biometric was cancelled");
   const out = (assertion.getClientExtensionResults() as PrfExt).prf?.results?.first;
   if (!out) throw new Error("biometric unlock unavailable on this device");
