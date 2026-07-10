@@ -21,6 +21,7 @@ pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod kt_cache;
+pub mod metrics;
 pub mod powcheck;
 pub mod rds;
 pub mod routes;
@@ -99,13 +100,18 @@ pub async fn cleanup_expired(state: &AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Periodic expiry sweep (every 10 minutes).
+/// Periodic expiry sweep (every 10 minutes). A persistently-failing sweep grows
+/// message_queue/blob_index unbounded, so a failure now bumps an aggregate
+/// counter + logs an elevated event (PVX-11) instead of being swallowed.
 fn spawn_cleanup(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(600));
         loop {
             interval.tick().await;
-            let _ = cleanup_expired(&state).await;
+            if let Err(e) = cleanup_expired(&state).await {
+                metrics::record_cleanup_failure();
+                tracing::error!(event = "cleanup_expired_failed", severity = "high", error = %e);
+            }
         }
     });
 }
@@ -129,7 +135,12 @@ pub fn app(state: AppState) -> Router {
 
     Router::new()
         .route("/config/client", get(routes::config::client_settings))
-        .route("/health", get(routes::health::health))
+        // Liveness alias + split probes (PVX-02). /metrics is label-free aggregate
+        // telemetry (PVX-04) - expose only on the internal network at deploy time.
+        .route("/health", get(routes::health::health_live))
+        .route("/health/live", get(routes::health::health_live))
+        .route("/health/ready", get(routes::health::health_ready))
+        .route("/metrics", get(metrics::metrics_handler))
         .route(
             "/auth/pow_challenge",
             post(routes::auth::pow_challenge).layer(DefaultBodyLimit::max(1024)),
@@ -208,6 +219,8 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/v1/ws", get(ws::handler::ws_route))
         .route("/v1/devlink/:rid", get(ws::devlink::devlink_route))
+        // Aggregate request counters (status class + latency sum). Label-free.
+        .layer(axum::middleware::from_fn(metrics::track))
         .layer(cors)
         .with_state(state)
 }

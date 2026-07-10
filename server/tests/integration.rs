@@ -448,13 +448,31 @@ async fn server_end_to_end() {
     let base = format!("http://{addr}");
     let http = reqwest::Client::new();
 
-    // 1. /health
-    let r = http.get(format!("{base}/health")).send().await.unwrap();
+    // 1. /health (+ /health/live alias): liveness constant 200.
+    for path in ["/health", "/health/live"] {
+        let r = http.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+        assert_eq!(
+            r.json::<serde_json::Value>().await.unwrap(),
+            serde_json::json!({"status":"ok"})
+        );
+    }
+
+    // 1b. /health/ready: all deps up here → 200 with per-check booleans.
+    let r = http.get(format!("{base}/health/ready")).send().await.unwrap();
+    assert_eq!(r.status(), 200, "readiness should pass when deps are up");
+    let ready = r.json::<serde_json::Value>().await.unwrap();
+    assert_eq!(ready["ready"], true);
+    assert_eq!(ready["checks"]["db"], true);
+    assert_eq!(ready["checks"]["redis"], true);
+
+    // 1c. /metrics: label-free Prometheus text, and it carries NO px_ ids.
+    let r = http.get(format!("{base}/metrics")).send().await.unwrap();
     assert_eq!(r.status(), 200);
-    assert_eq!(
-        r.json::<serde_json::Value>().await.unwrap(),
-        serde_json::json!({"status":"ok"})
-    );
+    let metrics_body = r.text().await.unwrap();
+    assert!(metrics_body.contains("privex_requests_total"));
+    assert!(metrics_body.contains("privex_cleanup_failures_total"));
+    assert!(!metrics_body.contains("px_"), "metrics must carry no user ids");
 
     // 2. PoW challenge issuance
     let pow: serde_json::Value = http
@@ -1836,5 +1854,52 @@ async fn revocation_check_fails_closed_when_redis_down() {
     assert!(
         result.is_err(),
         "a valid token must be REJECTED when the revocation store is unreachable"
+    );
+}
+
+// PVX-02: /health/ready must return 503 when a dependency is unreachable, so a
+// broken pod is drained instead of served. Docker-free: point DB + Redis at dead
+// ports, serve the real router on a loopback port, and probe over HTTP.
+#[tokio::test]
+async fn readiness_returns_503_when_deps_down() {
+    let config = Config::for_test(
+        "postgres://unused:unused@127.0.0.1:1/unused".into(),
+        "redis://127.0.0.1:1".into(),
+        [7u8; 32],
+        8,
+    );
+    let state = privex_server::state::AppState {
+        db: sqlx::postgres::PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_millis(300))
+            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
+            .unwrap(),
+        redis: deadpool_redis::Config::from_url("redis://127.0.0.1:1")
+            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+            .unwrap(),
+        config: Arc::new(config),
+        store: Arc::new(MemoryStore::new()),
+        online: Arc::new(privex_server::ws::state::Online::new()),
+        devlink: Arc::new(privex_server::ws::devlink::DevlinkRooms::new()),
+        kt_cache: privex_server::kt_cache::KtCache::new(),
+    };
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app(state)).await;
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    // Liveness stays 200 (the process is up) regardless of deps.
+    assert_eq!(
+        http.get(format!("{base}/health/live")).send().await.unwrap().status(),
+        200
+    );
+    // Readiness fails: DB + Redis are unreachable.
+    assert_eq!(
+        http.get(format!("{base}/health/ready")).send().await.unwrap().status(),
+        503,
+        "readiness must fail when deps are down"
     );
 }
