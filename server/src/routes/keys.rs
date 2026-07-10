@@ -66,8 +66,9 @@ async fn build_kt_proof(st: &AppState, user_id: &str) -> Result<Option<KtProofRe
         .await
         .map_err(|_| ApiError::internal())?;
 
-    // The user's latest entry = the last one (entries are seq-ordered).
-    let idx = match snap.entries.iter().rposition(|e| e.user_id == user_id) {
+    // O(1) lookup of the user's latest entry via the snapshot's index (PVX-23),
+    // instead of an O(N) reverse scan on every fetch.
+    let idx = match snap.index_by_user.get(user_id).copied() {
         Some(i) => i,
         None => return Ok(None),
     };

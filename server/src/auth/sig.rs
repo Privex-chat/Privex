@@ -14,7 +14,11 @@ pub fn verify_hybrid(
     sig_dil: &[u8],
     dil_pub: &[u8],
 ) -> bool {
-    verify_ed25519(msg, sig_ed, ed_pub) && verify_dilithium3(msg, sig_dil, dil_pub)
+    // Non-short-circuiting `&` (not `&&`): BOTH verifications always run, so the
+    // time taken never depends on which one fails. Combined with the random dummy
+    // keys below, the absent-user path in /auth/verify does the same work as a
+    // present-user path, leaving no existence timing oracle (PVX-08).
+    verify_ed25519(msg, sig_ed, ed_pub) & verify_dilithium3(msg, sig_dil, dil_pub)
 }
 
 fn verify_ed25519(msg: &[u8], sig: &[u8], pubkey: &[u8]) -> bool {
@@ -94,15 +98,20 @@ pub fn verify_auth_challenge(
     verify_hybrid(&legacy, sig_ed, ed_pub, sig_dil, dil_pub)
 }
 
-// Fixed dummy verification keys for the absent-user path of /auth/verify
-// (PVX-08): the same verification work runs whether or not the user exists, so
-// response timing can't distinguish real from unknown px_ids. The private
-// halves are discarded - no signature can ever validate against these.
+// Dummy verification keys for the absent-user path of /auth/verify (PVX-08): the
+// same verification work runs whether or not the user exists, so response timing
+// can't distinguish real from unknown px_ids. Both halves use process-local
+// CSPRNG entropy generated once at first use - a REPRODUCIBLE seed would let an
+// attacker craft a signature that validates against the known dummy key, making
+// the dummy path do more work than a present-user path and reopening the oracle.
+// The private halves are discarded - no submitted signature can validate here.
 static DUMMY_KEYS: OnceLock<(Vec<u8>, Vec<u8>)> = OnceLock::new();
 
 fn dummy_keys() -> &'static (Vec<u8>, Vec<u8>) {
     DUMMY_KEYS.get_or_init(|| {
-        let ed = ed25519_dalek::SigningKey::from_bytes(&[0xD5u8; 32])
+        let mut seed = [0u8; 32];
+        getrandom::getrandom(&mut seed).expect("rng");
+        let ed = ed25519_dalek::SigningKey::from_bytes(&seed)
             .verifying_key()
             .to_bytes()
             .to_vec();

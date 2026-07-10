@@ -19,6 +19,7 @@ use crate::state::AppState;
 
 pub struct Metrics {
     pub requests_total: AtomicU64,
+    pub responses_1xx: AtomicU64,
     pub responses_2xx: AtomicU64,
     pub responses_3xx: AtomicU64,
     pub responses_4xx: AtomicU64,
@@ -33,6 +34,7 @@ impl Metrics {
     const fn new() -> Self {
         Self {
             requests_total: AtomicU64::new(0),
+            responses_1xx: AtomicU64::new(0),
             responses_2xx: AtomicU64::new(0),
             responses_3xx: AtomicU64::new(0),
             responses_4xx: AtomicU64::new(0),
@@ -46,7 +48,10 @@ impl Metrics {
         self.requests_total.fetch_add(1, Ordering::Relaxed);
         self.request_nanos_total
             .fetch_add(elapsed_nanos, Ordering::Relaxed);
+        // 1xx is its own bucket: a WebSocket upgrade is 101, NOT an error - folding
+        // it into 5xx would make every WS connection inflate the error rate.
         let bucket = match status {
+            100..=199 => &self.responses_1xx,
             200..=299 => &self.responses_2xx,
             300..=399 => &self.responses_3xx,
             400..=499 => &self.responses_4xx,
@@ -85,6 +90,7 @@ pub async fn metrics_handler(State(st): State<AppState>) -> Response {
             "privex_requests_total {}\n",
             "# HELP privex_responses_total HTTP responses by status class.\n",
             "# TYPE privex_responses_total counter\n",
+            "privex_responses_total{{class=\"1xx\"}} {}\n",
             "privex_responses_total{{class=\"2xx\"}} {}\n",
             "privex_responses_total{{class=\"3xx\"}} {}\n",
             "privex_responses_total{{class=\"4xx\"}} {}\n",
@@ -103,6 +109,7 @@ pub async fn metrics_handler(State(st): State<AppState>) -> Response {
             "privex_db_pool_idle {}\n",
         ),
         g(&m.requests_total),
+        g(&m.responses_1xx),
         g(&m.responses_2xx),
         g(&m.responses_3xx),
         g(&m.responses_4xx),

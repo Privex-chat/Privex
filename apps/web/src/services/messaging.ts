@@ -180,8 +180,9 @@ async function sealAndSend(
     // The ratchet already stepped; `sealed` is that step's only ciphertext, so a
     // recoverable failure must PARK it, never drop it (dropping = a permanent gap
     // the receiver sees as a skipped key). Transient = offline (bare error), 401
-    // (stale token), or 429 (rate-limit) → outbox. Any other ApiError surfaces.
-    if (e instanceof api.ApiError && e.status !== 401 && e.status !== 429) throw e;
+    // (stale token), 429 (rate-limit), or 5xx (server error) → outbox. This
+    // matches flushOutbox, which only drops 400/404/413; other 4xx surface here.
+    if (e instanceof api.ApiError && e.status !== 401 && e.status !== 429 && e.status < 500) throw e;
     status = "queued";
     await enqueue(peerId, sealedB64, store ? localId : "");
     // 401 → token went stale; re-mint so the outbox retry uses a fresh one (PVX-07).

@@ -22,11 +22,14 @@ pub async fn health_live() -> Json<Value> {
 /// Readiness: every hard dependency answers. 200 when all pass, 503 otherwise,
 /// with a body naming which check failed (no user data - just dependency names).
 pub async fn health_ready(State(st): State<AppState>) -> (StatusCode, Json<Value>) {
-    let db_ok = sqlx::query("SELECT 1").execute(&st.db).await.is_ok();
-    let redis_ok = redis_ping(&st.redis).await;
-    // A get of a missing key returns Ok(None); only a transport/auth failure errs,
-    // so this is a cheap reachability probe without needing a store health method.
-    let store_ok = st.store.get("__health_probe__").await.is_ok();
+    // Run the three probes concurrently so readiness waits only for the slowest
+    // dependency, not their sum. A get of a missing key returns Ok(None); only a
+    // transport/auth failure errs, so it's a cheap store reachability probe.
+    let (db_ok, redis_ok, store_ok) = tokio::join!(
+        async { sqlx::query("SELECT 1").execute(&st.db).await.is_ok() },
+        redis_ping(&st.redis),
+        async { st.store.get("__health_probe__").await.is_ok() },
+    );
 
     let ready = db_ok && redis_ok && store_ok;
     let status = if ready {

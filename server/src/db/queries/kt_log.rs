@@ -47,10 +47,13 @@ pub async fn list_all_entries(pool: &PgPool) -> sqlx::Result<Vec<KtEntry>> {
     .await
 }
 
-/// Cheap validity key for the cached Merkle tree: the log is append-only, so the
-/// row count uniquely identifies a snapshot.
-pub async fn count_entries(pool: &PgPool) -> sqlx::Result<i64> {
-    sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!" FROM kt_log"#)
+/// O(1) validity key for the cached Merkle tree: the log is append-only and
+/// `seq` is the BIGSERIAL primary key, so the latest seq changes on every append
+/// and reads straight off the PK index (unlike COUNT(*), which scans). Returns 0
+/// for an empty log. Used by KtCache invalidation - a strictly-monotonic
+/// generation number, not a row count.
+pub async fn latest_seq(pool: &PgPool) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(r#"SELECT COALESCE(MAX(seq), 0) AS "seq!" FROM kt_log"#)
         .fetch_one(pool)
         .await
 }

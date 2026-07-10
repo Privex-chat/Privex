@@ -1786,6 +1786,28 @@ async fn server_end_to_end() {
         "token must be revoked after logout_all"
     );
 
+    // 6c. /metrics is non-vacuous now: after real registration/auth/message
+    // traffic with known px_ids, the label-free counters still carry NO px_ id
+    // and NO message id (PVX-04). This scrape AFTER the flows is what makes the
+    // assertion meaningful (the earlier one only checks the endpoint works).
+    let metrics_after = http
+        .get(format!("{base}/metrics"))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(metrics_after.contains("privex_requests_total"));
+    assert!(
+        !metrics_after.contains("px_"),
+        "metrics leaked a px_ id after real user traffic"
+    );
+    assert!(
+        !metrics_after.contains(&online_mid),
+        "metrics leaked a message id after real traffic"
+    );
+
     // 7. no PII in logs (now also covers WS identities, ticket, content)
     let logs = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
     assert!(!logs.contains(password), "password leaked into logs");
@@ -1850,10 +1872,17 @@ async fn revocation_check_fails_closed_when_redis_down() {
         .unwrap();
     let (mut parts, _) = req.into_parts();
 
-    let result = AuthUser::from_request_parts(&mut parts, &state).await;
-    assert!(
-        result.is_err(),
-        "a valid token must be REJECTED when the revocation store is unreachable"
+    use axum::response::IntoResponse;
+    let err = AuthUser::from_request_parts(&mut parts, &state)
+        .await
+        .err()
+        .expect("a valid token must be REJECTED when the revocation store is unreachable");
+    // Specifically 500 (transient), NOT 401 - a 401 would read to the client as a
+    // bad token and trigger a pointless re-auth instead of a retry.
+    assert_eq!(
+        err.into_response().status(),
+        500,
+        "Redis-unreachable must map to 500 Internal Server Error, not 401"
     );
 }
 

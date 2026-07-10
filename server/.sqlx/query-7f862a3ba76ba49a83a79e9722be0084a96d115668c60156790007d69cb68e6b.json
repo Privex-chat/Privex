@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) AS \"count!\" FROM kt_log",
+  "query": "SELECT COALESCE(MAX(seq), 0) AS \"seq!\" FROM kt_log",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "count!",
+        "name": "seq!",
         "type_info": "Int8"
       }
     ],
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "1be4011104fc32bc018703ca242b4c11645a9565bb12e82f3adee4dd2394d3c2"
+  "hash": "7f862a3ba76ba49a83a79e9722be0084a96d115668c60156790007d69cb68e6b"
 }
