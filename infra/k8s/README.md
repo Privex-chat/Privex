@@ -47,6 +47,27 @@ CI/CD (Argo/Flux/Helm) should gate the Deployment rollout on the Job's
 completion (a Helm pre-install/pre-upgrade hook, or an Argo sync-wave with the
 Job in an earlier wave than the Deployment).
 
+## Monitoring & keeping /metrics private (PVX-02/04)
+
+- `monitoring/servicemonitor.yaml` scrapes the label-free `/metrics` **in-cluster**
+  via the ClusterIP Service (Prometheus Operator). No operator? Use pod
+  annotations instead: `prometheus.io/scrape: "true"`, `prometheus.io/path:
+  "/metrics"`, `prometheus.io/port: "8080"`.
+- `monitoring/networkpolicy.yaml` default-denies namespace ingress, then allows
+  only the ingress controller and the `monitoring` namespace to reach port 8080.
+- `monitoring/grafana-dashboard.yaml` is a sidecar-loaded board (request rate,
+  status classes, 5xx ratio, avg latency, cleanup-failure counter, DB pool).
+- **/metrics must not be reachable from the public edge.** It shares port 8080
+  with the API, so an L3/L4 NetworkPolicy can't hide it by path — block it at the
+  Ingress. Example (ingress-nginx):
+  ```
+  nginx.ingress.kubernetes.io/server-snippet: |
+    location = /metrics { return 404; }
+  ```
+  (This mirrors the edge behaviour already in `infra/caddy/Caddyfile` and
+  `infra/nginx/privex.conf`.) The label-free counters carry no user/IP/path
+  series, so a scrape leaks no identifiers even in-cluster.
+
 ## Rollback
 
 ```
@@ -66,4 +87,7 @@ before rolling back across a schema change.
   and the Job's `migrate` arg are asserted.
 - **Not yet done (needs a cluster):** `kubectl apply --dry-run=server` schema
   validation, a real rollout, a deliberately-crashing image to confirm readiness
-  keeps traffic off it, and `rollout undo`. Do these on the target cluster.
+  keeps traffic off it, `rollout undo`, and confirming a Prometheus scrape of
+  `/metrics` succeeds in-cluster while the public ingress returns 404 for it. The
+  ServiceMonitor needs the Prometheus Operator CRDs installed. Do these on the
+  target cluster.

@@ -1,0 +1,89 @@
+# Minimal Grafana board for the label-free Privex metrics (PVX-04). Picked up by
+# the Grafana sidecar via the `grafana_dashboard` label. RED-ish overview only -
+# no per-user/path series exist to chart (by design).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: privex-grafana-dashboard
+  namespace: privex
+  labels:
+    grafana_dashboard: "1"
+data:
+  privex.json: |
+    {
+      "title": "Privex API",
+      "uid": "privex-api",
+      "schemaVersion": 39,
+      "editable": true,
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "title": "Request rate (req/s)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "targets": [
+            { "expr": "sum(rate(privex_requests_total[5m]))", "legendFormat": "requests" }
+          ]
+        },
+        {
+          "title": "Responses by status class",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "targets": [
+            { "expr": "sum by (class) (rate(privex_responses_total[5m]))", "legendFormat": "{{class}}" }
+          ]
+        },
+        {
+          "title": "5xx error ratio",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 8 },
+          "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "steps": [ {"color":"green","value":null}, {"color":"red","value":0.01} ] } } },
+          "targets": [
+            { "expr": "sum(rate(privex_responses_total{class=\"5xx\"}[5m])) / clamp_min(sum(rate(privex_requests_total[5m])), 1)" }
+          ]
+        },
+        {
+          "title": "Avg request latency (ms)",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 8 },
+          "fieldConfig": { "defaults": { "unit": "ms" } },
+          "targets": [
+            { "expr": "sum(rate(privex_request_duration_nanos_total[5m])) / clamp_min(sum(rate(privex_requests_total[5m])), 1) / 1e6", "legendFormat": "avg latency" }
+          ]
+        },
+        {
+          "title": "Cleanup sweep failures (should stay flat)",
+          "type": "stat",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 8 },
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [ {"color":"green","value":null}, {"color":"red","value":1} ] } } },
+          "targets": [
+            { "expr": "sum(increase(privex_cleanup_failures_total[1h]))" }
+          ]
+        },
+        {
+          "title": "DB pool connections",
+          "type": "timeseries",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+          "targets": [
+            { "expr": "sum(privex_db_pool_connections)", "legendFormat": "total" },
+            { "expr": "sum(privex_db_pool_idle)", "legendFormat": "idle" }
+          ]
+        }
+      ]
+    }

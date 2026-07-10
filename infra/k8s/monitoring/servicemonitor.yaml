@@ -1,0 +1,21 @@
+# Prometheus Operator ServiceMonitor: scrape the label-free /metrics (PVX-04)
+# from INSIDE the cluster via the ClusterIP Service - never through the public
+# ingress. Requires the Prometheus Operator CRDs; for a non-operator Prometheus,
+# use pod annotations instead (prometheus.io/scrape, /path, /port) - see README.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: privex-server
+  namespace: privex
+  labels:
+    app.kubernetes.io/name: privex-server
+    release: kube-prometheus-stack # match your Prometheus's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: privex-server
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s

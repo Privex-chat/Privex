@@ -13,7 +13,10 @@ resources:
   - pdb.yaml
   - hpa.yaml
   - migration-job.yaml
-  # Monitoring (NetworkPolicy, ServiceMonitor) is appended by the metrics wiring.
+  # Monitoring / metrics wiring (PVX-02/04).
+  - monitoring/networkpolicy.yaml
+  - monitoring/servicemonitor.yaml
+  - monitoring/grafana-dashboard.yaml
 
 # CI pins the release tag here (or via `kustomize edit set image`), so the
 # Deployment and the migration Job always run the SAME build.
