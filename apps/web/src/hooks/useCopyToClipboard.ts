@@ -1,12 +1,21 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useCopyToClipboard(timeout = 2000): [copied: boolean, copy: (text: string) => void] {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(timer.current);
+      requestId.current += 1;
+    };
+  }, []);
 
   const copy = useCallback(
     (text: string) => {
       clearTimeout(timer.current);
+      const id = ++requestId.current;
       const promise = navigator.clipboard?.writeText(text);
       if (!promise) {
         setCopied(false);
@@ -14,10 +23,17 @@ export function useCopyToClipboard(timeout = 2000): [copied: boolean, copy: (tex
       }
       promise.then(
         () => {
+          if (id !== requestId.current) return;
           setCopied(true);
-          timer.current = setTimeout(() => setCopied(false), timeout);
+          timer.current = setTimeout(() => {
+            if (id !== requestId.current) return;
+            setCopied(false);
+          }, timeout);
         },
-        () => setCopied(false),
+        () => {
+          if (id !== requestId.current) return;
+          setCopied(false);
+        },
       );
     },
     [timeout],

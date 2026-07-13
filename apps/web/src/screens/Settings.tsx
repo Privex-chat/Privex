@@ -190,13 +190,14 @@ function AccountSecurityTab({ pxId }: { pxId: string }) {
         <Row>
           <div className="text-sm text-text-secondary">Your Privex ID</div>
           <div className="mt-1 flex items-center gap-2">
-            <code
+            <button
+              type="button"
               onClick={() => copy(pxId)}
-              className="flex-1 break-all font-mono text-xs text-accent-subtle cursor-pointer transition-colors hover:text-accent-hover"
+              className="flex-1 break-all font-mono text-xs text-accent-subtle text-left cursor-pointer transition-colors hover:text-accent-hover bg-transparent border-none p-0"
               title="Click to copy"
             >
               {pxId}
-            </code>
+            </button>
             <button
               onClick={() => copy(pxId)}
               className={`rounded px-2 py-1 text-xs transition-colors ${
