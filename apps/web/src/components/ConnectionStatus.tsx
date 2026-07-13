@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { onOutboxChanged } from "../services/events";
 import { outboxCount } from "../services/outbox";
 import { clockStatus, onClockStatusChanged } from "../services/time-sync";
+import { getWsStatus, onWsStatusChanged } from "../services/websocket";
 
 function formatDrift(secs: number): string {
   const abs = Math.abs(secs);
@@ -14,15 +15,22 @@ function formatDrift(secs: number): string {
 }
 
 export default function ConnectionStatus() {
-  const [online, setOnline] = useState(navigator.onLine);
+  // "Online" here means the app can actually reach Privex, not just that the OS
+  // reports a network interface: navigator.onLine only reflects the latter, so
+  // a dead-but-not-yet-detected WebSocket (e.g. a suspended PWA tab that missed
+  // its own reconnect) used to show a false green dot. Real socket state from
+  // websocket.ts closes that gap.
+  const [netOnline, setNetOnline] = useState(navigator.onLine);
+  const [wsConnected, setWsConnected] = useState(getWsStatus() === "connected");
   const [queued, setQueued] = useState(0);
   const [clock, setClock] = useState(clockStatus());
 
   useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
+    const on = () => setNetOnline(true);
+    const off = () => setNetOnline(false);
     window.addEventListener("online", on);
     window.addEventListener("offline", off);
+    const unsubWs = onWsStatusChanged((s) => setWsConnected(s === "connected"));
     const refresh = () => void outboxCount().then(setQueued);
     refresh();
     const unsub = onOutboxChanged(refresh);
@@ -30,10 +38,13 @@ export default function ConnectionStatus() {
     return () => {
       window.removeEventListener("online", on);
       window.removeEventListener("offline", off);
+      unsubWs();
       unsub();
       unsubClock();
     };
   }, []);
+
+  const online = netOnline && wsConnected;
 
   const waiting = queued > 0 ? `${queued} waiting` : null;
   const label = online ? waiting : waiting ? `Offline · ${waiting}` : "Offline";
