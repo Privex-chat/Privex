@@ -117,7 +117,12 @@ async function open(myGen: number): Promise<void> {
 function checkStaleness(): void {
   if (typeof document === "undefined" || document.visibilityState !== "visible") return;
   if (stopped || !token) return;
-  const stale = !ws || ws.readyState !== WebSocket.OPEN || Date.now() - lastFrameAt > STALE_MS;
+  // CONNECTING/CLOSING are mid-handshake, not stuck - leave them to resolve on
+  // their own (a fresh connect attempt, or the onclose→reconnect path).
+  const stale =
+    !ws ||
+    ws.readyState === WebSocket.CLOSED ||
+    (ws.readyState === WebSocket.OPEN && Date.now() - lastFrameAt > STALE_MS);
   if (!stale) return;
   const sock = ws;
   ws = null;
