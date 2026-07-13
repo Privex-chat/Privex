@@ -2,6 +2,7 @@
 // so users aren't buried in one long scroll. Most state is local (IndexedDB settings
 // table) or derived from the stored identity.
 import { useEffect, useState } from "react";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { db } from "../db";
@@ -181,18 +182,30 @@ export default function Settings() {
 
 /* ───────── Tab: Account + Security ───────── */
 function AccountSecurityTab({ pxId }: { pxId: string }) {
+  const [copied, copy] = useCopyToClipboard();
+
   return (
     <>
       <Section title="Account">
         <Row>
           <div className="text-sm text-text-secondary">Your Privex ID</div>
           <div className="mt-1 flex items-center gap-2">
-            <code className="flex-1 break-all font-mono text-xs text-accent-subtle">{pxId}</code>
-            <button
-              onClick={() => void navigator.clipboard?.writeText(pxId)}
-              className="rounded bg-raised hover:bg-border-strong px-2 py-1 text-xs"
+            <code
+              onClick={() => copy(pxId)}
+              className="flex-1 break-all font-mono text-xs text-accent-subtle cursor-pointer transition-colors hover:text-accent-hover"
+              title="Click to copy"
             >
-              Copy
+              {pxId}
+            </code>
+            <button
+              onClick={() => copy(pxId)}
+              className={`rounded px-2 py-1 text-xs transition-colors ${
+                copied
+                  ? "bg-success-bg text-success"
+                  : "bg-raised hover:bg-border-strong text-text-secondary"
+              }`}
+            >
+              {copied ? "Copied" : "Copy"}
             </button>
           </div>
         </Row>
@@ -473,13 +486,27 @@ function AboutTab() {
       <Row>
         <div className="flex items-center justify-between text-sm">
           <span className="text-text-secondary">Source code</span>
-          <span className="text-text-muted">github.com/Privex-chat/Privex</span>
+          <a
+            href="https://github.com/Privex-chat/Privex"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-text hover:underline"
+          >
+            github.com/Privex-chat/Privex
+          </a>
         </div>
       </Row>
       <Row>
         <div className="flex items-center justify-between text-sm">
           <span className="text-text-secondary">Warrant canary</span>
-          <span className="text-text-muted">privex.dpdns.org/canary</span>
+          <a
+            href="https://privex.dpdns.org/canary"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent-text hover:underline"
+          >
+            privex.dpdns.org/canary
+          </a>
         </div>
       </Row>
     </Section>
@@ -650,6 +677,7 @@ function OpaqueRecoveryToggle({
 function SeedPhraseView() {
   const [words, setWords] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, copy] = useCopyToClipboard();
 
   async function reveal() {
     if (!window.confirm("Anyone who sees these 24 words gains full access to your account. Show them?")) return;
@@ -660,6 +688,8 @@ function SeedPhraseView() {
     }
     setWords(b.mnemonic.trim().split(/\s+/));
   }
+
+  const phraseText = words?.join(" ") ?? "";
 
   return (
     <div>
@@ -682,7 +712,21 @@ function SeedPhraseView() {
             ))}
           </div>
           <p className="mt-2 text-xs text-warning">Store these offline. We will never ask for them.</p>
-          <button onClick={() => setWords(null)} className="mt-2 text-xs text-text-muted hover:text-text-secondary">Hide</button>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => copy(phraseText)}
+              className={`rounded px-2 py-1 text-xs transition-colors ${
+                copied
+                  ? "bg-success-bg text-success"
+                  : "bg-raised hover:bg-border-strong text-text-secondary"
+              }`}
+            >
+              {copied ? "Copied" : "Copy phrase"}
+            </button>
+            <button onClick={() => setWords(null)} className="text-xs text-text-muted hover:text-text-secondary">
+              Hide
+            </button>
+          </div>
         </>
       )}
     </div>
