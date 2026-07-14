@@ -31,9 +31,9 @@ We actively need help with the following Phase 1 deliverables:
 - **Nym Integration:** The Nym SDK/mixnet is planned but not yet implemented (we currently use direct WebSockets).
 - **Session Management:** Fixes needed for token invalidation during SPK rotation.
 - **Push Notifications:** Service Worker is registered, but push event handling is broken.
-- **Time Synchronization:** Need to implement server-signed timestamps to prevent desync attacks.
+- ~~**Time Synchronization:** Need to implement server-signed timestamps to prevent desync attacks.~~
 - **Cross-Device Sync:** Sent messages from Device A do not yet appear on Device B.
-- **Delivery & Read Receipts:** Needs to be implemented securely without timing correlations.
+- ~~**Delivery & Read Receipts:** Needs to be implemented securely without timing correlations.~~
 - **File Sharing:** Disabled up until Phase 2 for CSAM check implementations.
 - **Timing Mitigations:** Polling schedules, fetch size padding, and jittered receipt sending.
 
