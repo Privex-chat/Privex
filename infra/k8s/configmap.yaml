@@ -10,8 +10,8 @@ data:
   BIND_ADDR: "0.0.0.0:8080"
   WS_PING_SECS: "30"
   # Fail-closed origin allowlists (PVX-09) - required non-empty at startup.
-  CORS_ORIGIN: "https://privex.dpdns.org"
-  WS_ALLOWED_ORIGINS: "https://privex.dpdns.org"
+  CORS_ORIGIN: "https://privex.chat"
+  WS_ALLOWED_ORIGINS: "https://privex.chat"
   # Object store (non-secret half).
   R2_ENDPOINT: "https://minio.privex.svc.cluster.local:9000"
   R2_REGION: "auto"
