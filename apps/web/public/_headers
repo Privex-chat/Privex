@@ -3,7 +3,7 @@
 # deploys (Caddy/Pages proxying the API) work under connect-src 'self'; if the API is
 # served from another origin, add it to connect-src here AND in vite.config.ts.
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss://nym-gateway-*.privex.dpdns.org; img-src 'self' blob: data:; style-src 'self'; font-src 'self'; worker-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss://*.privex.chat; img-src 'self' blob: data:; style-src 'self'; font-src 'self'; worker-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff

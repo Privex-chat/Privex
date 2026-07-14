@@ -2,14 +2,14 @@
 # CSP is delivered as an HTTP response header (not a <meta> tag) so that
 # frame-ancestors, sandbox, and report-to are all honoured by browsers.
 
-{$PRIVEX_DOMAIN:privex.dpdns.org} {
+{$PRIVEX_DOMAIN:privex.chat} {
 	log {
 		output discard
 	}
 
 	# --- Security headers (docs 9.5) ---
 	header {
-		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss://*.privex.dpdns.org; img-src 'self' blob: data:; style-src 'self'; font-src 'self'; worker-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+		Content-Security-Policy "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' wss://*.privex.chat; img-src 'self' blob: data:; style-src 'self'; font-src 'self'; worker-src 'self' blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Embedder-Policy "require-corp"
 		X-Content-Type-Options "nosniff"

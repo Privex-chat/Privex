@@ -4,7 +4,7 @@ use axum::http::HeaderValue;
 
 #[tokio::main]
 async fn main() {
-    let origins = vec!["https://privex.dpdns.org".parse::<HeaderValue>().unwrap()];
+    let origins = vec!["https://privex.chat".parse::<HeaderValue>().unwrap()];
     
     let cors = CorsLayer::new()
         .allow_methods(Any)

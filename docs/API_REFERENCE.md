@@ -1,6 +1,6 @@
 # Privex API Reference
 
-**Base URL**: `https://privex.dpdns.org/v1` (Accessed natively or via Nym/onion routing)
+**Base URL**: `https://privex.chat/v1` (Accessed natively or via Nym/onion routing)
 
 Privex's API is designed around zero-knowledge principles. The server acts as a blind relay and directory. It never sees plaintext payloads or caller identities.
 
@@ -50,7 +50,7 @@ Privex uses the OPAQUE protocol for password-based account recovery, ensuring th
 
 ## WebSockets
 
-**Endpoint**: `wss://privex.dpdns.org/v1/ws`
+**Endpoint**: `wss://privex.chat/v1/ws`
 
 WebSockets are used for real-time delivery and are authenticated via the `X-Privex-Auth` header.
 

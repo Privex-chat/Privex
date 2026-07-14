@@ -57,7 +57,7 @@ Law 4: The network CANNOT confirm Privex is being used.
 
 | Adversary | What They Can Do | Privex Defense | Result |
 |---|---|---|---|
-| ISP (Phase 1) | See connection to api.privex.io | HTTPS only | **ISP can confirm Privex is used in Phase 1. Resolved in Phase 2 via Nym.** |
+| ISP (Phase 1) | See connection to privex.chat | HTTPS only | **ISP can confirm Privex is used in Phase 1. Resolved in Phase 2 via Nym.** |
 | ISP (Phase 2+) | See encrypted packets to Nym gateway | Nym mixnet hides destination and content | ISP sees: "user connected to Nym." Nothing about Privex. |
 | VPS Host | Physical server access, disk images | LUKS2 encrypted volumes, UNLOGGED tables, tmpfs /var/log | Host sees: encrypted storage, relay IPs, no user data |
 | Compromised Server | Full DB + memory access | Pseudonymous IDs, encrypted blobs, HMAC-wrapped rate limit keys | Nothing useful. No real identities. No message content. |
@@ -301,7 +301,7 @@ Recovery order (try in order):
 
 ### Phase 1 — Direct WebSocket
 
-All traffic goes directly to `api.privex.io` via HTTPS/WSS. ISP can see the connection to Privex. Content is encrypted. Identities are hidden. **Law 4 is not satisfied in Phase 1.**
+All traffic goes directly to `privex.chat` via HTTPS/WSS. ISP can see the connection to Privex. Content is encrypted. Identities are hidden. **Law 4 is not satisfied in Phase 1.**
 
 ### Phase 2 — Nym Mixnet
 

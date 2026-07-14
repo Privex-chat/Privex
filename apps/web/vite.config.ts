@@ -13,7 +13,7 @@ import { VitePWA } from "vite-plugin-pwa";
 const CSP = [
   "default-src 'none'",
   "script-src 'self' 'wasm-unsafe-eval'", // WASM, no inline JS
-  "connect-src 'self' wss://*.privex.dpdns.org",
+  "connect-src 'self' wss://*.privex.chat",
   "img-src 'self' blob: data:",
   "style-src 'self'",
   "font-src 'self'",
@@ -97,7 +97,7 @@ export default defineConfig(({ mode }) => {
       // Vite's default output uses content hashes → deterministic / reproducible.
     },
     server: {
-      allowedHosts: ["privex.dpdns.org"],
+      allowedHosts: ["privex.chat"],
       port: devPort,
       headers: securityHeaders,
       // Dev only: forward API calls to the configured backend. In prod Caddy serves

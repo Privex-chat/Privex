@@ -6,7 +6,7 @@
 
 We are making the Phase 1 source code public for transparency and auditing. We believe that for a privacy app, open-sourcing the code is the only true way to earn user trust.
 
-**Current Live Beta Domain:** [privex.dpdns.org](https://privex.dpdns.org) *(Temporary free domain while we seek funding)*
+**Current Live Beta Domain:** [Privex.chat](https://privex.chat)
 
 ---
 
