@@ -41,6 +41,19 @@ function parseFileMeta(content: string): FileMeta | null {
   }
 }
 
+// Per-message queue TTL (docs 4.12): "delete if undelivered after…". The server
+// enforces [1 h, 60 d]; 30 d is its default. Resets to default per conversation
+// visit - the safe direction for a forgotten setting.
+const DEFAULT_TTL = 30 * 24 * 3600;
+const TTL_OPTIONS: { label: string; value: number }[] = [
+  { label: "1 hour", value: 3600 },
+  { label: "6 hours", value: 6 * 3600 },
+  { label: "24 hours", value: 24 * 3600 },
+  { label: "7 days", value: 7 * 24 * 3600 },
+  { label: "30 days (default)", value: DEFAULT_TTL },
+  { label: "60 days", value: 60 * 24 * 3600 },
+];
+
 export default function Chat() {
   const { id: peerId } = useParams();
   const nav = useNavigate();
@@ -53,6 +66,7 @@ export default function Chat() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileUploadsEnabled, setFileUploadsEnabled] = useState(true);
+  const [ttl, setTtl] = useState(DEFAULT_TTL);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -142,7 +156,7 @@ export default function Chat() {
     setSending(true);
     setError(null);
     try {
-      await sendMessage(peerId, text);
+      await sendMessage(peerId, text, undefined, ttl);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send.");
       setDraft(text);
@@ -165,7 +179,7 @@ export default function Chat() {
     setError(null);
     setUpload({ done: 0, total: 1 });
     try {
-      await sendFile(peerId, file, (done, total) => setUpload({ done, total }));
+      await sendFile(peerId, file, (done, total) => setUpload({ done, total }), undefined, ttl);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed.");
     } finally {
@@ -378,6 +392,24 @@ export default function Chat() {
             </button>
           </>
         )}
+        {/* Per-message TTL (docs 4.12): delete from the server queue if
+            undelivered after this long. Applies to messages sent from here on. */}
+        <select
+          value={ttl}
+          onChange={(e) => setTtl(Number(e.target.value))}
+          title="Delete if undelivered after…"
+          aria-label="Delete if undelivered after"
+          className={
+            "shrink-0 rounded-full border border-border-strong bg-input px-2 py-2 text-xs outline-none focus:border-border-focus " +
+            (ttl === DEFAULT_TTL ? "text-text-muted" : "text-accent-subtle")
+          }
+        >
+          {TTL_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              ⏱ {o.label}
+            </option>
+          ))}
+        </select>
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

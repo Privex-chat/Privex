@@ -107,7 +107,7 @@ describe("dummy cover send (docs 5.3)", () => {
     const calls: Array<{ to: string; content: string }> = [];
     const spy = vi.spyOn(api, "sendMessage").mockImplementation(async (to, content) => {
       calls.push({ to, content });
-      return { queued: true, message_id: "x" };
+      return { queued: true, message_id: "x", expires_at: 0 };
     });
     await sendCoverMessage(wasmCrypto);
     spy.mockRestore();

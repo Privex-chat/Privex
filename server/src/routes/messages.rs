@@ -18,7 +18,17 @@ use crate::routes::valid_user_id;
 use crate::state::AppState;
 use crate::validate;
 
+const ONE_HOUR: i64 = 3600;
 const THIRTY_DAYS: i64 = 30 * 24 * 3600;
+const SIXTY_DAYS: i64 = 60 * 24 * 3600;
+
+/// Per-message TTL (docs 4.12): sender-chosen `ttl_seconds` clamped to
+/// [1 hour, 60 days]; absent = 30-day default. Clamped, not rejected: an
+/// out-of-range value degrades to the nearest enforced bound instead of
+/// failing a send whose ratchet step has already been consumed client-side.
+fn clamp_ttl(ttl_seconds: Option<i64>) -> i64 {
+    ttl_seconds.unwrap_or(THIRTY_DAYS).clamp(ONE_HOUR, SIXTY_DAYS)
+}
 
 /// A random v4-shaped UUID for dropped cover-traffic responses (so the reply is
 /// indistinguishable from a real enqueue).
@@ -43,12 +53,14 @@ pub struct SendReq {
     recipient_id: String,
     content: String,            // base64 Sealed Sender blob
     csam_proof: Option<String>, // base64, image messages only
+    ttl_seconds: Option<i64>,   // per-message TTL override (docs 4.12), clamped
 }
 
 #[derive(Serialize)]
 pub struct SendResp {
     queued: bool,
     message_id: String,
+    expires_at: i64,
 }
 
 pub async fn send(
@@ -82,6 +94,9 @@ pub async fn send(
         None => None,
     };
 
+    let now = now_unix();
+    let expires_at = now + clamp_ttl(body.ttl_seconds);
+
     // Cover traffic (docs 5.3): messages addressed to a non-existent mailbox are
     // silently dropped - stored nowhere - but the response is indistinguishable
     // from a real send so an observer can't tell cover from real.
@@ -93,17 +108,17 @@ pub async fn send(
         return Ok(Json(SendResp {
             queued: true,
             message_id: random_message_id(),
+            expires_at,
         }));
     }
 
-    let now = now_unix();
     let message_id = message_queue::enqueue(
         &st.db,
         &body.recipient_id,
         &content,
         csam.as_deref(),
         now as i32,
-        (now + THIRTY_DAYS) as i32,
+        expires_at as i32,
         content.len() as i32,
     )
     .await
@@ -122,6 +137,7 @@ pub async fn send(
     Ok(Json(SendResp {
         queued: true,
         message_id: message_id.to_string(),
+        expires_at,
     }))
 }
 
@@ -155,4 +171,20 @@ pub async fn ack(
         .await
         .map_err(|_| ApiError::internal())?;
     Ok(Json(AckResp { deleted }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clamp_ttl, ONE_HOUR, SIXTY_DAYS, THIRTY_DAYS};
+
+    #[test]
+    fn ttl_defaults_and_clamps() {
+        assert_eq!(clamp_ttl(None), THIRTY_DAYS); // absent → default
+        assert_eq!(clamp_ttl(Some(6 * 3600)), 6 * 3600); // in range → as requested
+        assert_eq!(clamp_ttl(Some(ONE_HOUR)), ONE_HOUR); // exact bounds pass
+        assert_eq!(clamp_ttl(Some(SIXTY_DAYS)), SIXTY_DAYS);
+        assert_eq!(clamp_ttl(Some(0)), ONE_HOUR); // below floor → floor
+        assert_eq!(clamp_ttl(Some(-5)), ONE_HOUR); // negative → floor
+        assert_eq!(clamp_ttl(Some(i64::MAX)), SIXTY_DAYS); // above cap → cap
+    }
 }

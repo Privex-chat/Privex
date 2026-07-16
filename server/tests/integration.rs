@@ -850,6 +850,59 @@ async fn server_end_to_end() {
             .unwrap();
     assert_eq!(remaining, 0, "ACK must hard-delete the row");
 
+    // Per-message TTL (docs 4.12): ttl_seconds is clamped to [1 hour, 60 days],
+    // absent = 30 days. The response expires_at must match the stored row.
+    for (ttl_body, want_ttl) in [
+        (serde_json::json!({}), 30 * 24 * 3600i64), // absent → default
+        (serde_json::json!({ "ttl_seconds": 6 * 3600 }), 6 * 3600), // in range
+        (serde_json::json!({ "ttl_seconds": 5 }), 3600),  // below floor → 1 h
+        (serde_json::json!({ "ttl_seconds": 999_999_999i64 }), 60 * 24 * 3600), // above cap → 60 d
+    ] {
+        let before = now_unix();
+        let mut req = serde_json::json!({
+            "recipient_id": recipient,
+            "content": base64::engine::general_purpose::STANDARD.encode(&content),
+        });
+        for (k, v) in ttl_body.as_object().unwrap() {
+            req[k] = v.clone();
+        }
+        let resp: serde_json::Value = http
+            .post(format!("{base}/messages/send"))
+            .header("X-Privex-Auth", &token)
+            .json(&req)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let expires_at = resp["expires_at"].as_i64().unwrap();
+        let after = now_unix();
+        assert!(
+            (before + want_ttl..=after + want_ttl).contains(&expires_at),
+            "expires_at {expires_at} must be now + {want_ttl} (req: {ttl_body})"
+        );
+        let mid = resp["message_id"].as_str().unwrap();
+        let stored: i32 = sqlx::query_scalar("SELECT expires_at FROM message_queue WHERE message_id = $1::uuid")
+            .bind(mid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(stored as i64, expires_at, "stored row must match the response");
+        // Clean up so later mailbox assertions start from empty.
+        let acked: serde_json::Value = http
+            .post(format!("{base}/messages/ack"))
+            .header("X-Privex-Auth", &token)
+            .json(&serde_json::json!({ "message_ids": [mid] }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(acked["deleted"], 1);
+    }
+
     // Blob upload → download round trip.
     let mut blob = vec![0u8; 256];
     getrandom::getrandom(&mut blob).unwrap();

@@ -129,10 +129,20 @@ export const replenishPrekeys = (opks: OpkUpload[], token: string) =>
 export const wsTicket = (token: string) =>
   post<{ ticket: string; expires_at: number }>("/auth/ws_ticket", {}, token);
 
-export const sendMessage = (recipientId: string, contentB64: string, token: string) =>
-  post<{ queued: boolean; message_id: string }>(
+/** Server default queue TTL (docs 4.12). Sent explicitly on EVERY send so the
+ *  presence of a custom ttl_seconds never distinguishes a real message from
+ *  cover traffic / receipts / sync copies (which all use the default). */
+export const DEFAULT_TTL_SECONDS = 30 * 24 * 3600;
+
+export const sendMessage = (
+  recipientId: string,
+  contentB64: string,
+  token: string,
+  ttlSeconds: number = DEFAULT_TTL_SECONDS,
+) =>
+  post<{ queued: boolean; message_id: string; expires_at: number }>(
     "/messages/send",
-    { recipient_id: recipientId, content: contentB64 },
+    { recipient_id: recipientId, content: contentB64, ttl_seconds: ttlSeconds },
     token,
   );
 

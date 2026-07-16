@@ -114,6 +114,9 @@ export interface OutboxRow {
   local_msg_id: string;
   created_at: number;
   attempts: number;
+  // Per-message TTL (docs 4.12) the sender chose, in seconds; absent = server
+  // default. Counts from created_at: an expired row is dropped, never sent late.
+  ttl_seconds?: number;
 }
 
 // A linked device for cross-device sync (docs 4.11 Mode C). Established over the

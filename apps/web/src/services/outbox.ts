@@ -9,20 +9,31 @@ import { useAuth } from "../store/auth";
 import { reauthenticate } from "./auth-session";
 import { emitMessage, emitOutboxChanged } from "./events";
 
-type SendFn = (peerId: string, contentB64: string, token: string) => Promise<{ message_id: string }>;
+type SendFn = (
+  peerId: string,
+  contentB64: string,
+  token: string,
+  ttlSeconds?: number,
+) => Promise<{ message_id: string }>;
 
 const SYNC_TAG = "sync-pending-messages";
 // HTTP statuses a retry can never fix → drop the blob instead of wedging the queue.
 const PERMANENT = new Set([400, 404, 413]);
 
 /** Park a sealed blob for later delivery and ask the SW to wake us on reconnect. */
-export async function enqueue(peerId: string, sealedB64: string, localMsgId: string): Promise<void> {
+export async function enqueue(
+  peerId: string,
+  sealedB64: string,
+  localMsgId: string,
+  ttlSeconds?: number,
+): Promise<void> {
   await db.outbox.add({
     peer_id: peerId,
     sealed_b64: sealedB64,
     local_msg_id: localMsgId,
     created_at: Date.now(),
     attempts: 0,
+    ttl_seconds: ttlSeconds,
   });
   emitOutboxChanged();
   void requestBackgroundSync();
@@ -45,8 +56,19 @@ export async function flushOutbox(
   try {
     const rows = await db.outbox.orderBy("created_at").toArray();
     for (const row of rows) {
+      // Per-message TTL counts from compose time: a blob parked past its own
+      // TTL must never be sent with a fresh server window ("delete if
+      // undelivered after X" is the sender's promise). Drop it as failed.
+      const elapsedSecs = Math.floor((Date.now() - row.created_at) / 1000);
+      if (row.ttl_seconds !== undefined && elapsedSecs >= row.ttl_seconds) {
+        await db.outbox.delete(row.id!);
+        if (row.local_msg_id) await db.messages.update(row.local_msg_id, { status: "failed" });
+        continue;
+      }
       try {
-        await send(row.peer_id, row.sealed_b64, token);
+        // Send the REMAINING ttl (server floors it at 1 h - the enforced minimum).
+        const ttl = row.ttl_seconds === undefined ? undefined : row.ttl_seconds - elapsedSecs;
+        await send(row.peer_id, row.sealed_b64, token, ttl);
       } catch (e) {
         // Permanent client error (malformed / gone / too large) → this blob can
         // never succeed, so drop it (mark the row failed) and keep draining the rest.
