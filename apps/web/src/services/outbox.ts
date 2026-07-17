@@ -59,10 +59,14 @@ export async function flushOutbox(
       // Per-message TTL counts from compose time: a blob parked past its own
       // TTL must never be sent with a fresh server window ("delete if
       // undelivered after X" is the sender's promise). Drop it as failed.
-      const elapsedSecs = Math.floor((Date.now() - row.created_at) / 1000);
+      // Clamped at 0 so a clock rollback can never EXTEND the chosen TTL.
+      const elapsedSecs = Math.max(0, Math.floor((Date.now() - row.created_at) / 1000));
       if (row.ttl_seconds !== undefined && elapsedSecs >= row.ttl_seconds) {
         await db.outbox.delete(row.id!);
-        if (row.local_msg_id) await db.messages.update(row.local_msg_id, { status: "failed" });
+        if (row.local_msg_id) {
+          await db.messages.update(row.local_msg_id, { status: "failed" });
+          emitMessage({ peerId: row.peer_id }); // live UI shows the ! immediately
+        }
         continue;
       }
       try {
@@ -74,7 +78,10 @@ export async function flushOutbox(
         // never succeed, so drop it (mark the row failed) and keep draining the rest.
         if (e instanceof api.ApiError && PERMANENT.has(e.status)) {
           await db.outbox.delete(row.id!);
-          if (row.local_msg_id) await db.messages.update(row.local_msg_id, { status: "failed" });
+          if (row.local_msg_id) {
+            await db.messages.update(row.local_msg_id, { status: "failed" });
+            emitMessage({ peerId: row.peer_id });
+          }
           continue;
         }
         // Transient (offline, 401 stale token, 429 rate-limit, 5xx) → keep it and

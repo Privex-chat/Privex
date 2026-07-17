@@ -76,6 +76,9 @@ export default function Chat() {
 
   useEffect(() => {
     if (!peerId) return;
+    // TTL is per-conversation: reset on every peer switch, not just on mount
+    // (React Router reuses this component across /chat/:id navigations).
+    setTtl(DEFAULT_TTL);
     const store = new EncryptedMessages(db);
     const reload = () => void store.listBySession(peerId).then(setMsgs);
     const loadContact = () => void getContact(peerId).then(setContact);

@@ -100,7 +100,7 @@ describe("offline outbox", () => {
     expect((await db.messages.get("d"))?.status).toBe("failed");
   });
 
-  it("sends a live TTL blob with its remaining seconds (default rows send undefined)", async () => {
+  it("sends a live TTL blob with its remaining seconds (legacy rows without a stored TTL send undefined)", async () => {
     await db.outbox.add({
       peer_id: "px_5",
       sealed_b64: "LIVE",
@@ -109,7 +109,7 @@ describe("offline outbox", () => {
       attempts: 0,
       ttl_seconds: 6 * 3600, // 6 h TTL → ~5 h left
     });
-    await enqueue("px_5", "DEFAULT", ""); // no TTL → undefined on the wire
+    await enqueue("px_5", "DEFAULT", ""); // legacy row shape (no TTL) → undefined on the wire
     const ttls: Array<number | undefined> = [];
     const send = vi.fn(async (_p: string, _b: string, _t: string, ttl?: number) => {
       ttls.push(ttl);

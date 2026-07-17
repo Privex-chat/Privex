@@ -137,13 +137,15 @@ function token(): string {
 
 /** Ratchet-encrypt an already-encoded Content, wrap + Sealed-Sender it, POST, and
  *  persist the local copy. Shared by text + file sends. Returns the server msg id.
- *  `ttlSeconds` is the per-message queue TTL (docs 4.12); undefined = 30-day default. */
+ *  `ttlSeconds` is the per-message queue TTL (docs 4.12), defaulted HERE (the one
+ *  funnel every send takes) so a parked outbox row always carries an explicit TTL
+ *  and compose-time expiry applies to default sends too. */
 async function sealAndSend(
   peerId: string,
   contentBytes: Uint8Array,
   store: { content: string; kind: "text" | "file"; receiptToken?: Uint8Array } | null,
   crypto: MessageCryptoApi,
-  ttlSeconds?: number,
+  ttlSeconds: number = api.DEFAULT_TTL_SECONDS,
 ): Promise<string> {
   const me = await myBundle();
   const contact = await getContact(peerId);
