@@ -79,4 +79,47 @@ describe("offline outbox", () => {
     expect(send).not.toHaveBeenCalled();
     expect(await outboxCount()).toBe(1);
   });
+
+  // Per-message TTL (docs 4.12): the TTL counts from compose time, so a blob
+  // parked past its own TTL is dropped as failed - never sent with a fresh
+  // server window - and a still-live one is sent with its REMAINING seconds.
+  it("drops a parked blob whose per-message TTL has already expired", async () => {
+    await row("d", 1, "queued");
+    await db.outbox.add({
+      peer_id: "px_4",
+      sealed_b64: "OLD",
+      local_msg_id: "d",
+      created_at: Date.now() - 2 * 3600 * 1000, // composed 2 h ago
+      attempts: 0,
+      ttl_seconds: 3600, // 1 h TTL → already expired
+    });
+    const send = vi.fn(async () => ({ message_id: "x" }));
+    await flushOutbox(send, "tok");
+    expect(send).not.toHaveBeenCalled();
+    expect(await outboxCount()).toBe(0);
+    expect((await db.messages.get("d"))?.status).toBe("failed");
+  });
+
+  it("sends a live TTL blob with its remaining seconds (legacy rows without a stored TTL send undefined)", async () => {
+    await db.outbox.add({
+      peer_id: "px_5",
+      sealed_b64: "LIVE",
+      local_msg_id: "",
+      created_at: Date.now() - 3600 * 1000, // composed 1 h ago
+      attempts: 0,
+      ttl_seconds: 6 * 3600, // 6 h TTL → ~5 h left
+    });
+    await enqueue("px_5", "DEFAULT", ""); // legacy row shape (no TTL) → undefined on the wire
+    const ttls: Array<number | undefined> = [];
+    const send = vi.fn(async (_p: string, _b: string, _t: string, ttl?: number) => {
+      ttls.push(ttl);
+      return { message_id: "x" };
+    });
+    await flushOutbox(send, "tok");
+    expect(await outboxCount()).toBe(0);
+    expect(ttls).toHaveLength(2);
+    expect(ttls[0]).toBeGreaterThan(4 * 3600);
+    expect(ttls[0]).toBeLessThanOrEqual(5 * 3600);
+    expect(ttls[1]).toBeUndefined();
+  });
 });

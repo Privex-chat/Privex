@@ -191,7 +191,7 @@ describe("fan-out on send (opt-in)", () => {
     let calls: Array<{ to: string; content: string }> = [];
     const spy = vi.spyOn(api, "sendMessage").mockImplementation(async (to, content) => {
       calls.push({ to, content });
-      return { queued: true, message_id: `srv-${calls.length}` };
+      return { queued: true, message_id: `srv-${calls.length}`, expires_at: 0 };
     });
     await sendMessage(peer.userId, "no sync", wasmCrypto);
     await new Promise((r) => setTimeout(r, 50)); // fan-out is fire-and-forget

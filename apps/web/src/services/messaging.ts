@@ -136,12 +136,16 @@ function token(): string {
 // --- send ---
 
 /** Ratchet-encrypt an already-encoded Content, wrap + Sealed-Sender it, POST, and
- *  persist the local copy. Shared by text + file sends. Returns the server msg id. */
+ *  persist the local copy. Shared by text + file sends. Returns the server msg id.
+ *  `ttlSeconds` is the per-message queue TTL (docs 4.12), defaulted HERE (the one
+ *  funnel every send takes) so a parked outbox row always carries an explicit TTL
+ *  and compose-time expiry applies to default sends too. */
 async function sealAndSend(
   peerId: string,
   contentBytes: Uint8Array,
   store: { content: string; kind: "text" | "file"; receiptToken?: Uint8Array } | null,
   crypto: MessageCryptoApi,
+  ttlSeconds: number = api.DEFAULT_TTL_SECONDS,
 ): Promise<string> {
   const me = await myBundle();
   const contact = await getContact(peerId);
@@ -174,7 +178,7 @@ async function sealAndSend(
   let msgId: string = localId;
   let status = "sent";
   try {
-    const resp = await api.sendMessage(peerId, sealedB64, token());
+    const resp = await api.sendMessage(peerId, sealedB64, token(), ttlSeconds);
     msgId = resp.message_id;
   } catch (e) {
     // The ratchet already stepped; `sealed` is that step's only ciphertext, so a
@@ -184,7 +188,7 @@ async function sealAndSend(
     // matches flushOutbox, which only drops 400/404/413; other 4xx surface here.
     if (e instanceof api.ApiError && e.status !== 401 && e.status !== 429 && e.status < 500) throw e;
     status = "queued";
-    await enqueue(peerId, sealedB64, store ? localId : "");
+    await enqueue(peerId, sealedB64, store ? localId : "", ttlSeconds);
     // 401 → token went stale; re-mint so the outbox retry uses a fresh one (PVX-07).
     if (e instanceof api.ApiError && e.status === 401) void reauthenticate();
   }
@@ -294,6 +298,7 @@ export async function sendMessage(
   peerId: string,
   plaintext: string,
   crypto: MessageCryptoApi = workerMessageCrypto,
+  ttlSeconds?: number,
 ): Promise<void> {
   const receipt = await buildReceiptRequest(); // undefined when receipts are off (mutual)
   await sealAndSend(
@@ -301,6 +306,7 @@ export async function sendMessage(
     encodeText(plaintext, now(), receipt?.wire),
     { content: plaintext, kind: "text", receiptToken: receipt?.token },
     crypto,
+    ttlSeconds,
   );
 }
 
@@ -310,6 +316,7 @@ export async function sendFile(
   file: File,
   onProgress?: (done: number, total: number) => void,
   crypto: MessageCryptoApi = workerMessageCrypto,
+  ttlSeconds?: number,
 ): Promise<void> {
   const contact = await getContact(peerId);
   if (!contact || contact.ik_x25519.length === 0) {
@@ -327,6 +334,7 @@ export async function sendFile(
     encodeFile(fields, receipt?.wire),
     { content: JSON.stringify(meta), kind: "file", receiptToken: receipt?.token },
     crypto,
+    ttlSeconds,
   );
 }
 

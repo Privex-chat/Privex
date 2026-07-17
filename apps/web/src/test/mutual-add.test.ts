@@ -201,7 +201,7 @@ describe("mutual add", () => {
     await acceptContact(peer.userId);
     const sendSpy = vi
       .spyOn(api, "sendMessage")
-      .mockResolvedValue({ queued: true, message_id: "srv-1" });
+      .mockResolvedValue({ queued: true, message_id: "srv-1", expires_at: 0 });
     await sendMessage(peer.userId, "sure", wasmCrypto);
     expect(sendSpy).toHaveBeenCalledOnce();
     expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(2);

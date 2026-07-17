@@ -279,7 +279,7 @@ describe("full loop: send → peer receipt → live status update", () => {
     let sealedToPeer = "";
     const sendSpy = vi.spyOn(api, "sendMessage").mockImplementation(async (_to, contentB64) => {
       sealedToPeer = contentB64;
-      return { queued: true, message_id: "srv-42" };
+      return { queued: true, message_id: "srv-42", expires_at: 0 };
     });
     const { sendMessage } = await import("../services/messaging");
     await sendMessage(peer.userId, "ping", wasmCrypto);
