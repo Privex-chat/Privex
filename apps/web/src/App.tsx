@@ -21,7 +21,6 @@ import MyQr from "./screens/MyQr";
 import UnlockScreen from "./screens/UnlockScreen";
 import AnnouncementBanner from "./components/AnnouncementBanner";
 import InstallPrompt from "./components/InstallPrompt";
-import NotificationBanner from "./components/NotificationBanner";
 import AppLockGuard from "./components/AppLockGuard";
 import ScreenRecordGuard from "./components/ScreenRecordGuard";
 import ThemeProvider from "./components/ThemeProvider";
@@ -183,7 +182,6 @@ export default function App() {
             </Routes>
           </HashRouter>
           <InstallPrompt />
-          <NotificationBanner />
           <ScreenRecordGuard pxId={useAuth.getState().userId ?? ""} />
           <AppLockGuard onLock={() => setBoot("locked")} />
         </>
