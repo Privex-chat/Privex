@@ -32,6 +32,8 @@ pub const MAX_HISTORY_BLOB_ID_CHARS: usize = 64;
 
 pub const MAX_SHARES_BATCH: usize = 10;
 pub const MAX_SHARE_BYTES: usize = 4096;
+pub const RECOVERY_ID_HEX_CHARS: usize = 32; // 16 random bytes
+pub const MAX_RENDEZVOUS_BLOBS: i64 = 16; // per-bucket flood cap
 
 pub const MAX_DEVLINK_FRAME_BYTES: usize = 2 * 1024 * 1024;
 
@@ -119,6 +121,12 @@ pub fn validate_ws_ticket(s: &str) -> bool {
 /// Validate a devlink rendezvous_id: exactly 32 lowercase hex chars.
 pub fn validate_devlink_rid(s: &str) -> bool {
     validate_hex_str_exact(s, DEVLINK_RID_HEX_CHARS)
+}
+
+/// Validate a social-recovery rendezvous_id: exactly 32 lowercase hex chars
+/// (16 random bytes). Unguessable capability key for the ephemeral share bucket.
+pub fn validate_recovery_id(s: &str) -> bool {
+    validate_hex_str_exact(s, RECOVERY_ID_HEX_CHARS)
 }
 
 /// Validate a PoW challenge_id is a valid UUID.

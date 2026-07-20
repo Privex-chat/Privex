@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) AS n FROM recovery_shares WHERE user_id = $1",
+  "query": "SELECT COUNT(*) AS n FROM recovery_rendezvous\n         WHERE recovery_id = $1 AND expires_at > $2",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,13 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Bpchar",
+        "Int4"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "897b56ca8127bc45e78c6e8a101edb08672d7e17cafe3cccb9edf34d90d7b078"
+  "hash": "614c876ffa41720b95e707cde0ade897921c42f47d70504d887d41b1d9541827"
 }

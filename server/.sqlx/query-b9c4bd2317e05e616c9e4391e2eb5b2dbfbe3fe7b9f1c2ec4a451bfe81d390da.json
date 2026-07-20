@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT blob FROM recovery_rendezvous\n         WHERE recovery_id = $1 AND expires_at > $2 ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "blob",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b9c4bd2317e05e616c9e4391e2eb5b2dbfbe3fe7b9f1c2ec4a451bfe81d390da"
+}

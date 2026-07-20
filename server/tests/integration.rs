@@ -1616,6 +1616,153 @@ async fn server_end_to_end() {
         "recovery_shares table holds 3 encrypted blobs"
     );
 
+    // --- Social-recovery RETRIEVAL (docs 4.2 path 3) ---
+
+    // Atomic replace (#4): re-storing a SMALLER set drops the stale index.
+    let two_shares = serde_json::json!({
+        "shares": [
+            { "share_index": 1, "encrypted_share": "aa".repeat(55) },
+            { "share_index": 2, "encrypted_share": "bb".repeat(55) },
+        ]
+    });
+    let replaced: serde_json::Value = http
+        .post(format!("{base}/recovery/shares/store"))
+        .header("X-Privex-Auth", &token)
+        .json(&two_shares)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replaced["stored"], 2, "replace-all shrinks the set");
+    let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recovery_shares WHERE user_id = $1")
+        .bind(&id.user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 2, "stale index 3 must be gone after an atomic replace");
+
+    // shares/get (PoW-gated) returns the real blobs to a would-be contact.
+    let sg: serde_json::Value = http
+        .post(format!("{base}/recovery/shares/get"))
+        .json(&serde_json::json!({
+            "user_id": id.user_id,
+            "pow": test_pow_proof(&state.redis).await,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let got = sg["shares"].as_array().unwrap();
+    assert_eq!(got.len(), 2);
+    assert_eq!(got[0]["encrypted_share"].as_str().unwrap(), "aa".repeat(55));
+    assert_eq!(got[1]["encrypted_share"].as_str().unwrap(), "bb".repeat(55));
+
+    // shares/get WITHOUT a valid PoW → 400 (anti-enumeration gate fires first).
+    assert_eq!(
+        http.post(format!("{base}/recovery/shares/get"))
+            .json(&serde_json::json!({
+                "user_id": id.user_id,
+                "pow": { "challenge_id": random_uuid_string(), "nonce": 0, "solution_hash": "00".repeat(32) },
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+
+    // Existence-oracle mitigation: a px_id with NO shares returns 3 STABLE
+    // 110-byte dummies, byte-indistinguishable from a real 3-contact setup.
+    let ghost_px = format!("px_{}", rand_hex(16));
+    let dummies1: serde_json::Value = http
+        .post(format!("{base}/recovery/shares/get"))
+        .json(&serde_json::json!({ "user_id": ghost_px, "pow": test_pow_proof(&state.redis).await }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let da = dummies1["shares"].as_array().unwrap();
+    assert_eq!(da.len(), 3, "absent recovery config → 3 dummies");
+    for s in da {
+        assert_eq!(
+            hex::decode(s["encrypted_share"].as_str().unwrap()).unwrap().len(),
+            110,
+            "dummy must match the real 110-byte share size"
+        );
+    }
+    let dummies2: serde_json::Value = http
+        .post(format!("{base}/recovery/shares/get"))
+        .json(&serde_json::json!({ "user_id": ghost_px, "pow": test_pow_proof(&state.redis).await }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        dummies1["shares"], dummies2["shares"],
+        "dummies are stable per px_id (a re-probe returns identical bytes, like a real share)"
+    );
+
+    // Rendezvous: a contact POSTs a re-sealed share (PoW), the owner GETs it back.
+    let rid = rand_hex(16); // 32 hex chars = 16-byte recovery_id
+    let posted: serde_json::Value = http
+        .post(format!("{base}/recovery/rendezvous/{rid}"))
+        .json(&serde_json::json!({ "blob": "cc".repeat(60), "pow": test_pow_proof(&state.redis).await }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(posted["posted"], true);
+    let poll: serde_json::Value = http
+        .get(format!("{base}/recovery/rendezvous/{rid}"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(poll["blobs"].as_array().unwrap().len(), 1);
+    assert_eq!(poll["blobs"][0].as_str().unwrap(), "cc".repeat(60));
+
+    // A malformed recovery_id is rejected (the bucket key must be 32 hex).
+    assert_eq!(
+        http.get(format!("{base}/recovery/rendezvous/not-a-valid-id"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+
+    // Rendezvous rows expire and are swept by cleanup_expired.
+    sqlx::query(
+        "INSERT INTO recovery_rendezvous (recovery_id, blob, created_at, expires_at) VALUES ($1,$2,$3,$4)",
+    )
+    .bind(rand_hex(16))
+    .bind(vec![1u8, 2, 3])
+    .bind(0i32)
+    .bind(1i32) // already expired
+    .execute(&pool)
+    .await
+    .unwrap();
+    privex_server::cleanup_expired(&state).await.unwrap();
+    let rv_expired: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM recovery_rendezvous WHERE expires_at < $1")
+            .bind(now_unix() as i32)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(rv_expired, 0, "expiry sweep must clear stale rendezvous rows");
+
     // ===== Session 19: encrypted history backup (Option A) =====
 
     // Auth required.
