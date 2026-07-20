@@ -225,6 +225,25 @@ export const storeShares = (
   token: string,
 ) => post<{ stored: number }>("/recovery/shares/store", { shares }, token);
 
+// --- social-recovery RETRIEVAL (docs 4.2 path 3, all unauthenticated) ---
+
+/** A recovering owner's contact fetches the owner's encrypted share blobs. PoW-
+ *  gated. Returns stable dummies for a px_id with no recovery config (the contact
+ *  of a real owner always gets real blobs, one of which their key can open). */
+export const sharesGet = (userId: string, pow: PowProof) =>
+  post<{ shares: { share_index: number; encrypted_share: string }[] }>(
+    "/recovery/shares/get",
+    { user_id: userId, pow },
+  );
+
+/** A contact posts one share re-sealed to the owner's ephemeral recovery key. */
+export const rendezvousPost = (recoveryId: string, blobHex: string, pow: PowProof) =>
+  post<{ posted: boolean }>(`/recovery/rendezvous/${recoveryId}`, { blob: blobHex, pow });
+
+/** The recovering owner polls their ephemeral bucket for posted shares. */
+export const rendezvousPoll = (recoveryId: string) =>
+  get<{ blobs: string[] }>(`/recovery/rendezvous/${recoveryId}`);
+
 export const spkRotate = (
   body: { spk_x25519_pub: string; spk_sig_ed: string; spk_sig_dil: string },
   token: string,

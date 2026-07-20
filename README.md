@@ -47,7 +47,7 @@ We are actively building the following features to complete Phase 1:
 - **Nym Integration:** Transitioning from direct WebSockets to full Nym mixnet routing. *(Client worker is a skeleton today; the full gateway wiring is the headline Phase 2 deliverable.)*
 - ~~**PoW Hardening:** Argon2id, in a hybrid with SHA-256. Not instead of SHA-256, on top of it.~~
 - ~~**Message TTL controls:** The server queue enforces a fixed 30-day TTL. The 60-day opt-in and per-message TTL override (docs 4.12) are not built yet.~~ *(Per-message TTL is live: senders choose "delete if undelivered after…" from 1 hour to 60 days, server-enforced with a 30-day default.)*
-- **Emergency Recovery Contacts:** Recover-via-contacts (Shamir) retrieval is setup only, retrieval needs a relationship free share rendezvous the server doesn't know who your contacts are.
+- ~~**Emergency Recovery Contacts:** Recover-via-contacts (Shamir) retrieval is setup only, retrieval needs a relationship free share rendezvous the server doesn't know who your contacts are.~~ *(Retrieval is now live: a fresh device generates an ephemeral recovery key + code, contacts approve out-of-band with a SAS check, and shares are relayed through a random ephemeral rendezvous — the server never learns who your recovery contacts are.)*
 - ~~**Session Management:** Fixing token invalidation on Signed Pre-Key rotation.~~
 - **Push Notifications:** Service Worker push event handling needs fixing.
 - ~~**Time Synchronization:** Desync attack prevention via server-signed timestamps.~~

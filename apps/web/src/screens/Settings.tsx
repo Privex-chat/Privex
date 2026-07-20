@@ -10,9 +10,11 @@ import { loadBundle } from "../onboarding/store";
 import { listContacts } from "../data/contacts";
 import type { PlainContact } from "../db/encrypted-db";
 import {
+  approveRecovery,
   disableOpaqueRecovery,
   enableOpaqueRecovery,
   opaqueRecoveryStatus,
+  recoveryCodeSas,
   setupEmergencyContacts,
   RECOVERY_CONTACTS_KEY,
 } from "../services/recovery";
@@ -370,6 +372,9 @@ function RecoveryTab({
       </Row>
       <Row>
         <EmergencyContacts onConfigured={() => setHasContacts(true)} />
+      </Row>
+      <Row>
+        <ApproveRecovery />
       </Row>
       <Row>
         <Link to="/device-transfer" className="text-sm text-accent-text hover:underline">
@@ -806,6 +811,125 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
               {busy ? "Storing…" : `Protect with ${picked.size} contacts`}
             </button>
             <button onClick={() => setOpen(false)} className="rounded-lg border border-border-strong px-3 py-1.5 text-sm">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Contact side of social recovery (docs 4.2 path 3). A recovery contact pastes
+ *  the code the recovering owner gave them out of band, verbally confirms the SAS,
+ *  picks which contact is recovering, and approves — the app fetches the owner's
+ *  shares, decrypts the one sealed to this device, and posts it to the rendezvous.
+ *  The server never learns this device is a recovery contact of that owner. */
+function ApproveRecovery() {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const [sas, setSas] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<PlainContact[]>([]);
+  const [chosen, setChosen] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) void listContacts().then((c) => setContacts(c.filter((x) => x.ik_x25519.length > 0)));
+  }, [open]);
+
+  async function onCode(v: string) {
+    setCode(v);
+    setSas(null);
+    setError(null);
+    try {
+      setSas(await recoveryCodeSas(v));
+    } catch {
+      // incomplete / invalid code — SAS stays hidden until it parses
+    }
+  }
+
+  async function approve() {
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      await approveRecovery(code, chosen);
+      setMsg("Approved. Your contact can finish recovering once enough of you approve.");
+      setCode("");
+      setSas(null);
+      setChosen("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not approve this recovery.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="text-sm text-text-secondary">Approve a friend&rsquo;s recovery</div>
+      <p className="text-xs text-text-muted">
+        If a contact who trusts you with a recovery share lost their device, paste the code they gave you.
+      </p>
+      {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
+      {!open ? (
+        <button onClick={() => setOpen(true)} className="mt-2 rounded-lg bg-raised hover:bg-border-strong px-3 py-1.5 text-sm">
+          Approve a recovery
+        </button>
+      ) : (
+        <div className="mt-2 space-y-2">
+          <textarea
+            value={code}
+            onChange={(e) => void onCode(e.target.value.trim())}
+            placeholder="Paste the recovery code"
+            rows={2}
+            className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-xs font-mono outline-none focus:border-border-focus"
+          />
+          {sas && (
+            <p className="text-xs text-text-secondary">
+              Confirm by voice — this code must match on both screens:{" "}
+              <span className="font-mono tracking-[0.2em] text-accent-subtle">{sas}</span>
+            </p>
+          )}
+          <div>
+            <div className="text-xs text-text-muted mb-1">Who is recovering?</div>
+            {contacts.length === 0 ? (
+              <p className="text-xs text-text-muted">No eligible contacts.</p>
+            ) : (
+              <select
+                value={chosen}
+                onChange={(e) => setChosen(e.target.value)}
+                className="w-full rounded-lg bg-input border border-border-strong px-2 py-1.5 text-sm outline-none focus:border-border-focus"
+              >
+                <option value="">Select a contact…</option>
+                {contacts.map((c) => (
+                  <option key={c.px_id} value={c.px_id}>
+                    {c.name || c.px_id}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              disabled={busy || !code || !chosen || !sas}
+              onClick={() => void approve()}
+              className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 text-sm"
+            >
+              {busy ? "Approving…" : "Approve"}
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                setCode("");
+                setSas(null);
+                setError(null);
+              }}
+              className="rounded-lg border border-border-strong px-3 py-1.5 text-sm"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}

@@ -1,9 +1,16 @@
 // Account recovery (docs 4.2). Restore an identity on a fresh device:
 //   A - password (OPAQUE), B - emergency contacts (deferred), C - seed phrase.
 // Message history is NOT restored (it lives only on devices).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { recoverWithPassword, recoverWithSeed } from "../services/recovery";
+import {
+  pollContactRecovery,
+  recoverWithPassword,
+  recoverWithSeed,
+  startContactRecovery,
+  type RecoverySession,
+} from "../services/recovery";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 
 type Tab = "password" | "seed" | "contacts";
 
@@ -133,14 +140,98 @@ function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promis
 }
 
 function ContactsRecovery() {
+  const nav = useNavigate();
+  const [session, setSession] = useState<RecoverySession | null>(null);
+  const [received, setReceived] = useState(0);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, copy] = useCopyToClipboard();
+
+  async function start() {
+    setStarting(true);
+    setError(null);
+    try {
+      setSession(await startContactRecovery());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start recovery.");
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  // Poll the rendezvous until >= 2 contacts have posted their shares and the seed
+  // reconstructs; pollContactRecovery finalizes (persists identity + re-auths).
+  useEffect(() => {
+    if (!session) return;
+    const collected = new Map<string, Uint8Array>();
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const userId = await pollContactRecovery(session, collected);
+        setReceived(collected.size);
+        if (userId) {
+          stopped = true;
+          nav("/", { replace: true });
+          return;
+        }
+      } catch {
+        // transient poll/network error — keep trying
+      }
+      if (!stopped) timer = setTimeout(() => void tick(), 3000);
+    };
+    timer = setTimeout(() => void tick(), 500);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [session, nav]);
+
+  if (!session) {
+    return (
+      <div className="rounded-xl border border-divider p-4 text-sm">
+        <p className="font-medium text-text-primary">Recover with your emergency contacts</p>
+        <p className="mt-2 text-text-secondary">
+          If you set up 2–3 recovery contacts, they can restore your account together — no password
+          or seed phrase needed. You&rsquo;ll get a one-time recovery code to give them.
+        </p>
+        <button
+          onClick={() => void start()}
+          disabled={starting}
+          className="mt-3 rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-4 py-2 text-sm"
+        >
+          {starting ? "Starting…" : "Start recovery"}
+        </button>
+        {error && <p className="mt-2 text-danger">{error}</p>}
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-xl border border-divider p-4 text-sm text-text-secondary">
-      <p className="font-medium text-text-primary">Recovery via emergency contacts</p>
-      <p className="mt-2">
-        Ask 2 of your recovery friends to approve your recovery in Privex. This flow needs the
-        relationship-free share rendezvous, which is coming in a later release. For now, recover with
-        your password or seed phrase.
+    <div className="rounded-xl border border-divider p-4 text-sm space-y-3">
+      <p className="font-medium text-text-primary">Send this code to your recovery contacts</p>
+      <div className="rounded-lg bg-input border border-border-strong p-2 font-mono text-xs break-all">
+        {session.code}
+      </div>
+      <button
+        onClick={() => copy(session.code)}
+        className="rounded-lg bg-raised hover:bg-border-strong px-3 py-1.5 text-xs"
+      >
+        {copied ? "Copied ✓" : "Copy code"}
+      </button>
+      <p className="text-text-secondary">
+        Give this code to at least <strong>2</strong> of your recovery contacts{" "}
+        <strong>out of band</strong> (phone / in person). Then read them this confirmation code so
+        they know the request is really from you:
       </p>
+      <p className="text-center text-2xl font-mono tracking-[0.3em] text-accent-subtle">
+        {session.sas}
+      </p>
+      <p className="text-text-muted text-xs">
+        Waiting for approvals… {received} of 2 shares received. Keep this page open.
+      </p>
+      {error && <p className="text-danger">{error}</p>}
     </div>
   );
 }
