@@ -18,7 +18,7 @@ import { pqxdhInitiate, type VerifiedBundle } from "../crypto/contact-crypto";
 import * as mc from "../crypto/message-crypto";
 import { decodeContent, encodeEnvelope, encodeReceipt, encodeText } from "../services/envelope";
 import { b64encode } from "../services/bytes";
-import { addVerifiedContact } from "../data/contacts";
+import { acceptContact, addVerifiedContact } from "../data/contacts";
 import { persistGeneratedIdentity } from "../onboarding/store";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
@@ -133,7 +133,8 @@ async function addAccepted(me: IdentityBundle, peer: IdentityBundle): Promise<vo
     kyber1024_pub: peer.identity.kyber1024_pub,
   });
   const state = wasm.ratchet_init_alice(pqx.shared_secret, peer.spk.pub);
-  await addVerifiedContact(verifiedOf(peer), pqx, state);
+  await addVerifiedContact(verifiedOf(peer), pqx, state); // → pending_outbound
+  await acceptContact(peer.userId); // mark accepted so messages can be sent
 }
 
 describe("receipt wire format", () => {

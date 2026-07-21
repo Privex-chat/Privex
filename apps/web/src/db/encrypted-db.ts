@@ -182,11 +182,11 @@ export class EncryptedContacts {
    *  verification status if present (re-adds after a verified key-match). An
    *  empty ikEd (inbound sender we haven't KT-verified yet) is allowed.
    *
-   *  `status` is the intent of THIS call ("accepted" for a deliberate add, the
-   *  default; "pending_inbound" for an unsolicited inbound). The stored status
-   *  follows one rule: once "accepted", it never reverts - so an inbound hello
-   *  can't downgrade a contact the user already accepted, while a deliberate add
-   *  promotes a pending request to accepted. */
+   *  `status` is the intent of THIS call. Two statuses are STICKY and never
+   *  downgraded by a re-add / inbound: "blocked" (a blocked sender re-requesting
+   *  must not unblock themselves) and "accepted" (an inbound request can't
+   *  downgrade a contact you already accepted). Glare (a request from someone you
+   *  already requested) is resolved to "accepted" by the caller, not here. */
   async add(
     pxId: string,
     ikEd: Uint8Array,
@@ -194,13 +194,14 @@ export class EncryptedContacts {
     status: ContactStatus = "accepted",
   ): Promise<void> {
     const existing = await this.db.contacts.get(pxId);
+    const sticky = existing?.status === "blocked" || existing?.status === "accepted";
     const row: ContactRow = {
       px_id: pxId,
       ik_ed25519_pub: ikEd.length > 0 ? ikEd : existing?.ik_ed25519_pub,
       ik_x25519_pub: ikX.length > 0 ? ikX : existing?.ik_x25519_pub,
       display_name_enc: existing?.display_name_enc,
       verified_fingerprint: existing?.verified_fingerprint,
-      status: existing?.status === "accepted" ? "accepted" : status,
+      status: sticky ? existing!.status : status,
       added_at: existing?.added_at ?? Math.floor(Date.now() / 1000),
     };
     await this.db.contacts.put(row);

@@ -37,10 +37,14 @@ export default function ContactList() {
   const reload = useCallback(() => {
     void (async () => {
       const all = await listContacts();
-      const contactIds = all.filter((c) => c.status !== "pending_inbound").map((c) => c.px_id);
+      // Home list = ACCEPTED contacts only (legacy rows default to accepted).
+      // pending_inbound → Requests tab, pending_outbound → Requests "Sent",
+      // blocked → Blocked tab. So the DM list stays clean.
+      const accepted = (c: PlainContact) => c.status === "accepted";
+      const contactIds = all.filter(accepted).map((c) => c.px_id);
       const [latest] = await Promise.all([latestPerSession(contactIds)]);
       const sorted = all
-        .filter((c) => c.status !== "pending_inbound")
+        .filter(accepted)
         .sort((a, b) => {
           const aKey = latest.get(a.px_id) ?? a.added_at;
           const bKey = latest.get(b.px_id) ?? b.added_at;

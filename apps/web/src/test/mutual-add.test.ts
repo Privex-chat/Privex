@@ -19,10 +19,16 @@ import { initCrypto, wasm } from "../crypto/wasm";
 import { genIdentityBundle, type IdentityBundle } from "../crypto/onboarding-crypto";
 import { pqxdhInitiate, type VerifiedBundle } from "../crypto/contact-crypto";
 import * as mc from "../crypto/message-crypto";
-import { encodeContactHello, encodeEnvelope, encodeText } from "../services/envelope";
+import { encodeContactAccept, encodeContactHello, encodeEnvelope, encodeText } from "../services/envelope";
 import { b64encode } from "../services/bytes";
 import { onContactsChanged } from "../services/events";
-import { acceptContact, addVerifiedContact, getContact, removeContact } from "../data/contacts";
+import {
+  acceptContact,
+  addVerifiedContact,
+  blockContact,
+  getContact,
+  removeContact,
+} from "../data/contacts";
 import { persistGeneratedIdentity } from "../onboarding/store";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
@@ -233,6 +239,92 @@ describe("mutual add", () => {
     expect(await getContact(peer.userId)).toBeUndefined();
     expect(await db.sessions.get(peer.userId)).toBeUndefined();
     expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(0);
+    ackSpy.mockRestore();
+  });
+
+  it("drops messages from a blocked sender (not stored, still acked)", async () => {
+    resetMessaging();
+    await Promise.all([db.contacts.clear(), db.sessions.clear(), db.messages.clear(), db.identity.clear()]);
+    const me = genIdentityBundle(wasm, entropy(0xa1));
+    const peer = genIdentityBundle(wasm, entropy(0xa2));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("test-token", me.userId);
+    const ackSpy = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+
+    // First message lands as a pending request; then we block them.
+    await receiveMessage(
+      { message_id: "b1", content: sealedFirstMessage(peer, me, encodeText("hi", 0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(1);
+    await blockContact(peer.userId);
+
+    // A further message from the blocked sender is dropped (no store) but acked so
+    // the server deletes it (no redelivery loop).
+    await receiveMessage(
+      { message_id: "b2", content: sealedFirstMessage(peer, me, encodeText("still here", 0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect(await new EncryptedMessages(db).listBySession(peer.userId)).toHaveLength(1); // unchanged
+    expect(ackSpy).toHaveBeenCalledWith(["b2"], "test-token");
+    ackSpy.mockRestore();
+  });
+
+  it("a contact_accept flips our outbound request to accepted", async () => {
+    resetMessaging();
+    await Promise.all([db.contacts.clear(), db.sessions.clear(), db.messages.clear(), db.identity.clear()]);
+    const me = genIdentityBundle(wasm, entropy(0xb1));
+    const peer = genIdentityBundle(wasm, entropy(0xb2));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("test-token", me.userId);
+    const ackSpy = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+
+    // We requested them → pending_outbound.
+    const myPqx = pqxdhInitiate(wasm, me.identity.x25519_priv, {
+      ik_x25519: peer.identity.x25519_pub,
+      spk_x25519: peer.spk.pub,
+      opk: peer.opks[0].pub,
+      kyber1024_pub: peer.identity.kyber1024_pub,
+    });
+    await addVerifiedContact(verifiedOf(peer), myPqx, wasm.ratchet_init_alice(myPqx.shared_secret, peer.spk.pub));
+    expect((await getContact(peer.userId))?.status).toBe("pending_outbound");
+
+    // They accept → we receive a contact_accept → accepted.
+    await receiveMessage(
+      { message_id: "acc1", content: sealedFirstMessage(peer, me, encodeContactAccept(0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect((await getContact(peer.userId))?.status).toBe("accepted");
+    ackSpy.mockRestore();
+  });
+
+  it("glare: a request from someone we already requested auto-accepts + notifies them", async () => {
+    resetMessaging();
+    await Promise.all([db.contacts.clear(), db.sessions.clear(), db.messages.clear(), db.identity.clear()]);
+    const me = genIdentityBundle(wasm, entropy(0xc1));
+    const peer = genIdentityBundle(wasm, entropy(0xc2));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("test-token", me.userId);
+    const ackSpy = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+
+    // We requested them → pending_outbound.
+    const myPqx = pqxdhInitiate(wasm, me.identity.x25519_priv, {
+      ik_x25519: peer.identity.x25519_pub,
+      spk_x25519: peer.spk.pub,
+      opk: peer.opks[0].pub,
+      kyber1024_pub: peer.identity.kyber1024_pub,
+    });
+    await addVerifiedContact(verifiedOf(peer), myPqx, wasm.ratchet_init_alice(myPqx.shared_secret, peer.spk.pub));
+
+    // They ALSO request us (glare) → we auto-accept and send a contact_accept back.
+    const sendSpy = vi.spyOn(api, "sendMessage").mockResolvedValue({ queued: true, message_id: "s1", expires_at: 0 });
+    await receiveMessage(
+      { message_id: "glr1", content: sealedFirstMessage(peer, me, encodeContactHello(0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect((await getContact(peer.userId))?.status).toBe("accepted");
+    expect(sendSpy).toHaveBeenCalled(); // the contact_accept we sent back
+    sendSpy.mockRestore();
     ackSpy.mockRestore();
   });
 });

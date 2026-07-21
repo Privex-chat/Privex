@@ -10,7 +10,13 @@ import { loadBundle } from "../onboarding/store";
 import type { IdentityBundle } from "../crypto/onboarding-crypto";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { db } from "../db";
-import { getContact, isKeyChanged, upsertInboundContact } from "../data/contacts";
+import {
+  acceptContact,
+  getContact,
+  isBlocked,
+  isKeyChanged,
+  upsertInboundContact,
+} from "../data/contacts";
 import {
   clearPqxdhInit,
   createInboundSession,
@@ -20,6 +26,7 @@ import {
 import {
   decodeContent,
   decodeEnvelope,
+  encodeContactAccept,
   encodeContactHello,
   encodeDeviceSyncEnvelope,
   encodeEnvelope,
@@ -152,11 +159,17 @@ async function sealAndSend(
   if (!contact || contact.ik_x25519.length === 0) {
     throw new Error("no recipient key - add this contact first");
   }
-  // Opt-in enforcement (service layer, not just UI): replying to a pending inbound
-  // request IS the acceptance decision - it must go through acceptContact first.
-  // Contacts we deliberately added are "accepted", so outbound hellos are unaffected.
-  if (contact.status === "pending_inbound") {
-    throw new Error("Accept this contact's request before messaging them.");
+  // Enforcement (service layer, not just UI): you can only send a VISIBLE message
+  // (store != null) to an ACCEPTED contact. Control messages (contact request /
+  // accept, receipts, cover, device-sync — store == null) bypass this: they ARE
+  // how a not-yet-accepted relationship progresses over Sealed Sender.
+  if (store) {
+    if (contact.status === "pending_inbound")
+      throw new Error("Accept this contact's request before messaging them.");
+    if (contact.status === "pending_outbound")
+      throw new Error("Waiting for them to accept your request.");
+    if (contact.status === "blocked")
+      throw new Error("Unblock this contact to message them.");
   }
   const session = await loadSession(peerId);
   if (!session) throw new Error("no session - add this contact first");
@@ -252,13 +265,31 @@ async function fanOutDeviceSync(
   }
 }
 
-/** Silent "I added you" announcement so the peer auto-adds us back. Best-effort:
- *  on the first send it also delivers our PQXDH handshake, establishing the session. */
+/** Contact REQUEST: "I want to add you." On the first send it also delivers our
+ *  PQXDH handshake, establishing the session. The peer sees a pending request. */
 export async function sendContactHello(
   peerId: string,
   crypto: MessageCryptoApi = workerMessageCrypto,
 ): Promise<void> {
   await sealAndSend(peerId, encodeContactHello(now()), null, crypto);
+}
+
+/** Contact ACCEPT: sent back to a requester so their pending_outbound → accepted. */
+export async function sendContactAccept(
+  peerId: string,
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  await sealAndSend(peerId, encodeContactAccept(now()), null, crypto);
+}
+
+/** Accept an inbound request: flip it to accepted locally AND notify the requester
+ *  (contact_accept) so they learn the outcome. The notify is best-effort. */
+export async function acceptContactRequest(
+  peerId: string,
+  crypto: MessageCryptoApi = workerMessageCrypto,
+): Promise<void> {
+  await acceptContact(peerId); // local: pending_inbound → accepted
+  await sendContactAccept(peerId, crypto).catch(() => {});
 }
 
 /** Send a queued delivery/read receipt (docs 4.10). Same path, same padding, same
@@ -398,6 +429,20 @@ export async function receiveMessage(
     return;
   }
 
+  // Blocked sender: drop everything from them — no store, no session step, no UI.
+  // Sealed Sender means we must decrypt to learn the sender first; then ack-and-drop
+  // so the server deletes it (no redelivery). Messages sent while blocked are simply
+  // not delivered (WhatsApp-style).
+  if (await isBlocked(senderId)) {
+    await api.ackMessages([ws.message_id], token());
+    return;
+  }
+
+  // Capture the sender's status BEFORE session logic (the adopt-handshake branch
+  // may upsert them to pending_inbound), so contact-request glare — they requested
+  // us while we already requested them — is still detectable below.
+  const priorStatus = (await getContact(senderId))?.status;
+
   // Pick the session. Use an EXISTING session only if it's already established
   // (no pending initiator stash). When a handshake-bearing message arrives, decide
   // whether to ADOPT it (respond as bob) vs. use our own session. Glare resolution
@@ -470,9 +515,21 @@ export async function receiveMessage(
 
   const content = decodeContent(plaintextBytes);
 
-  // Silent contact announcement: the sender just added us. The contact was
-  // auto-added above; ack it but show no chat message.
+  // Contact REQUEST: the sender wants to add us (they're now pending_inbound, set
+  // by the session logic above). GLARE: if we had ALREADY requested them
+  // (pending_outbound before this frame), we both want it → auto-accept + notify.
   if (content.contactHello) {
+    if (priorStatus === "pending_outbound") {
+      await acceptContactRequest(senderId, crypto); // → accepted + send contact_accept
+    }
+    await api.ackMessages([ws.message_id], token());
+    emitContactsChanged();
+    return;
+  }
+
+  // Contact ACCEPT: a peer we requested has accepted us → pending_outbound → accepted.
+  if (content.contactAccept) {
+    if (priorStatus === "pending_outbound") await acceptContact(senderId);
     await api.ackMessages([ws.message_id], token());
     emitContactsChanged();
     return;

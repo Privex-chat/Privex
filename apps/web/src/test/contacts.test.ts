@@ -369,7 +369,7 @@ describe("opt-in friend requests", () => {
     expect((await getContact(peer.userId, key))?.status).toBe("accepted");
   });
 
-  it("a deliberate add promotes a pending requester to accepted", async () => {
+  it("accepting an inbound request promotes it to accepted; a fresh add is pending_outbound", async () => {
     await db.contacts.clear();
     await db.sessions.clear();
     const key = await testKey();
@@ -377,6 +377,7 @@ describe("opt-in friend requests", () => {
     const signer = genIdentityBundle(wasm, entropy(0xaa));
     const me = genIdentityBundle(wasm, entropy(0x73));
 
+    // They requested us → pending_inbound; accepting flips it to accepted.
     await upsertInboundContact(
       target.userId,
       target.identity.ed25519_pub,
@@ -384,8 +385,14 @@ describe("opt-in friend requests", () => {
       key,
     );
     expect((await getContact(target.userId, key))?.status).toBe("pending_inbound");
+    await acceptContact(target.userId, key);
+    expect((await getContact(target.userId, key))?.status).toBe("accepted");
 
-    const v = verifyBundle(wasm, toHex(signer.identity.ed25519_pub), await makeResp(target, signer));
+    // A fresh deliberate add of a NEW peer → pending_outbound (Discord-style: we
+    // requested them, awaiting their accept). The "once accepted" stickiness means
+    // re-adding the already-accepted target above stays accepted, not downgraded.
+    const other = genIdentityBundle(wasm, entropy(0x74));
+    const v = verifyBundle(wasm, toHex(signer.identity.ed25519_pub), await makeResp(other, signer));
     const pqx = pqxdhInitiate(wasm, me.identity.x25519_priv, {
       ik_x25519: v.ik_x25519,
       spk_x25519: v.spk_x25519,
@@ -394,7 +401,7 @@ describe("opt-in friend requests", () => {
     });
     const ratchet = wasm.ratchet_init_alice(pqx.shared_secret, v.spk_x25519);
     await addVerifiedContact(v, pqx, ratchet, key);
-    expect((await getContact(target.userId, key))?.status).toBe("accepted");
+    expect((await getContact(v.userId, key))?.status).toBe("pending_outbound");
   });
 });
 

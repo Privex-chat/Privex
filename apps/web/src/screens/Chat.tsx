@@ -8,7 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { EncryptedMessages, type PlainContact, type PlainMessage } from "../db/encrypted-db";
 import { db } from "../db";
-import { acceptContact, getContact, removeContact } from "../data/contacts";
+import { blockContact, getContact, removeContact, unblockContact } from "../data/contacts";
+import { acceptContactRequest } from "../services/messaging";
 import { onContactsChanged, onMessage } from "../services/events";
 import { sendMessage, sendFile } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
@@ -67,6 +68,7 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null);
   const [fileUploadsEnabled, setFileUploadsEnabled] = useState(true);
   const [ttl, setTtl] = useState(DEFAULT_TTL);
+  const [menuOpen, setMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -170,15 +172,18 @@ export default function Chat() {
 
   const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
-  // Message request (opt-in): reading is informed consent, replying is gated.
-  const pending = contact?.status === "pending_inbound";
+  // Composer gating by relationship state.
+  const pending = contact?.status === "pending_inbound"; // they requested me
+  const pendingOut = contact?.status === "pending_outbound"; // I requested, waiting
+  const blocked = contact?.status === "blocked";
+  const canMessage = !pending && !pendingOut && !blocked; // accepted (or legacy)
 
   async function upload_(file: File) {
     if (file.size > MAX_FILE_BYTES || file.size === 0) {
       setError("File too large or empty (max 100 MB).");
       return;
     }
-    if (!peerId || pending) return;
+    if (!peerId || !canMessage) return;
     setError(null);
     setUpload({ done: 0, total: 1 });
     try {
@@ -216,19 +221,36 @@ export default function Chat() {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragging(false);
-    if (pending || !fileUploadsEnabled) return;
+    if (!canMessage || !fileUploadsEnabled) return;
     const file = e.dataTransfer.files?.[0];
     if (file && file.size > 0) void upload_(file);
   }
 
   async function acceptRequest() {
     if (!peerId) return;
-    await acceptContact(peerId); // emits contactsChanged → contact reloads
+    await acceptContactRequest(peerId); // accept + notify them (contact_accept)
   }
 
   async function declineRequest() {
     if (!peerId) return;
     // Purges contact + session + these messages + outbox rows (data/contacts).
+    await removeContact(peerId);
+    nav("/", { replace: true });
+  }
+
+  async function block() {
+    if (!peerId) return;
+    await blockContact(peerId); // their future messages/requests are dropped
+  }
+
+  async function unblock() {
+    if (!peerId) return;
+    await unblockContact(peerId);
+  }
+
+  async function deleteChat() {
+    if (!peerId) return;
+    if (!window.confirm(`Delete chat with ${contact?.name || peerId}? This can't be undone.`)) return;
     await removeContact(peerId);
     nav("/", { replace: true });
   }
@@ -270,8 +292,41 @@ export default function Chat() {
           </div>
           <div className="truncate font-mono text-[11px] text-text-muted">{peerId}</div>
         </div>
-        <div className="shrink-0">
+        <div className="shrink-0 flex items-center gap-1">
           <ConnectionStatus />
+          {/* Overflow menu: Block / Unblock / Delete chat (WhatsApp-style). Only
+              meaningful for an existing relationship, not a bare pending request. */}
+          {contact && !pending && (
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                title="More"
+                aria-label="More options"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary hover:bg-raised hover:text-text-primary"
+              >
+                ⋮
+              </button>
+              {menuOpen && (
+                <div
+                  className="absolute right-0 top-10 z-20 w-40 overflow-hidden rounded-lg border border-divider bg-elevated text-sm shadow-lg"
+                  onMouseLeave={() => setMenuOpen(false)}
+                >
+                  {blocked ? (
+                    <button onClick={() => { setMenuOpen(false); void unblock(); }} className="block w-full px-3 py-2 text-left hover:bg-raised">
+                      Unblock
+                    </button>
+                  ) : (
+                    <button onClick={() => { setMenuOpen(false); void block(); }} className="block w-full px-3 py-2 text-left hover:bg-raised">
+                      Block
+                    </button>
+                  )}
+                  <button onClick={() => { setMenuOpen(false); void deleteChat(); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
+                    Delete chat
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
@@ -347,9 +402,38 @@ export default function Chat() {
       )}
       {error && <p className="px-4 text-sm text-danger">{error}</p>}
 
-      {pending ? (
-        /* Message request: no composer until accepted. Declining deletes the
-           request AND its messages; the sender is never notified either way. */
+      {blocked ? (
+        /* Blocked: WhatsApp-style — no composer, offer Unblock / Delete chat. */
+        <footer className="border-t border-divider p-4 space-y-3">
+          <p className="text-sm text-text-secondary">
+            You blocked this contact. Their messages are hidden and won&rsquo;t be delivered.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => void unblock()}
+              className="flex-1 rounded-lg bg-accent hover:bg-accent-hover py-2 text-sm font-medium"
+            >
+              Unblock
+            </button>
+            <button
+              onClick={() => void deleteChat()}
+              className="flex-1 rounded-lg border border-border-strong hover:bg-raised py-2 text-sm text-danger"
+            >
+              Delete chat
+            </button>
+          </div>
+        </footer>
+      ) : pendingOut ? (
+        /* We requested them; can't message until they accept. */
+        <footer className="border-t border-divider p-4">
+          <p className="text-sm text-text-secondary">
+            Request sent — you can message once{" "}
+            <span className="font-mono">{contact?.name || peerId}</span> accepts.
+          </p>
+        </footer>
+      ) : pending ? (
+        /* Incoming request: no composer until accepted. Accepting notifies them;
+           declining deletes it locally and sends no signal (silent). */
         <footer className="border-t border-divider p-4 space-y-3">
           <p className="text-sm text-text-secondary">
             <span className="font-mono text-text-secondary">{peerId}</span> wants to connect.

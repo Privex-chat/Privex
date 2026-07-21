@@ -8,20 +8,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import type { Html5Qrcode } from "html5-qrcode";
 import { addContact } from "../contacts/add";
-import { listContacts } from "../data/contacts";
+import { getContact, listContacts } from "../data/contacts";
 import { onContactsChanged } from "../services/events";
 import ContactRequests from "../components/ContactRequests";
+import BlockedContacts from "../components/BlockedContacts";
 
 const QR_ELEMENT_ID = "qr-reader";
 
-type Tab = "add" | "requests";
+type Tab = "add" | "requests" | "blocked";
 
 export default function AddContact() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  // Deep-linkable: /add-contact?tab=requests opens straight to the requests tab.
-  const tab: Tab = params.get("tab") === "requests" ? "requests" : "add";
-  const setTab = (t: Tab) => setParams(t === "requests" ? { tab: "requests" } : {}, { replace: true });
+  // Deep-linkable: /add-contact?tab=requests|blocked.
+  const raw = params.get("tab");
+  const tab: Tab = raw === "requests" ? "requests" : raw === "blocked" ? "blocked" : "add";
+  const setTab = (t: Tab) => setParams(t === "add" ? {} : { tab: t }, { replace: true });
 
   const [pendingCount, setPendingCount] = useState(0);
   const refreshCount = useCallback(() => {
@@ -38,14 +40,25 @@ export default function AddContact() {
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   async function submit() {
     setBusy(true);
     setError(null);
+    setSent(false);
     try {
       const added = await addContact(pxId.trim());
-      nav(`/verify/${added.userId}`, { replace: true });
+      // If they'd already requested us (glare) → now accepted → go verify/chat.
+      // Otherwise a request was just sent → confirm and switch to the Sent list.
+      const status = (await getContact(added.userId))?.status;
+      if (status === "accepted") {
+        nav(`/verify/${added.userId}`, { replace: true });
+        return;
+      }
+      setPxId("");
+      setSent(true);
+      setBusy(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add contact.");
       setBusy(false);
@@ -115,17 +128,39 @@ export default function AddContact() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setTab("blocked")}
+            className={`-mb-px border-b-2 px-3 py-2 ${
+              tab === "blocked"
+                ? "border-border-focus text-text-primary"
+                : "border-transparent text-text-secondary hover:text-text"
+            }`}
+          >
+            Blocked
+          </button>
         </div>
 
         {tab === "requests" ? (
           <ContactRequests />
+        ) : tab === "blocked" ? (
+          <BlockedContacts />
         ) : (
           <>
             <h1 className="mt-5 text-xl font-semibold">Add a contact</h1>
             <p className="mt-2 text-text-secondary text-sm">
               Paste their Privex ID or scan their QR. We fetch their keys, verify them
-              against the key transparency log, and reject anything tampered with.
+              against the key transparency log, and reject anything tampered with. They&rsquo;ll
+              get a request to accept before you can message.
             </p>
+            {sent && (
+              <p className="mt-3 rounded-lg bg-success-bg px-3 py-2 text-sm text-success">
+                Request sent — you can message them once they accept. See the{" "}
+                <button className="underline" onClick={() => setTab("requests")}>
+                  Requests
+                </button>{" "}
+                tab.
+              </p>
+            )}
 
             <label className="mt-6 block text-sm text-text-secondary">Privex ID</label>
             <input

@@ -56,8 +56,11 @@ export async function addVerifiedContact(
   key?: CryptoKey,
 ): Promise<void> {
   const k = await masterKey(key);
-  // A deliberate add → accepted (also promotes a prior pending_inbound request).
-  await contactsStore(k).add(bundle.userId, bundle.ik_ed25519, bundle.ik_x25519, "accepted");
+  // A deliberate add → pending_outbound (Discord-style): we've sent a request and
+  // await their accept. `add` keeps a prior "accepted"/"blocked" sticky, so this
+  // never downgrades an existing contact. Glare (they already requested us) is
+  // resolved to accepted by the caller before this runs.
+  await contactsStore(k).add(bundle.userId, bundle.ik_ed25519, bundle.ik_x25519, "pending_outbound");
   await db.sessions.put({
     session_id: bundle.userId,
     peer_id: bundle.userId,
@@ -83,10 +86,30 @@ export async function upsertInboundContact(
   await contactsStore(key).add(senderId, ikEd25519, ikX25519, "pending_inbound");
 }
 
-/** Accept a pending inbound friend request (opt-in): flip it to a real contact. */
+/** Accept a pending inbound friend request (opt-in): flip it to a real contact.
+ *  The caller also sends a contact_accept so the requester learns the outcome. */
 export async function acceptContact(pxId: string, key?: CryptoKey): Promise<void> {
   await contactsStore(key).setStatus(pxId, "accepted");
   emitContactsChanged(); // refresh the requests tab + the home chat list
+}
+
+/** Block a contact or requester: their future messages AND requests are dropped
+ *  (a tombstone `add` won't override). Works on any state; keeps the row + history
+ *  so an accepted contact can be restored on unblock (WhatsApp-style). */
+export async function blockContact(pxId: string, key?: CryptoKey): Promise<void> {
+  await contactsStore(key).setStatus(pxId, "blocked");
+  emitContactsChanged();
+}
+
+/** Unblock: restore to a normal (accepted) contact, keeping any chat history. */
+export async function unblockContact(pxId: string, key?: CryptoKey): Promise<void> {
+  await contactsStore(key).setStatus(pxId, "accepted");
+  emitContactsChanged();
+}
+
+/** True if this sender is blocked (their inbound messages/requests must be dropped). */
+export async function isBlocked(pxId: string, key?: CryptoKey): Promise<boolean> {
+  return (await contactsStore(key).get(pxId))?.status === "blocked";
 }
 
 export const getContact = (pxId: string, key?: CryptoKey) => contactsStore(key).get(pxId);
