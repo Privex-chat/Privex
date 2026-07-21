@@ -5,10 +5,13 @@
 //
 // HARD LIMIT (zero-knowledge): the SW has NEITHER the master key NOR the session
 // token - both live in the main thread's memory only (never in the SW, never on
-// disk). So the SW CANNOT decrypt, send, or authenticate. Background sync + push
-// therefore only WAKE an open tab, which does the real work (flushOutbox /
-// receiveMessage over the authenticated WebSocket). Push shows a generic
-// notification; decrypted content never travels through the SW.
+// disk). So the SW CANNOT decrypt, send, or authenticate. Its only jobs are the
+// offline app-shell/WASM precache and waking an open tab to flush the outbox on
+// reconnect (Background Sync). It shows no notifications and holds no push
+// subscription: closed-app push would route through Google/Apple/Mozilla push
+// infrastructure (deanonymizing the pseudonym + leaking arrival timing), so it is
+// deliberately absent. Messages deliver in real time over the WebSocket while a
+// tab is open.
 import {
   precacheAndRoute,
   cleanupOutdatedCaches,
@@ -40,48 +43,12 @@ async function wakeTabs(): Promise<void> {
   for (const tab of tabs) tab.postMessage({ type: "flush-outbox" });
 }
 
-// Background Sync + Push aren't in the TS DOM lib - minimal local shapes + a cast.
+// Background Sync isn't in the TS DOM lib - minimal local shape + a cast. On
+// reconnect the SW wakes any open tab to flush the offline outbox over the authed
+// WebSocket (the SW itself can't - no key/token). Not a notification.
 interface TaggedEvent extends ExtendableEvent {
   readonly tag: string;
 }
 sw.addEventListener("sync", ((e: TaggedEvent) => {
   if (e.tag === "sync-pending-messages") e.waitUntil(wakeTabs());
-}) as EventListener);
-
-// Periodic background sync (16E): on mobile/installed PWAs the SW is woken every
-// ~15 min to nudge open/backgrounded tabs to sync over the authed WS. The SW holds
-// no key/token, so it can only WAKE tabs - it never fetches or decrypts itself.
-sw.addEventListener("periodicsync", ((e: TaggedEvent) => {
-  if (e.tag === "check-messages") e.waitUntil(wakeTabs());
-}) as EventListener);
-
-// Push payload is a wake token (random bytes), never message content. The OS
-// notification is GENERIC by design: the notification tray (and its history) is
-// readable by other apps, so sender/preview NEVER appear here - content is shown
-// only inside the app after a tab syncs.
-sw.addEventListener("push", ((e: ExtendableEvent) => {
-  e.waitUntil(
-    (async () => {
-      await wakeTabs();
-      await sw.registration.showNotification("Privex", {
-        body: "You have a new message.",
-        tag: "privex-message",
-        icon: "/icons/maskable192.webp",
-      });
-    })(),
-  );
-}) as EventListener);
-
-interface NotificationClickEvent extends ExtendableEvent {
-  readonly notification: { close(): void };
-}
-sw.addEventListener("notificationclick", ((e: NotificationClickEvent) => {
-  e.notification.close();
-  e.waitUntil(
-    (async () => {
-      const tabs = await sw.clients.matchAll({ includeUncontrolled: true, type: "window" });
-      if (tabs.length > 0) return (tabs[0] as WindowClient).focus();
-      await sw.clients.openWindow("/");
-    })(),
-  );
 }) as EventListener);
