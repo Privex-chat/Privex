@@ -120,6 +120,7 @@ pub async fn cleanup_expired(state: &AppState) -> anyhow::Result<()> {
     let now = now_unix() as i32;
     db::queries::message_queue::cleanup_expired(&state.db, now).await?;
     db::queries::pow::cleanup_expired(&state.db, now).await?;
+    db::queries::recovery_rendezvous::cleanup_expired(&state.db, now).await?;
 
     // Blobs: remove the objects first, then the index rows.
     for blob in db::queries::blob_index::list_expired(&state.db, now).await? {
@@ -222,6 +223,19 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/recovery/shares/store",
             post(routes::recovery::store_shares),
+        )
+        // Social-recovery retrieval (docs 4.2 path 3). Public + PoW-gated: the
+        // share fetch is anti-enumeration-gated, the rendezvous is a relationship-
+        // free ephemeral bucket. Small body caps (just a share blob + PoW proof).
+        .route(
+            "/recovery/shares/get",
+            post(routes::recovery::shares_get).layer(DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/recovery/rendezvous/:recovery_id",
+            post(routes::recovery::rendezvous_post)
+                .get(routes::recovery::rendezvous_poll)
+                .layer(DefaultBodyLimit::max(16 * 1024)),
         )
         .route(
             "/messages/send",

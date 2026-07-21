@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT COUNT(*) AS n FROM recovery_shares WHERE user_id = $1",
+  "query": "SELECT pg_advisory_xact_lock(hashtext($1)::int8)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "n",
-        "type_info": "Int8"
+        "name": "pg_advisory_xact_lock",
+        "type_info": "Void"
       }
     ],
     "parameters": {
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "897b56ca8127bc45e78c6e8a101edb08672d7e17cafe3cccb9edf34d90d7b078"
+  "hash": "3d870cec797f00802d42e8d5dc7c71f30bc07863c559b50bf8c4adfdb9876ab7"
 }

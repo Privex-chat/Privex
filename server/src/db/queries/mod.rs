@@ -7,5 +7,6 @@ pub mod kt_log;
 pub mod message_queue;
 pub mod opaque;
 pub mod pow;
+pub mod recovery_rendezvous;
 pub mod recovery_shares;
 pub mod register;

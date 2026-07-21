@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT share_index, encrypted_share FROM recovery_shares\n         WHERE user_id = $1 ORDER BY share_index",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "share_index",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 1,
+        "name": "encrypted_share",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "09f16c447bdc761fed35c01ca59696ebe8f118c7926aed4e71e6b4831edd6f41"
+}

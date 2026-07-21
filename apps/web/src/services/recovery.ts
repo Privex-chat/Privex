@@ -209,3 +209,182 @@ export async function setupEmergencyContacts(
   await db.settings.put({ key: RECOVERY_CONTACTS_KEY, value: contacts.map((c) => c.px_id) });
   return res.stored;
 }
+
+// --- Emergency contacts (Shamir social recovery - RETRIEVAL) ---
+// The relationship-free rendezvous (docs 4.2 path 3). The recovering owner has NO
+// keys yet: they generate an EPHEMERAL recovery keypair (RK), pass a recovery code
+// (recovery_id + RK public) to their chosen contacts OUT OF BAND, and poll a random
+// server bucket. Each contact fetches the owner's encrypted shares (PoW-gated,
+// unauthenticated - the server can't attribute the fetch to them), decrypts the one
+// sealed to their own key, re-seals it to RK, and posts it. The owner collects >=2
+// and reconstructs the master seed. The server never learns any C->O relationship.
+
+const RK_PUB_LEN = 32;
+const RECOVERY_ID_LEN = 16;
+
+export interface ContactRecoveryCryptoApi {
+  ephKeypair(): Promise<{ pub: Uint8Array; priv: Uint8Array }>;
+  wrapCek(cek: Uint8Array, recipientPub: Uint8Array): Promise<{ wrapped: Uint8Array; ephPub: Uint8Array }>;
+  unwrapCek(wrapped: Uint8Array, ephPub: Uint8Array, myPriv: Uint8Array): Promise<Uint8Array>;
+  shamirReconstruct(shares: Uint8Array[]): Promise<Uint8Array>;
+  recoverBundleFromSeed(masterSeed: Uint8Array): Promise<IdentityBundle>;
+  solvePow: import("./pow").SolvePow;
+}
+
+export const workerContactRecoveryCrypto: ContactRecoveryCryptoApi = {
+  ephKeypair: () => cryptoCall("devlink_keypair"), // returns plain { pub, priv }
+  wrapCek: (c, r) => cryptoCall("wrap_cek", [c, r]),
+  unwrapCek: (w, e, p) => cryptoCall("unwrap_cek", [w, e, p]),
+  shamirReconstruct: (shares) => cryptoCall("shamir_reconstruct", [shares]),
+  recoverBundleFromSeed: (seed) => cryptoCall("recover_bundle", [seed]),
+  solvePow: (c, d, a) => cryptoCall("solve_pow", [c, d, a]),
+};
+
+export interface RecoverySession {
+  recoveryId: string; // hex (16 bytes) - the ephemeral bucket key
+  rk: { pub: Uint8Array; priv: Uint8Array }; // owner's ephemeral recovery keypair
+  code: string; // hex(recovery_id || rk_pub) - hand this to contacts out of band
+  sas: string; // 6-digit verbal check binding the code (defeats a swapped RK)
+}
+
+async function sas6(buf: Uint8Array): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(buf).buffer));
+  const n = ((h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]) >>> 0;
+  return String(n % 1_000_000).padStart(6, "0");
+}
+
+/** Parse + validate a recovery code into its recovery_id (hex) and RK public key. */
+export function parseRecoveryCode(code: string): { recoveryId: string; rkPub: Uint8Array } {
+  const bytes = fromHex(code.trim());
+  if (bytes.length !== RECOVERY_ID_LEN + RK_PUB_LEN) {
+    throw new Error("That recovery code isn't valid.");
+  }
+  return { recoveryId: toHex(bytes.slice(0, RECOVERY_ID_LEN)), rkPub: bytes.slice(RECOVERY_ID_LEN) };
+}
+
+/** The SAS a contact shows to verbally confirm the code with the recovering owner. */
+export async function recoveryCodeSas(code: string): Promise<string> {
+  return sas6(fromHex(code.trim()));
+}
+
+/** Owner (fresh device) starts a recovery: fresh RK + random recovery_id → a code
+ *  + SAS to read to each contact out of band. */
+export async function startContactRecovery(
+  crypto: ContactRecoveryCryptoApi = workerContactRecoveryCrypto,
+): Promise<RecoverySession> {
+  const rk = await crypto.ephKeypair();
+  const rid = globalThis.crypto.getRandomValues(new Uint8Array(RECOVERY_ID_LEN));
+  const codeBytes = new Uint8Array(RECOVERY_ID_LEN + RK_PUB_LEN);
+  codeBytes.set(rid, 0);
+  codeBytes.set(rk.pub, RECOVERY_ID_LEN);
+  return {
+    recoveryId: toHex(rid),
+    rk,
+    code: toHex(codeBytes),
+    sas: await sas6(codeBytes),
+  };
+}
+
+/** Try to reconstruct the seed from any pair of collected shares (threshold 2).
+ *  A wrong pair fails the Shamir SHA tag and throws → we skip it (self-validating,
+ *  design decision #1). Returns the seed, or null if no pair reconstructs yet. */
+async function tryReconstruct(
+  shares: Uint8Array[],
+  crypto: ContactRecoveryCryptoApi,
+): Promise<Uint8Array | null> {
+  for (let i = 0; i < shares.length; i++) {
+    for (let j = i + 1; j < shares.length; j++) {
+      try {
+        return await crypto.shamirReconstruct([shares[i], shares[j]]);
+      } catch {
+        // wrong / mismatched pair - try the next combination
+      }
+    }
+  }
+  return null;
+}
+
+/** Unseal an `ephPub || wrapped` blob (the wire format for both stored shares and
+ *  rendezvous posts) with an X25519 private key; null if it isn't sealed to us. */
+async function unsealBlob(
+  hex: string,
+  myPriv: Uint8Array,
+  crypto: ContactRecoveryCryptoApi,
+): Promise<Uint8Array | null> {
+  const blob = fromHex(hex);
+  if (blob.length <= RK_PUB_LEN) return null;
+  try {
+    return await crypto.unwrapCek(blob.slice(RK_PUB_LEN), blob.slice(0, RK_PUB_LEN), myPriv);
+  } catch {
+    return null; // not for us / garbage
+  }
+}
+
+/** Unseal all posted blobs with RK, dedupe into `collected`, and reconstruct the
+ *  master seed once >=2 distinct shares are present. Pure crypto, no app-state side
+ *  effects (the caller finalizes). Returns the seed, or null to keep polling. */
+export async function unsealAndReconstruct(
+  rkPriv: Uint8Array,
+  blobs: string[],
+  collected: Map<string, Uint8Array>,
+  crypto: ContactRecoveryCryptoApi = workerContactRecoveryCrypto,
+): Promise<Uint8Array | null> {
+  for (const hex of blobs) {
+    const share = await unsealBlob(hex, rkPriv, crypto);
+    if (share) collected.set(toHex(share), share);
+  }
+  return tryReconstruct([...collected.values()], crypto);
+}
+
+/** One poll pass: pull the bucket, decrypt any new shares, and reconstruct if >=2
+ *  distinct shares now open. Returns the recovered userId, or null to keep polling.
+ *  `collected` is carried across calls (the caller owns the loop + cadence). */
+export async function pollContactRecovery(
+  session: RecoverySession,
+  collected: Map<string, Uint8Array>,
+  crypto: ContactRecoveryCryptoApi = workerContactRecoveryCrypto,
+): Promise<string | null> {
+  const { blobs } = await api.rendezvousPoll(session.recoveryId);
+  const seed = await unsealAndReconstruct(session.rk.priv, blobs, collected, crypto);
+  if (!seed) return null;
+  const bundle = await crypto.recoverBundleFromSeed(seed);
+  await completeRecovery(bundle); // persists identity, auths, re-provisions prekeys
+  return bundle.userId;
+}
+
+/** Contact side: verify who is recovering out of band FIRST (SAS), then approve.
+ *  Fetches the owner's encrypted shares, decrypts the one sealed to us, re-seals it
+ *  to the owner's ephemeral RK, and posts it to the rendezvous. */
+export async function approveRecovery(
+  code: string,
+  ownerPxId: string,
+  crypto: ContactRecoveryCryptoApi = workerContactRecoveryCrypto,
+): Promise<void> {
+  if (!isValidPxId(ownerPxId)) throw new Error("That doesn't look like a Privex ID.");
+  const { recoveryId, rkPub } = parseRecoveryCode(code);
+  const me = await loadBundle();
+  if (!me) throw new Error("Your identity isn't loaded on this device.");
+
+  // Fetch the owner's encrypted shares (PoW-gated, unauthenticated).
+  const pow1 = await solveServerPow(crypto.solvePow);
+  const resp = await api.sharesGet(ownerPxId, pow1);
+
+  // Exactly one blob is sealed to us; the rest (or all, for a non-contact / dummy
+  // response) fail the AEAD and are skipped.
+  let myShare: Uint8Array | null = null;
+  for (const s of resp.shares) {
+    myShare = await unsealBlob(s.encrypted_share, me.identity.x25519_priv, crypto);
+    if (myShare) break;
+  }
+  if (!myShare) {
+    throw new Error("You don't hold a recovery share for this contact.");
+  }
+
+  // Re-seal our share to the owner's ephemeral RK and post it.
+  const w = await crypto.wrapCek(myShare, rkPub);
+  const outBlob = new Uint8Array(w.ephPub.length + w.wrapped.length);
+  outBlob.set(w.ephPub, 0);
+  outBlob.set(w.wrapped, w.ephPub.length);
+  const pow2 = await solveServerPow(crypto.solvePow);
+  await api.rendezvousPost(recoveryId, toHex(outBlob), pow2);
+}

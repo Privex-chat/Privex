@@ -14,8 +14,9 @@
 // deferred rather than weaken the privacy model. Device linking needs multi-
 // device WS fan-out (also deferred).
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -24,15 +25,23 @@ use crate::auth::token;
 use crate::crypto::opaque;
 use crate::db::queries::opaque as opaque_db;
 use crate::db::queries::opaque::OpaqueLoginRecord;
-use crate::db::queries::recovery_shares;
+use crate::db::queries::{recovery_rendezvous, recovery_shares};
 use crate::error::ApiError;
 use crate::now_unix;
 use crate::rds;
-use crate::routes::valid_user_id;
+use crate::routes::{valid_user_id, PowProof};
 use crate::state::AppState;
 use crate::validate;
 
+type HmacSha256 = Hmac<Sha256>;
+
 const LOGIN_TTL: i64 = 120; // seconds; OPAQUE login state is short-lived
+const RENDEZVOUS_TTL: i64 = 48 * 3600; // social-recovery bucket lifetime (docs decision #3)
+
+// A real sealed share on the wire is exactly 110 bytes: 32 (ephemeral X25519 pub)
+// + 24 (XChaCha20 nonce) + 38 (Shamir share of the 32-byte seed + 4-byte tag +
+// 2-byte header) + 16 (Poly1305 tag). Dummies match this precisely.
+const SHARE_WIRE_BYTES: usize = 110;
 
 fn random_hex(len: usize) -> Result<String, ApiError> {
     let mut bytes = vec![0u8; len];
@@ -330,13 +339,169 @@ pub async fn store_shares(
         )?;
         validated.push((s.share_index, bytes));
     }
-    for (share_index, bytes) in &validated {
-        recovery_shares::store_share(&st.db, &user_id, *share_index, bytes)
-            .await
-            .map_err(|_| ApiError::internal())?;
-    }
-    let stored = recovery_shares::count_shares(&st.db, &user_id)
+    // Replace the ENTIRE set atomically (docs decision #4): re-running setup with a
+    // changed contact set must not leave stale higher-index shares behind.
+    recovery_shares::replace_all_shares(&st.db, &user_id, &validated)
         .await
         .map_err(|_| ApiError::internal())?;
-    Ok(Json(StoreSharesResp { stored }))
+    Ok(Json(StoreSharesResp {
+        stored: validated.len() as i64,
+    }))
+}
+
+// --- POST /recovery/shares/get (public, PoW-gated) ---
+// The recovering owner's contacts fetch the owner's encrypted shares here, each
+// then decrypts the single blob sealed to their own key. UNAUTHENTICATED + PoW so
+// the server can NEVER attribute the fetch to a specific contact - that is what
+// keeps the C->O recovery relationship off the server (Law 3). The blobs are
+// sealed to contact keys, so serving them publicly reveals nothing.
+
+#[derive(Deserialize)]
+pub struct SharesGetReq {
+    user_id: String,
+    pow: PowProof,
+}
+
+#[derive(Serialize)]
+pub struct ShareOut {
+    share_index: i16,
+    encrypted_share: String, // hex
+}
+
+#[derive(Serialize)]
+pub struct SharesGetResp {
+    shares: Vec<ShareOut>,
+}
+
+/// Deterministic, unpredictable dummy shares for a px_id that has none, so a probe
+/// of a non-recovery user is byte-for-byte indistinguishable from a standard
+/// 3-contact setup (closes the "did this user configure social recovery" oracle).
+/// Stable per user_id (a re-probe returns identical bytes, exactly as a real stored
+/// share would) and derived from a server secret, so it can't be predicted.
+fn dummy_share(key: &[u8; 32], user_id: &str, index: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(SHARE_WIRE_BYTES + 32);
+    let mut block = 0u32;
+    while out.len() < SHARE_WIRE_BYTES {
+        let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("hmac key");
+        mac.update(b"recovery_dummy_share_v1|");
+        mac.update(user_id.as_bytes());
+        mac.update(&(index as u32).to_be_bytes());
+        mac.update(&block.to_be_bytes());
+        out.extend_from_slice(&mac.finalize().into_bytes());
+        block += 1;
+    }
+    out.truncate(SHARE_WIRE_BYTES);
+    out
+}
+
+pub async fn shares_get(
+    State(st): State<AppState>,
+    Json(body): Json<SharesGetReq>,
+) -> Result<Json<SharesGetResp>, ApiError> {
+    if !valid_user_id(&body.user_id) {
+        return Err(ApiError::bad_request());
+    }
+    // PoW FIRST (anti-enumeration), then a per-target fixed-window cap behind it.
+    crate::routes::verify_pow(&st, &body.pow).await?;
+    crate::routes::rate_limit(&st, "sharesget", &body.user_id, 30, 60).await?;
+
+    let real = recovery_shares::get_all_shares(&st.db, &body.user_id)
+        .await
+        .map_err(|_| ApiError::internal())?;
+
+    // EVERY response is exactly MAX_SHARES_BATCH entries: the real shares first,
+    // then deterministic dummies padding to a constant count. This makes the
+    // response byte-identical in shape regardless of whether the user configured
+    // recovery AND regardless of how many contacts they chose (1..MAX) - closing
+    // the existence/contact-count oracle for all setup sizes, not just 3. The
+    // response share_index is cosmetic (the client tries to decrypt every blob and
+    // the real Shamir x-coordinate lives inside the blob), so it is renumbered
+    // 1..N uniformly. A contact still finds the one blob sealed to their key.
+    let key = &st.config.token_mac_key;
+    let shares = (0..validate::MAX_SHARES_BATCH)
+        .map(|i| {
+            let blob = real
+                .get(i)
+                .map(|(_, b)| b.clone())
+                .unwrap_or_else(|| dummy_share(key, &body.user_id, i + 1));
+            ShareOut {
+                share_index: (i + 1) as i16,
+                encrypted_share: hex::encode(blob),
+            }
+        })
+        .collect();
+    Ok(Json(SharesGetResp { shares }))
+}
+
+// --- POST/GET /recovery/rendezvous/{recovery_id} ---
+// The ephemeral, relationship-free share mailbox (docs decision #3). recovery_id is
+// an unguessable 128-bit capability the owner passes to contacts out of band.
+//   POST: a contact posts one share re-sealed to the owner's ephemeral key.
+//         PoW-gated + per-bucket capped (a contact posts a few times).
+//   GET:  the owner polls. NO PoW - the owner polls frequently over up to 48h and
+//         the recovery_id itself is the unguessable gate; a per-bucket rate limit
+//         bounds abuse by anyone who already holds the id.
+
+#[derive(Deserialize)]
+pub struct RendezvousPostReq {
+    blob: String, // hex; one share re-sealed to the owner's ephemeral recovery key
+    pow: PowProof,
+}
+
+#[derive(Serialize)]
+pub struct RendezvousPostResp {
+    posted: bool,
+}
+
+pub async fn rendezvous_post(
+    State(st): State<AppState>,
+    Path(recovery_id): Path<String>,
+    Json(body): Json<RendezvousPostReq>,
+) -> Result<Json<RendezvousPostResp>, ApiError> {
+    if !validate::validate_recovery_id(&recovery_id) {
+        return Err(ApiError::bad_request());
+    }
+    crate::routes::verify_pow(&st, &body.pow).await?;
+    crate::routes::rate_limit(&st, "rvpost", &recovery_id, 20, 60).await?;
+    let blob = validate::validate_hex_max(&body.blob, validate::MAX_SHARE_BYTES)?;
+
+    let now = now_unix() as i32;
+    // Per-bucket flood cap enforced atomically inside post() (advisory-locked
+    // count+insert). `false` = bucket already full → 429.
+    let inserted = recovery_rendezvous::post(
+        &st.db,
+        &recovery_id,
+        &blob,
+        now,
+        now + RENDEZVOUS_TTL as i32,
+        validate::MAX_RENDEZVOUS_BLOBS,
+    )
+    .await
+    .map_err(|_| ApiError::internal())?;
+    if !inserted {
+        return Err(ApiError::rate_limited());
+    }
+    Ok(Json(RendezvousPostResp { posted: true }))
+}
+
+#[derive(Serialize)]
+pub struct RendezvousPollResp {
+    blobs: Vec<String>, // hex
+}
+
+pub async fn rendezvous_poll(
+    State(st): State<AppState>,
+    Path(recovery_id): Path<String>,
+) -> Result<Json<RendezvousPollResp>, ApiError> {
+    if !validate::validate_recovery_id(&recovery_id) {
+        return Err(ApiError::bad_request());
+    }
+    crate::routes::rate_limit(&st, "rvpoll", &recovery_id, 60, 60).await?;
+    let now = now_unix() as i32;
+    let blobs = recovery_rendezvous::list(&st.db, &recovery_id, now)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    Ok(Json(RendezvousPollResp {
+        blobs: blobs.iter().map(hex::encode).collect(),
+    }))
 }
