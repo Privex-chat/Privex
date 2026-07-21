@@ -170,6 +170,7 @@ function ContactsRecovery() {
       if (stopped) return;
       try {
         const userId = await pollContactRecovery(session, collected);
+        if (stopped) return; // effect was cleaned up mid-poll — no state/nav/reschedule
         setReceived(collected.size);
         if (userId) {
           stopped = true;

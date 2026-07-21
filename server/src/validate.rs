@@ -123,10 +123,13 @@ pub fn validate_devlink_rid(s: &str) -> bool {
     validate_hex_str_exact(s, DEVLINK_RID_HEX_CHARS)
 }
 
-/// Validate a social-recovery rendezvous_id: exactly 32 lowercase hex chars
-/// (16 random bytes). Unguessable capability key for the ephemeral share bucket.
+/// Validate a social-recovery rendezvous_id: exactly 32 LOWERCASE hex chars
+/// (16 random bytes). Enforced lowercase to match the DB CHECK on
+/// recovery_rendezvous.recovery_id - a mixed-case id that slipped past here would
+/// pass validation then 500 on the insert instead of a clean 400.
 pub fn validate_recovery_id(s: &str) -> bool {
-    validate_hex_str_exact(s, RECOVERY_ID_HEX_CHARS)
+    s.len() == RECOVERY_ID_HEX_CHARS
+        && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Validate a PoW challenge_id is a valid UUID.
@@ -338,6 +341,17 @@ mod tests {
         assert!(!validate_share_index(0));
         assert!(!validate_share_index(256));
         assert!(!validate_share_index(-1));
+    }
+
+    #[test]
+    fn recovery_id_lowercase_hex_only() {
+        assert!(validate_recovery_id(&"a".repeat(32)));
+        assert!(validate_recovery_id("0123456789abcdef0123456789abcdef"));
+        assert!(!validate_recovery_id(&"A".repeat(32)), "uppercase must be rejected (DB CHECK is lowercase)");
+        assert!(!validate_recovery_id("0123456789ABCDEF0123456789abcdef"));
+        assert!(!validate_recovery_id(&"a".repeat(31)), "wrong length");
+        assert!(!validate_recovery_id(&"a".repeat(33)));
+        assert!(!validate_recovery_id("g0123456789abcdef0123456789abcde"), "non-hex");
     }
 
     #[test]

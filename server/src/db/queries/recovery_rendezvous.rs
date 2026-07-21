@@ -4,39 +4,50 @@
 // stored - the server cannot link a bucket to any user (Law 3). UNLOGGED + TTL.
 use sqlx::PgPool;
 
-/// Append a re-sealed share to a rendezvous bucket. Callers enforce the per-bucket
-/// cap (via `count`) BEFORE inserting so a bucket can't be flooded unboundedly.
+/// Append a re-sealed share to a rendezvous bucket, enforcing the per-bucket flood
+/// cap ATOMICALLY. Returns `false` (nothing inserted) when the bucket is already at
+/// `max` live blobs. The count + insert run under a per-bucket advisory xact lock
+/// so concurrent posts to the same recovery_id can't both pass the check and blow
+/// past the cap (a plain count-then-insert, even as one conditional statement, races
+/// under MVCC snapshots). Different buckets proceed in parallel.
 pub async fn post(
     db: &PgPool,
     recovery_id: &str,
     blob: &[u8],
-    created_at: i32,
+    now: i32,
     expires_at: i32,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        "INSERT INTO recovery_rendezvous (recovery_id, blob, created_at, expires_at)
-         VALUES ($1, $2, $3, $4)",
-        recovery_id,
-        blob,
-        created_at,
-        expires_at,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// Live (non-expired) blob count in a bucket - the per-bucket flood cap check.
-pub async fn count(db: &PgPool, recovery_id: &str, now: i32) -> sqlx::Result<i64> {
-    let row = sqlx::query!(
+    max: i64,
+) -> sqlx::Result<bool> {
+    let mut tx = db.begin().await?;
+    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext($1)::int8)", recovery_id)
+        .execute(&mut *tx)
+        .await?;
+    let n = sqlx::query!(
         "SELECT COUNT(*) AS n FROM recovery_rendezvous
          WHERE recovery_id = $1 AND expires_at > $2",
         recovery_id,
         now,
     )
-    .fetch_one(db)
+    .fetch_one(&mut *tx)
+    .await?
+    .n
+    .unwrap_or(0);
+    if n >= max {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+    sqlx::query!(
+        "INSERT INTO recovery_rendezvous (recovery_id, blob, created_at, expires_at)
+         VALUES ($1, $2, $3, $4)",
+        recovery_id,
+        blob,
+        now,
+        expires_at,
+    )
+    .execute(&mut *tx)
     .await?;
-    Ok(row.n.unwrap_or(0))
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// All live blobs posted to a bucket (the owner polls this). Expired rows are

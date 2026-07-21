@@ -31,6 +31,13 @@ pub async fn replace_all_shares(
     shares: &[(i16, Vec<u8>)],
 ) -> sqlx::Result<()> {
     let mut tx = db.begin().await?;
+    // Serialize concurrent replacements FOR THE SAME USER (two devices re-running
+    // setup at once could otherwise interleave DELETE+INSERT under READ COMMITTED
+    // snapshots and leave a merged set). Per-user xact lock; other users proceed
+    // in parallel. Released automatically at commit/rollback.
+    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext($1)::int8)", user_id)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query!("DELETE FROM recovery_shares WHERE user_id = $1", user_id)
         .execute(&mut *tx)
         .await?;

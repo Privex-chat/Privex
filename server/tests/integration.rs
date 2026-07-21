@@ -1619,10 +1619,12 @@ async fn server_end_to_end() {
     // --- Social-recovery RETRIEVAL (docs 4.2 path 3) ---
 
     // Atomic replace (#4): re-storing a SMALLER set drops the stale index.
+    // 110-byte blobs = the real sealed-share wire size, so the padded response is
+    // byte-uniform.
     let two_shares = serde_json::json!({
         "shares": [
-            { "share_index": 1, "encrypted_share": "aa".repeat(55) },
-            { "share_index": 2, "encrypted_share": "bb".repeat(55) },
+            { "share_index": 1, "encrypted_share": "aa".repeat(110) },
+            { "share_index": 2, "encrypted_share": "bb".repeat(110) },
         ]
     });
     let replaced: serde_json::Value = http
@@ -1656,10 +1658,20 @@ async fn server_end_to_end() {
         .json()
         .await
         .unwrap();
+    // Response is padded to a fixed MAX_SHARES_BATCH (10) entries: the 2 real
+    // shares first, then deterministic dummies. Fixed count closes the contact-
+    // count oracle (a 2-contact user looks the same shape as absent / any size).
     let got = sg["shares"].as_array().unwrap();
-    assert_eq!(got.len(), 2);
-    assert_eq!(got[0]["encrypted_share"].as_str().unwrap(), "aa".repeat(55));
-    assert_eq!(got[1]["encrypted_share"].as_str().unwrap(), "bb".repeat(55));
+    assert_eq!(got.len(), 10, "every response is padded to a constant count");
+    assert_eq!(got[0]["encrypted_share"].as_str().unwrap(), "aa".repeat(110));
+    assert_eq!(got[1]["encrypted_share"].as_str().unwrap(), "bb".repeat(110));
+    for s in got {
+        assert_eq!(
+            hex::decode(s["encrypted_share"].as_str().unwrap()).unwrap().len(),
+            110,
+            "real + dummy entries are all the 110-byte wire size"
+        );
+    }
 
     // shares/get WITHOUT a valid PoW → 400 (anti-enumeration gate fires first).
     assert_eq!(
@@ -1688,7 +1700,7 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     let da = dummies1["shares"].as_array().unwrap();
-    assert_eq!(da.len(), 3, "absent recovery config → 3 dummies");
+    assert_eq!(da.len(), 10, "absent recovery config → same padded count as present");
     for s in da {
         assert_eq!(
             hex::decode(s["encrypted_share"].as_str().unwrap()).unwrap().len(),
@@ -1733,7 +1745,9 @@ async fn server_end_to_end() {
     assert_eq!(poll["blobs"].as_array().unwrap().len(), 1);
     assert_eq!(poll["blobs"][0].as_str().unwrap(), "cc".repeat(60));
 
-    // A malformed recovery_id is rejected (the bucket key must be 32 hex).
+    // A malformed recovery_id is rejected on BOTH the poll (GET) and post (POST)
+    // paths — including a mixed-case id (validator is lowercase-only to match the
+    // DB CHECK, so it 400s cleanly instead of 500-ing on insert).
     assert_eq!(
         http.get(format!("{base}/recovery/rendezvous/not-a-valid-id"))
             .send()
@@ -1741,6 +1755,24 @@ async fn server_end_to_end() {
             .unwrap()
             .status(),
         400
+    );
+    assert_eq!(
+        http.post(format!("{base}/recovery/rendezvous/not-a-valid-id"))
+            .json(&serde_json::json!({ "blob": "aa", "pow": test_pow_proof(&state.redis).await }))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    assert_eq!(
+        http.get(format!("{base}/recovery/rendezvous/{}", "A".repeat(32)))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400,
+        "uppercase recovery_id must be rejected before the DB CHECK"
     );
 
     // Rendezvous rows expire and are swept by cleanup_expired.

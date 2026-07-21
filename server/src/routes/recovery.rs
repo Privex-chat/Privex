@@ -42,7 +42,6 @@ const RENDEZVOUS_TTL: i64 = 48 * 3600; // social-recovery bucket lifetime (docs 
 // + 24 (XChaCha20 nonce) + 38 (Shamir share of the 32-byte seed + 4-byte tag +
 // 2-byte header) + 16 (Poly1305 tag). Dummies match this precisely.
 const SHARE_WIRE_BYTES: usize = 110;
-const DUMMY_SHARE_COUNT: usize = 3; // the recommended 2-of-3 setup size
 
 fn random_hex(len: usize) -> Result<String, ApiError> {
     let mut bytes = vec![0u8; len];
@@ -410,25 +409,27 @@ pub async fn shares_get(
         .await
         .map_err(|_| ApiError::internal())?;
 
-    let shares = if real.is_empty() {
-        (1..=DUMMY_SHARE_COUNT)
-            .map(|i| ShareOut {
-                share_index: i as i16,
-                encrypted_share: hex::encode(dummy_share(
-                    &st.config.token_mac_key,
-                    &body.user_id,
-                    i,
-                )),
-            })
-            .collect()
-    } else {
-        real.into_iter()
-            .map(|(share_index, blob)| ShareOut {
-                share_index,
+    // EVERY response is exactly MAX_SHARES_BATCH entries: the real shares first,
+    // then deterministic dummies padding to a constant count. This makes the
+    // response byte-identical in shape regardless of whether the user configured
+    // recovery AND regardless of how many contacts they chose (1..MAX) - closing
+    // the existence/contact-count oracle for all setup sizes, not just 3. The
+    // response share_index is cosmetic (the client tries to decrypt every blob and
+    // the real Shamir x-coordinate lives inside the blob), so it is renumbered
+    // 1..N uniformly. A contact still finds the one blob sealed to their key.
+    let key = &st.config.token_mac_key;
+    let shares = (0..validate::MAX_SHARES_BATCH)
+        .map(|i| {
+            let blob = real
+                .get(i)
+                .map(|(_, b)| b.clone())
+                .unwrap_or_else(|| dummy_share(key, &body.user_id, i + 1));
+            ShareOut {
+                share_index: (i + 1) as i16,
                 encrypted_share: hex::encode(blob),
-            })
-            .collect()
-    };
+            }
+        })
+        .collect();
     Ok(Json(SharesGetResp { shares }))
 }
 
@@ -465,22 +466,21 @@ pub async fn rendezvous_post(
     let blob = validate::validate_hex_max(&body.blob, validate::MAX_SHARE_BYTES)?;
 
     let now = now_unix() as i32;
-    // Per-bucket flood cap: a holder of the recovery_id can't grow it without bound.
-    let n = recovery_rendezvous::count(&st.db, &recovery_id, now)
-        .await
-        .map_err(|_| ApiError::internal())?;
-    if n >= validate::MAX_RENDEZVOUS_BLOBS {
-        return Err(ApiError::rate_limited());
-    }
-    recovery_rendezvous::post(
+    // Per-bucket flood cap enforced atomically inside post() (advisory-locked
+    // count+insert). `false` = bucket already full → 429.
+    let inserted = recovery_rendezvous::post(
         &st.db,
         &recovery_id,
         &blob,
         now,
         now + RENDEZVOUS_TTL as i32,
+        validate::MAX_RENDEZVOUS_BLOBS,
     )
     .await
     .map_err(|_| ApiError::internal())?;
+    if !inserted {
+        return Err(ApiError::rate_limited());
+    }
     Ok(Json(RendezvousPostResp { posted: true }))
 }
 
