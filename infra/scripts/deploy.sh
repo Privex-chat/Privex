@@ -58,7 +58,15 @@ pnpm install --frozen-lockfile
 # ── 4. Build Rust backend (includes helper binaries) ──
 echo "[4/9] Building Rust server..."
 cd server
-cargo build --release --bin privex-server --bin gen_opaque_setup --bin derive_pubkeys
+# SQLX_OFFLINE=true: compile the sqlx query!/query_as! macros against the committed
+# server/.sqlx cache, NOT the live DB. This is REQUIRED here because this build runs
+# BEFORE migrations (step 5) — and the migrator IS this binary, so migrations can't
+# run first (chicken-and-egg). Without offline mode, .env's DATABASE_URL puts sqlx in
+# online mode and a build that adds a new table (e.g. recovery_rendezvous) fails with
+# "relation does not exist" before its migration has been applied. The cache already
+# reflects the post-migration schema (regenerated via `cargo sqlx prepare`), so the
+# build is correct; the DB is then migrated in step 5 before the server starts.
+SQLX_OFFLINE=true cargo build --release --bin privex-server --bin gen_opaque_setup --bin derive_pubkeys
 cd "$PRIVEX_HOME"
 
 # ── 5. Apply database migrations (single source of truth: sqlx) ──
