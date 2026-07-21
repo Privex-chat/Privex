@@ -59,12 +59,25 @@ log "=== Privex safe redeploy ==="
 snapshot_db
 
 log "running deploy.sh (build -> migrate -> pm2 reload) ..."
-bash infra/scripts/deploy.sh
+# A failure here (build/migrate/etc.) is caught so we can say plainly that nothing
+# changed - deploy.sh reloads PM2 only as its LAST step, so any earlier failure
+# leaves the OLD binary running. Without this `if`, set -e would abort redeploy.sh
+# with a bare error and no reassurance.
+if ! bash infra/scripts/deploy.sh; then
+  log "DEPLOY FAILED during build/migrate - production is UNCHANGED (PM2 was never"
+  log "reloaded; the old binary is still serving). Fix the error above and re-run."
+  exit 1
+fi
 
-# Health gate. /health/ready checks Postgres + Redis + object store; give the
-# reloaded process a moment to bind first.
-sleep 4
-code="$(health_code)"
+# Health gate. /health/ready checks Postgres + Redis + object store. Poll for up to
+# ~40s rather than sampling once: a Rust reload is usually <2s, but a slightly slow
+# cold start (loaded box, cold connection pools) must not trigger a FALSE rollback.
+code=000
+for _ in $(seq 1 20); do
+  sleep 2
+  code="$(health_code)"
+  [ "$code" = "200" ] && break
+done
 if [ "$code" = "200" ]; then
   log "health OK ($code). Redeploy complete."
   log "NOTE: if nginx config changed this release, sync it:"
