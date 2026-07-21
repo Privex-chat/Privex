@@ -11,6 +11,7 @@ import {
   type RecoverySession,
 } from "../services/recovery";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import * as api from "../api/client";
 
 type Tab = "password" | "seed" | "contacts";
 
@@ -183,8 +184,17 @@ function ContactsRecovery() {
         }
       } catch (e) {
         // Surface a persistent failure instead of hiding it (a silent catch here
-        // is why a stuck recovery looked like "nothing happening").
-        if (!stopped) setPollError(e instanceof Error ? e.message : "Couldn't reach the server.");
+        // is why a stuck recovery looked like "nothing happening"). pollContactRecovery
+        // also decrypts, reconstructs, and finalizes, so DON'T call every failure a
+        // connection issue: only classify network/API errors as that.
+        if (!stopped) {
+          const network = e instanceof api.ApiError || e instanceof TypeError;
+          setPollError(
+            network
+              ? "Can't reach the server — still trying."
+              : `Recovery hit a problem — still trying.${e instanceof Error ? ` (${e.message})` : ""}`,
+          );
+        }
       }
       if (!stopped) timer = setTimeout(() => void tick(), 3000);
     };
@@ -242,12 +252,11 @@ function ContactsRecovery() {
           from a DIFFERENT recovery session. Tell the user to restart + re-share. */}
       {posted > received && (
         <p className="text-warning text-xs">
-          Received {posted} approval{posted === 1 ? "" : "s"} that don&rsquo;t match this code.
-          Your contacts likely used an older recovery code — press Back, start again, and re-share
-          the new code + confirmation number.
+          Some approvals don&rsquo;t match this code. Your contacts likely used an older recovery
+          code — press Back, start again, and re-share the new code + confirmation number.
         </p>
       )}
-      {pollError && <p className="text-danger text-xs">Connection issue: {pollError}</p>}
+      {pollError && <p className="text-danger text-xs">{pollError}</p>}
       {error && <p className="text-danger">{error}</p>}
     </div>
   );
