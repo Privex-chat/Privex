@@ -21,7 +21,10 @@ async function post<T>(path: string, body: unknown, token?: string): Promise<T> 
 async function get<T>(path: string, token?: string): Promise<T> {
   const headers: Record<string, string> = {};
   if (token) headers["X-Privex-Auth"] = token;
-  const res = await fetch(BASE + path, { headers });
+  // cache: "no-store" — API GETs must never be served stale from the HTTP cache.
+  // This matters most for the recovery-rendezvous poll (a stale empty {blobs:[]}
+  // would leave the recovering user waiting forever).
+  const res = await fetch(BASE + path, { headers, cache: "no-store" });
   if (!res.ok) throw new ApiError(res.status);
   return res.json() as Promise<T>;
 }
@@ -240,9 +243,12 @@ export const sharesGet = (userId: string, pow: PowProof) =>
 export const rendezvousPost = (recoveryId: string, blobHex: string, pow: PowProof) =>
   post<{ posted: boolean }>(`/recovery/rendezvous/${recoveryId}`, { blob: blobHex, pow });
 
-/** The recovering owner polls their ephemeral bucket for posted shares. */
+/** The recovering owner polls their ephemeral bucket for posted shares. The
+ *  `t` cache-buster makes every poll a unique URL so no browser/proxy/CDN layer
+ *  can serve a stale earlier (empty) response (the server path ignores the query
+ *  string). Combined with Cache-Control: no-store on the response. */
 export const rendezvousPoll = (recoveryId: string) =>
-  get<{ blobs: string[] }>(`/recovery/rendezvous/${recoveryId}`);
+  get<{ blobs: string[] }>(`/recovery/rendezvous/${recoveryId}?t=${Date.now()}`);
 
 export const spkRotate = (
   body: { spk_x25519_pub: string; spk_sig_ed: string; spk_sig_dil: string },

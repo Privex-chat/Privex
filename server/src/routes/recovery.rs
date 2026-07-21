@@ -492,7 +492,7 @@ pub struct RendezvousPollResp {
 pub async fn rendezvous_poll(
     State(st): State<AppState>,
     Path(recovery_id): Path<String>,
-) -> Result<Json<RendezvousPollResp>, ApiError> {
+) -> Result<([(axum::http::HeaderName, &'static str); 1], Json<RendezvousPollResp>), ApiError> {
     if !validate::validate_recovery_id(&recovery_id) {
         return Err(ApiError::bad_request());
     }
@@ -501,7 +501,12 @@ pub async fn rendezvous_poll(
     let blobs = recovery_rendezvous::list(&st.db, &recovery_id, now)
         .await
         .map_err(|_| ApiError::internal())?;
-    Ok(Json(RendezvousPollResp {
-        blobs: blobs.iter().map(hex::encode).collect(),
-    }))
+    // no-store: this is a poll that must reflect fresh state on every request - no
+    // cache anywhere may serve a stale (empty) response to a recovering user.
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(RendezvousPollResp {
+            blobs: blobs.iter().map(hex::encode).collect(),
+        }),
+    ))
 }

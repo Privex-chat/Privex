@@ -143,6 +143,8 @@ function ContactsRecovery() {
   const nav = useNavigate();
   const [session, setSession] = useState<RecoverySession | null>(null);
   const [received, setReceived] = useState(0);
+  const [posted, setPosted] = useState(0); // blobs the bucket held on the last poll
+  const [pollError, setPollError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, copy] = useCopyToClipboard();
@@ -169,16 +171,20 @@ function ContactsRecovery() {
     const tick = async () => {
       if (stopped) return;
       try {
-        const userId = await pollContactRecovery(session, collected);
+        const { userId, posted } = await pollContactRecovery(session, collected);
         if (stopped) return; // effect was cleaned up mid-poll — no state/nav/reschedule
         setReceived(collected.size);
+        setPosted(posted);
+        setPollError(null);
         if (userId) {
           stopped = true;
           nav("/", { replace: true });
           return;
         }
-      } catch {
-        // transient poll/network error — keep trying
+      } catch (e) {
+        // Surface a persistent failure instead of hiding it (a silent catch here
+        // is why a stuck recovery looked like "nothing happening").
+        if (!stopped) setPollError(e instanceof Error ? e.message : "Couldn't reach the server.");
       }
       if (!stopped) timer = setTimeout(() => void tick(), 3000);
     };
@@ -232,6 +238,16 @@ function ContactsRecovery() {
       <p className="text-text-muted text-xs">
         Waiting for approvals… {received} of 2 shares received. Keep this page open.
       </p>
+      {/* Diagnostic: blobs arrived but none decrypted → the contacts used a code
+          from a DIFFERENT recovery session. Tell the user to restart + re-share. */}
+      {posted > received && (
+        <p className="text-warning text-xs">
+          Received {posted} approval{posted === 1 ? "" : "s"} that don&rsquo;t match this code.
+          Your contacts likely used an older recovery code — press Back, start again, and re-share
+          the new code + confirmation number.
+        </p>
+      )}
+      {pollError && <p className="text-danger text-xs">Connection issue: {pollError}</p>}
       {error && <p className="text-danger">{error}</p>}
     </div>
   );
