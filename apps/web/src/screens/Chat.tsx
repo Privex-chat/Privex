@@ -548,29 +548,28 @@ export default function Chat() {
             )}
           </button>
           {ttlOpen && (
-            <div
-              role="menu"
-              className="absolute bottom-full left-0 z-20 mb-2 w-48 overflow-hidden rounded-xl border border-divider bg-elevated text-sm shadow-lg"
-            >
+            <div className="absolute bottom-full left-0 z-20 mb-2 w-48 overflow-hidden rounded-xl border border-divider bg-elevated text-sm shadow-lg">
               <p className="px-3 pb-1 pt-2 text-[11px] text-text-muted">Delete if undelivered after</p>
-              {TTL_OPTIONS.map((o) => (
-                <button
-                  key={o.value}
-                  role="menuitemradio"
-                  aria-checked={ttl === o.value}
-                  onClick={() => {
-                    setTtl(o.value);
-                    setTtlOpen(false);
-                  }}
-                  className={
-                    "flex w-full items-center justify-between px-3 py-2 text-left hover:bg-raised " +
-                    (ttl === o.value ? "text-accent-subtle" : "text-text-secondary")
-                  }
-                >
-                  <span>{o.label}</span>
-                  {ttl === o.value && <span aria-hidden>✓</span>}
-                </button>
-              ))}
+              <div role="menu">
+                {TTL_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    role="menuitemradio"
+                    aria-checked={ttl === o.value}
+                    onClick={() => {
+                      setTtl(o.value);
+                      setTtlOpen(false);
+                    }}
+                    className={
+                      "flex w-full items-center justify-between px-3 py-2 text-left hover:bg-raised " +
+                      (ttl === o.value ? "text-accent-subtle" : "text-text-secondary")
+                    }
+                  >
+                    <span>{o.label}</span>
+                    {ttl === o.value && <span aria-hidden>✓</span>}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
