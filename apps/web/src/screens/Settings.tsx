@@ -431,7 +431,8 @@ function GuideTab() {
               <strong className="text-text-primary">Verifying.</strong> The badge next to a contact is a
               status light: a <strong>warning badge</strong> means their safety code isn&rsquo;t confirmed yet, a
               <strong> shield-check badge</strong> means it is. The badge itself is just an indicator — to
-              actually compare codes, use the <strong>Code</strong> button next to the contact.
+              actually compare codes, open the contact&rsquo;s menu (the three-dots button) and choose
+              <strong> Safety code</strong>.
             </p>
           </div>
         </div>

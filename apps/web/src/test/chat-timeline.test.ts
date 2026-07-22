@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildChatTimeline, dayLabel } from "../services/chat-timeline";
+import { buildChatTimeline, dayLabel, GROUP_GAP_SECONDS } from "../services/chat-timeline";
 
 // Fixed "now": 2026-03-04 12:00 local.
 const NOW = new Date(2026, 2, 4, 12, 0, 0);
@@ -47,6 +47,25 @@ describe("buildChatTimeline", () => {
       NOW,
     ).filter((r) => r.kind === "msg");
     expect(rows.every((r) => r.kind === "msg" && r.firstOfGroup && r.lastOfGroup)).toBe(true);
+  });
+
+  it("keeps messages EXACTLY GROUP_GAP_SECONDS apart in one group (boundary)", () => {
+    const a = day(2026, 2, 4, 10, 0);
+    const rows = buildChatTimeline(
+      [msg("a", a, "in"), msg("b", a + GROUP_GAP_SECONDS, "in")],
+      NOW,
+    ).filter((r) => r.kind === "msg");
+    // The break is on `gap > GROUP_GAP`, so an exactly-equal gap stays grouped.
+    expect(rows[0].kind === "msg" && rows[0].lastOfGroup).toBe(false);
+    expect(rows[1].kind === "msg" && rows[1].firstOfGroup).toBe(false);
+  });
+
+  it("marks the message after a day change as firstOfGroup even with a tiny gap", () => {
+    const rows = buildChatTimeline(
+      [msg("a", day(2026, 2, 3, 23, 59), "in"), msg("b", day(2026, 2, 4, 0, 0), "in")],
+      NOW,
+    ).filter((r) => r.kind === "msg");
+    expect(rows[1].kind === "msg" && rows[1].firstOfGroup).toBe(true);
   });
 
   it("inserts a fresh day row when the day changes", () => {

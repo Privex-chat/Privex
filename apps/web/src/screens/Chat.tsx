@@ -4,7 +4,7 @@
 // file onto the window - or use the paperclip - to send it.
 // ponytail: renders the bounded last-50 in a scroll container; true windowed
 // virtualization can wait until conversations are huge.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { EncryptedMessages, type PlainContact, type PlainMessage } from "../db/encrypted-db";
 import { db } from "../db";
@@ -322,6 +322,10 @@ export default function Chat() {
     }
   }
 
+  // Memoized so it only recomputes when messages change, not on every keystroke
+  // in the composer (which re-renders Chat via the draft state).
+  const timeline = useMemo(() => buildChatTimeline(msgs), [msgs]);
+
   const title = contact?.name || peerId || "";
 
   return (
@@ -413,7 +417,7 @@ export default function Chat() {
           </div>
         )}
         {msgs.length === 0 && <p className="text-text-subtle text-sm">No messages yet.</p>}
-        {buildChatTimeline(msgs).map((row) => {
+        {timeline.map((row) => {
           if (row.kind === "day") {
             return (
               <div key={row.key} className="my-4 flex justify-center">

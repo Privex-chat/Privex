@@ -40,6 +40,7 @@ export default function ContactList() {
   const [renaming, setRenaming] = useState<PlainContact | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [removing, setRemoving] = useState<PlainContact | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     void (async () => {
@@ -108,17 +109,27 @@ export default function ContactList() {
     const trimmed = renameValue.trim().slice(0, 64);
     const target = renaming;
     setRenaming(null);
+    setActionError(null);
     if (!trimmed) return;
-    await setDisplayName(target.px_id, trimmed);
-    reload();
+    try {
+      await setDisplayName(target.px_id, trimmed);
+      reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Couldn't rename this contact.");
+    }
   }
 
   async function confirmRemove() {
     if (!removing) return;
     const target = removing;
     setRemoving(null);
-    await removeContact(target.px_id);
-    reload();
+    setActionError(null);
+    try {
+      await removeContact(target.px_id);
+      reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Couldn't remove this contact.");
+    }
   }
 
   if (contacts.length === 0) {
@@ -129,6 +140,7 @@ export default function ContactList() {
 
   return (
     <>
+      {actionError && <p className="px-1 pb-2 text-sm text-danger">{actionError}</p>}
       <ul className="divide-y divide-divider">
         {contacts.map((c) => (
           <li key={c.px_id} className="flex items-center gap-3 py-2.5">

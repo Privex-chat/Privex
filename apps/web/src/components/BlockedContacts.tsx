@@ -11,6 +11,19 @@ import { ConfirmDialog } from "./Modal";
 export default function BlockedContacts() {
   const [blocked, setBlocked] = useState<PlainContact[]>([]);
   const [removing, setRemoving] = useState<PlainContact | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function doRemove() {
+    if (!removing) return;
+    const target = removing;
+    setRemoving(null);
+    setError(null);
+    try {
+      await removeContact(target.px_id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete this chat.");
+    }
+  }
 
   const reload = useCallback(() => {
     void listContacts().then((all) => setBlocked(all.filter((c) => c.status === "blocked")));
@@ -30,6 +43,7 @@ export default function BlockedContacts() {
 
   return (
     <>
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
       <ul className="mt-3 divide-y divide-divider">
         {blocked.map((c) => (
           <li key={c.px_id} className="flex items-center gap-3 py-3">
@@ -60,10 +74,7 @@ export default function BlockedContacts() {
         message={`Delete your chat with ${removing?.name || removing?.px_id}? This removes it and its messages from this device.`}
         confirmLabel="Delete"
         danger
-        onConfirm={() => {
-          if (removing) void removeContact(removing.px_id);
-          setRemoving(null);
-        }}
+        onConfirm={() => void doRemove()}
         onCancel={() => setRemoving(null)}
       />
     </>

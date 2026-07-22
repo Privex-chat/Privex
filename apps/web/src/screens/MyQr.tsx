@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { identiconCells, identiconHue } from "../components/Avatar";
+import { ArrowLeftIcon } from "../components/icons";
 
 /** Draw the identicon badge into the centre of an already-rendered QR canvas. */
 function drawIdenticonBadge(canvas: HTMLCanvasElement, seed: string): void {
@@ -84,9 +85,9 @@ export default function MyQr() {
           <button
             onClick={navBack}
             aria-label="Back"
-            className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
           >
-            ←
+            <ArrowLeftIcon className="h-5 w-5" />
           </button>
           <h1 className="text-xl font-semibold">Your Privex ID</h1>
         </header>
