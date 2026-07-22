@@ -7,6 +7,7 @@ import { onOutboxChanged } from "../services/events";
 import { outboxCount } from "../services/outbox";
 import { clockStatus, onClockStatusChanged } from "../services/time-sync";
 import { getWsStatus, onWsStatusChanged } from "../services/websocket";
+import { WarningTriangleIcon } from "./icons";
 
 function formatDrift(secs: number): string {
   const abs = Math.abs(secs);
@@ -57,10 +58,10 @@ export default function ConnectionStatus() {
       {label && <span>{label}</span>}
       {clock.warning && (
         <span
-          className="text-offline"
+          className="inline-flex items-center gap-1 text-offline"
           title={`Your device clock may be incorrect (${formatDrift(clock.driftSeconds)} vs the server). Message order is anchored to signed server time; fix your clock to clear this.`}
         >
-          ⚠ clock
+          <WarningTriangleIcon className="h-3.5 w-3.5" /> clock
         </span>
       )}
     </span>

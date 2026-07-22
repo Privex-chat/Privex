@@ -44,13 +44,12 @@ export default function AppShell() {
     active ? "text-accent-text" : "text-text-muted hover:text-text-primary";
 
   return (
-    <div className="min-h-screen bg-surface text-text-primary">
-      {/* Content: offset for the bottom bar (mobile) / left rail (desktop). */}
-      <div className="pb-[calc(4.5rem_+_env(safe-area-inset-bottom))] md:pb-0 md:pl-16">
-        <Outlet />
-      </div>
-
-      {/* Desktop: left rail */}
+    // Mobile: a fixed-height (100dvh) column so the content region scrolls INSIDE
+    // itself and the bottom bar is a pinned flow sibling - no page overflow, so a
+    // screen that fits the viewport never scrolls. Desktop: normal document flow
+    // with a fixed left rail (md:pl-16 makes room for it).
+    <div className="flex h-[100dvh] flex-col bg-surface text-text-primary md:h-auto md:min-h-screen md:pl-16">
+      {/* Desktop: fixed left rail */}
       <nav
         aria-label="Primary"
         className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col items-center gap-1 border-r border-divider bg-header py-4 backdrop-blur-sm md:flex"
@@ -79,10 +78,15 @@ export default function AppShell() {
         ))}
       </nav>
 
-      {/* Mobile: bottom tab bar */}
+      {/* Content region: internal scroll on mobile, document scroll on desktop. */}
+      <div className="min-h-0 flex-1 overflow-y-auto md:overflow-visible">
+        <Outlet />
+      </div>
+
+      {/* Mobile: pinned bottom tab bar (a flow sibling, not an overlay). */}
       <nav
         aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-divider bg-header backdrop-blur-sm md:hidden"
+        className="flex shrink-0 border-t border-divider bg-header md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         {items.map(({ to, label, Icon, badge }) => (

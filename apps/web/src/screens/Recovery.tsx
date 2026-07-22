@@ -10,6 +10,7 @@ import {
   startContactRecovery,
   type RecoverySession,
 } from "../services/recovery";
+import { ArrowLeftIcon } from "../components/icons";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import * as api from "../api/client";
 
@@ -43,7 +44,7 @@ export default function Recovery() {
 
   return (
     <Shell>
-      <button onClick={() => nav("/onboarding")} className="text-sm text-text-muted hover:text-text-secondary">← Back</button>
+      <button onClick={() => nav("/onboarding")} className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary"><ArrowLeftIcon className="h-4 w-4" /> Back</button>
       <h1 className="mt-3 text-2xl font-semibold">Recover your account</h1>
       <p className="mt-2 text-text-secondary text-sm">
         Your identity is restored from your master key. Message history stays on your devices and
@@ -235,7 +236,7 @@ function ContactsRecovery() {
         onClick={() => copy(session.code)}
         className="rounded-lg bg-raised hover:bg-border-strong px-3 py-1.5 text-xs"
       >
-        {copied ? "Copied ✓" : "Copy code"}
+        {copied ? "Copied" : "Copy code"}
       </button>
       <p className="text-text-secondary">
         Give this code to at least <strong>2</strong> of your recovery contacts{" "}

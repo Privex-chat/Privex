@@ -8,6 +8,7 @@
 // confirm the codes match before any data moves. QR libs are lazy-imported.
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { ArrowLeftIcon, CheckIcon } from "../components/icons";
 import type { Html5Qrcode } from "html5-qrcode";
 import {
   encodeTransferToken,
@@ -159,8 +160,8 @@ export default function DeviceTransfer() {
   return (
     <main className="min-h-screen bg-surface text-text-primary p-6">
       <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/settings/account")} className="text-sm text-text-muted hover:text-text-secondary">
-          ← Back
+        <button onClick={() => nav("/settings/account")} className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary">
+          <ArrowLeftIcon className="h-4 w-4" /> Back
         </button>
         <h1 className="mt-4 text-xl font-semibold">Transfer history</h1>
 
@@ -267,7 +268,9 @@ export default function DeviceTransfer() {
 
         {finished !== null && (
           <div className="mt-6 text-center">
-            <p className="text-success">✓ Transferred {finished} items.</p>
+            <p className="inline-flex items-center gap-1.5 text-success">
+              <CheckIcon className="h-5 w-5" /> Transferred {finished} items.
+            </p>
             <button onClick={() => nav("/")} className="mt-4 rounded-lg bg-accent hover:bg-accent-hover px-5 py-2 font-medium">
               Done
             </button>

@@ -63,7 +63,7 @@ export default function Contacts() {
   }
 
   return (
-    <main className="min-h-screen bg-surface text-text-primary">
+    <main className="min-h-full bg-surface text-text-primary">
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
         <div className="flex items-baseline justify-between gap-3">
           <h1 className="text-2xl font-semibold">Contacts</h1>
@@ -82,7 +82,7 @@ export default function Contacts() {
             className={`-mb-px border-b-2 px-3 py-2 ${
               tab === "add"
                 ? "border-border-focus text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             Add
@@ -92,7 +92,7 @@ export default function Contacts() {
             className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 ${
               tab === "requests"
                 ? "border-border-focus text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             Requests
@@ -107,7 +107,7 @@ export default function Contacts() {
             className={`-mb-px border-b-2 px-3 py-2 ${
               tab === "blocked"
                 ? "border-border-focus text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             Blocked
@@ -127,7 +127,7 @@ export default function Contacts() {
               get a request to accept before you can message.
             </p>
             {sent && (
-              <p className="mt-3 rounded-lg bg-success-bg px-3 py-2 text-sm text-success">
+              <p className="mt-3 rounded-lg bg-success-bg px-3 py-2 text-sm text-white">
                 Request sent — you can message them once they accept. See the{" "}
                 <button className="underline" onClick={() => setTab("requests")}>
                   Requests

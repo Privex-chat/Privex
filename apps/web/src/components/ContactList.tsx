@@ -1,19 +1,19 @@
 // Contact list (accepted contacts only). Loads from IndexedDB (names decrypted in
 // memory only), shows verification status, taps through to the chat, and offers
-// rename / remove / view-safety-code actions.
+// rename / remove / view-safety-code from a per-row overflow menu.
 //
 // Opt-in friend requests (pending_inbound) are NOT shown here - they live on a
-// separate "Requests" tab inside /add-contact, so the home list stays clean as
+// separate "Requests" tab inside Contacts, so the home list stays clean as
 // requests pile up.
-//
-// ponytail: rename uses window.prompt and remove uses window.confirm - no modal
-// component yet. Swap for a real dialog when the design system lands.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listContacts, removeContact, setDisplayName, type PlainContact } from "../data/contacts";
 import { onContactsChanged, onMessage } from "../services/events";
 import { db } from "../db";
 import EmptyChats from "./EmptyChats";
+import Avatar from "./Avatar";
+import { ConfirmDialog, Modal } from "./Modal";
+import { DotsVerticalIcon, ShieldCheckIcon, WarningTriangleIcon } from "./icons";
 
 /** Load the latest message timestamp per session from IndexedDB. Uses the signed
  *  server_anchor when available (docs 9.6), falling back to the local timestamp.
@@ -36,6 +36,11 @@ export default function ContactList() {
   const [contacts, setContacts] = useState<PlainContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<PlainContact | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [removing, setRemoving] = useState<PlainContact | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     void (async () => {
@@ -82,19 +87,49 @@ export default function ContactList() {
     };
   }, [reload]);
 
-  async function rename(c: PlainContact) {
-    const name = window.prompt("Display name (max 64 chars)", c.name);
-    if (name === null) return;
-    const trimmed = name.trim().slice(0, 64);
+  // Close the row overflow menu on any outside tap or Escape.
+  useEffect(() => {
+    if (menuFor === null) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (!(e.target as Element).closest("[data-row-menu]")) setMenuFor(null);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuFor(null);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuFor]);
+
+  async function saveRename() {
+    if (!renaming) return;
+    const trimmed = renameValue.trim().slice(0, 64);
+    const target = renaming;
+    setRenaming(null);
+    setActionError(null);
     if (!trimmed) return;
-    await setDisplayName(c.px_id, trimmed);
-    reload();
+    try {
+      await setDisplayName(target.px_id, trimmed);
+      reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Couldn't rename this contact.");
+    }
   }
 
-  async function remove(c: PlainContact) {
-    if (!window.confirm(`Remove ${c.name || c.px_id}?`)) return;
-    await removeContact(c.px_id);
-    reload();
+  async function confirmRemove() {
+    if (!removing) return;
+    const target = removing;
+    setRemoving(null);
+    setActionError(null);
+    try {
+      await removeContact(target.px_id);
+      reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Couldn't remove this contact.");
+    }
   }
 
   if (contacts.length === 0) {
@@ -104,47 +139,98 @@ export default function ContactList() {
   }
 
   return (
-    <ul className="divide-y divide-divider">
-      {contacts.map((c) => (
-        <li key={c.px_id} className="flex items-center gap-1.5 py-3">
-          <button
-            onClick={() => nav(`/chat/${c.px_id}`)}
-            className="flex-1 text-left min-w-0"
-          >
-            <div className="flex items-center gap-2">
-              <span className="truncate font-medium">{c.name || c.px_id}</span>
-              {c.verified ? (
-                <span title="Verified" className="text-success text-sm">
-                  ✓
+    <>
+      {actionError && <p className="px-1 pb-2 text-sm text-danger">{actionError}</p>}
+      <ul className="divide-y divide-divider">
+        {contacts.map((c) => (
+          <li key={c.px_id} className="flex items-center gap-3 py-2.5">
+            <button onClick={() => nav(`/chat/${c.px_id}`)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+              <Avatar seed={c.px_id} size={40} title={c.name || c.px_id} />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate font-medium">{c.name || c.px_id}</span>
+                  {c.verified ? (
+                    <ShieldCheckIcon className="h-4 w-4 shrink-0 text-success" />
+                  ) : (
+                    <WarningTriangleIcon className="h-4 w-4 shrink-0 text-warning" />
+                  )}
                 </span>
-              ) : (
-                <span title="Not verified" className="text-warning text-sm">
-                  ⚠
-                </span>
+                {c.name && <span className="block truncate font-mono text-xs text-text-subtle">{c.px_id}</span>}
+              </span>
+            </button>
+
+            <div className="relative shrink-0" data-row-menu>
+              <button
+                onClick={() => setMenuFor((v) => (v === c.px_id ? null : c.px_id))}
+                aria-label="Contact options"
+                aria-haspopup="menu"
+                aria-expanded={menuFor === c.px_id}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
+              >
+                <DotsVerticalIcon className="h-5 w-5" />
+              </button>
+              {menuFor === c.px_id && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-10 z-20 w-36 overflow-hidden rounded-lg border border-divider bg-elevated text-sm shadow-lg"
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => { setMenuFor(null); nav(`/verify/${c.px_id}`); }}
+                    className="block w-full px-3 py-2 text-left text-text-secondary hover:bg-raised"
+                  >
+                    Safety code
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setMenuFor(null); setRenameValue(c.name ?? ""); setRenaming(c); }}
+                    className="block w-full px-3 py-2 text-left text-text-secondary hover:bg-raised"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setMenuFor(null); setRemoving(c); }}
+                    className="block w-full px-3 py-2 text-left text-danger hover:bg-raised"
+                  >
+                    Remove
+                  </button>
+                </div>
               )}
             </div>
-            {c.name && <div className="truncate font-mono text-xs text-text-subtle">{c.px_id}</div>}
+          </li>
+        ))}
+      </ul>
+
+      <Modal open={renaming !== null} onClose={() => setRenaming(null)} title="Display name">
+        <input
+          autoFocus
+          value={renameValue}
+          onChange={(e) => setRenameValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void saveRename()}
+          maxLength={64}
+          placeholder="Name (only you see this)"
+          className="w-full rounded-lg border border-border-strong bg-input px-3 py-2 text-sm outline-none focus:border-border-focus"
+        />
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={() => setRenaming(null)} className="rounded-lg border border-border-strong px-4 py-2 text-sm text-text-secondary hover:bg-raised">
+            Cancel
           </button>
-          <button
-            onClick={() => nav(`/verify/${c.px_id}`)}
-            className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
-          >
-            Code
+          <button onClick={() => void saveRename()} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover">
+            Save
           </button>
-          <button
-            onClick={() => void rename(c)}
-            className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
-          >
-            Rename
-          </button>
-          <button
-            onClick={() => void remove(c)}
-            className="rounded px-2 py-1 text-xs text-danger hover:bg-raised"
-          >
-            Remove
-          </button>
-        </li>
-      ))}
-    </ul>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={removing !== null}
+        title="Remove contact"
+        message={`Remove ${removing?.name || removing?.px_id}? This deletes the chat and its messages on this device.`}
+        confirmLabel="Remove"
+        danger
+        onConfirm={() => void confirmRemove()}
+        onCancel={() => setRemoving(null)}
+      />
+    </>
   );
 }

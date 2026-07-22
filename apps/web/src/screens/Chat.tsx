@@ -4,7 +4,7 @@
 // file onto the window - or use the paperclip - to send it.
 // ponytail: renders the bounded last-50 in a scroll container; true windowed
 // virtualization can wait until conversations are huge.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { EncryptedMessages, type PlainContact, type PlainMessage } from "../db/encrypted-db";
 import { db } from "../db";
@@ -15,18 +15,38 @@ import { sendMessage, sendFile } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { getClientConfig } from "../services/client-config";
-import { AttachIcon, ClockIcon, DownloadIcon, FileIcon } from "../components/icons";
+import { buildChatTimeline } from "../services/chat-timeline";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  AttachIcon,
+  CheckIcon,
+  ClockIcon,
+  DotsVerticalIcon,
+  DoubleCheckIcon,
+  DownloadIcon,
+  FileIcon,
+  ShieldCheckIcon,
+  WarningTriangleIcon,
+} from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
 import Avatar from "../components/Avatar";
+import { ConfirmDialog } from "../components/Modal";
 
-/** Outgoing status ticks (docs 4.10): ◷ in flight, ✓ at server, ✓✓ delivered,
- *  ✓✓ (highlighted) read. Incoming messages show nothing - receipts are outgoing-only. */
+/** Outgoing status ticks (docs 4.10): clock in flight, single check at server,
+ *  double check delivered, accent double check read. Incoming messages show
+ *  nothing - receipts are outgoing-only. */
 function StatusTicks({ status }: { status: string }) {
-  if (status === "queued") return <span title="Waiting for connection">◷</span>;
-  if (status === "delivered") return <span title="Delivered">✓✓</span>;
-  if (status === "read") return <span className="text-accent-subtle" title="Read">✓✓</span>;
-  if (status === "failed") return <span className="text-danger" title="Failed">!</span>;
-  return <span title="Sent">✓</span>; // "sent"
+  const wrap = (title: string, node: JSX.Element, cls = "") => (
+    <span title={title} className={"inline-flex " + cls}>
+      {node}
+    </span>
+  );
+  if (status === "queued") return wrap("Waiting for connection", <ClockIcon className="h-3.5 w-3.5" />);
+  if (status === "delivered") return wrap("Delivered", <DoubleCheckIcon className="h-3.5 w-3.5" />);
+  if (status === "read") return wrap("Read", <DoubleCheckIcon className="h-3.5 w-3.5" />, "text-accent-subtle");
+  if (status === "failed") return wrap("Failed", <AlertCircleIcon className="h-3.5 w-3.5" />, "text-danger");
+  return wrap("Sent", <CheckIcon className="h-3.5 w-3.5" />);
 }
 
 function formatSize(n: number): string {
@@ -71,6 +91,7 @@ export default function Chat() {
   const [ttl, setTtl] = useState(DEFAULT_TTL);
   const [ttlOpen, setTtlOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -290,9 +311,9 @@ export default function Chat() {
     }
   }
 
-  async function deleteChat() {
+  async function doDeleteChat() {
     if (!peerId) return;
-    if (!window.confirm(`Delete chat with ${contact?.name || peerId}? This can't be undone.`)) return;
+    setConfirmDelete(false);
     try {
       await removeContact(peerId);
       nav("/", { replace: true });
@@ -301,11 +322,15 @@ export default function Chat() {
     }
   }
 
+  // Memoized so it only recomputes when messages change, not on every keystroke
+  // in the composer (which re-renders Chat via the draft state).
+  const timeline = useMemo(() => buildChatTimeline(msgs), [msgs]);
+
   const title = contact?.name || peerId || "";
 
   return (
     <main
-      className="min-h-screen bg-surface text-text-primary flex flex-col"
+      className="h-[100dvh] bg-surface text-text-primary flex flex-col"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -317,11 +342,11 @@ export default function Chat() {
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-divider bg-header px-4 py-3 backdrop-blur-sm">
         <button
           onClick={() => nav("/")}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
           title="Back to conversations"
           aria-label="Back to conversations"
         >
-          ←
+          <ArrowLeftIcon className="h-5 w-5" />
         </button>
         {/* Contact avatar — deterministic identicon from the px_id. */}
         <Avatar seed={peerId ?? ""} size={36} title={contact?.name || peerId} />
@@ -329,9 +354,18 @@ export default function Chat() {
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold">{title}</span>
             {contact?.verified ? (
-              <span title="Verified" className="text-success text-sm">✓</span>
+              <span title="Verified" className="inline-flex text-success">
+                <ShieldCheckIcon className="h-4 w-4" />
+              </span>
             ) : (
-              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" aria-label="Verify safety code" className="text-warning text-sm">⚠</button>
+              <button
+                onClick={() => peerId && nav(`/verify/${peerId}`)}
+                title="Not verified — compare safety code"
+                aria-label="Verify safety code"
+                className="inline-flex text-warning"
+              >
+                <WarningTriangleIcon className="h-4 w-4" />
+              </button>
             )}
           </div>
           <div className="truncate font-mono text-[11px] text-text-muted">{peerId}</div>
@@ -350,7 +384,7 @@ export default function Chat() {
                 aria-expanded={menuOpen}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary hover:bg-raised hover:text-text-primary"
               >
-                ⋮
+                <DotsVerticalIcon className="h-5 w-5" />
               </button>
               {menuOpen && (
                 <div
@@ -366,7 +400,7 @@ export default function Chat() {
                       Block
                     </button>
                   )}
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); void deleteChat(); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); setConfirmDelete(true); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
                     Delete chat
                   </button>
                 </div>
@@ -376,31 +410,50 @@ export default function Chat() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 relative">
+      <div className="flex-1 overflow-y-auto px-4 py-3 relative">
         {dragging && (
           <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed border-border-focus bg-accent-bg flex items-center justify-center text-accent-subtle text-sm pointer-events-none">
             Drop to send
           </div>
         )}
         {msgs.length === 0 && <p className="text-text-subtle text-sm">No messages yet.</p>}
-        {msgs.map((m) => {
+        {timeline.map((row) => {
+          if (row.kind === "day") {
+            return (
+              <div key={row.key} className="my-4 flex justify-center">
+                <span className="rounded-full bg-elevated px-3 py-1 text-[11px] text-text-muted">{row.label}</span>
+              </div>
+            );
+          }
+          const m = row.m;
           const out = m.direction === "out";
           const meta = m.kind === "file" ? parseFileMeta(m.content) : null;
           const dl = downloads[m.msg_id];
+          // Tuck the grouped corner so a run of same-side bubbles reads as one cluster.
+          const tuck = out
+            ? (row.firstOfGroup ? "" : " rounded-tr-md") + (row.lastOfGroup ? "" : " rounded-br-md")
+            : (row.firstOfGroup ? "" : " rounded-tl-md") + (row.lastOfGroup ? "" : " rounded-bl-md");
+          const warned = m.status === "received-unverified" || m.status === "received-key-changed";
           return (
             <div
               key={m.msg_id}
               ref={(el) => observeForRead(el, m)}
-              className={out ? "flex justify-end" : "flex justify-start"}
+              className={(row.firstOfGroup ? "mt-3" : "mt-0.5") + (out ? " flex justify-end" : " flex justify-start")}
             >
-              <div className={"max-w-[75%] rounded-2xl px-3 py-2 text-sm " + (out ? "bg-accent" : "bg-raised")}>
+              <div
+                className={
+                  "max-w-[75%] rounded-2xl px-3 py-2 text-sm " +
+                  (out ? "bg-bubble-out text-bubble-out-text" : "bg-raised") +
+                  tuck
+                }
+              >
                 {meta ? (
                   <div className="space-y-2">
                     {meta.thumb && (
                       <img src={meta.thumb} alt={meta.name} className="max-h-48 rounded-lg" />
                     )}
                     <div className="flex items-center gap-2">
-                      <FileIcon className="w-6 h-6 shrink-0 text-text" />
+                      <FileIcon className="w-6 h-6 shrink-0 text-text-secondary" />
                       <div className="min-w-0">
                         <div className="truncate">{meta.name}</div>
                         <div className="text-[11px] text-text-muted">{formatSize(meta.size)}</div>
@@ -423,14 +476,24 @@ export default function Chat() {
                 ) : (
                   <p className="whitespace-pre-wrap break-words">{m.content}</p>
                 )}
-                <div className="mt-1 flex items-center gap-1 text-[10px] text-text-muted">
-                  <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                  {out && <StatusTicks status={m.status} />}
-                  {m.status === "received-unverified" && <span title="Sender not verified">· ⚠ unverified</span>}
-                  {m.status === "received-key-changed" && (
-                    <span className="text-danger" title="This contact's key changed - re-verify">· ⚠ key changed</span>
-                  )}
-                </div>
+                {(row.lastOfGroup || warned) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-text-muted">
+                    {row.lastOfGroup && (
+                      <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    )}
+                    {row.lastOfGroup && out && <StatusTicks status={m.status} />}
+                    {m.status === "received-unverified" && (
+                      <span title="Sender not verified" className="inline-flex items-center gap-1">
+                        <WarningTriangleIcon className="h-3 w-3" /> unverified
+                      </span>
+                    )}
+                    {m.status === "received-key-changed" && (
+                      <span className="inline-flex items-center gap-1 text-danger" title="This contact's key changed - re-verify">
+                        <WarningTriangleIcon className="h-3 w-3" /> key changed
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -462,7 +525,7 @@ export default function Chat() {
               Unblock
             </button>
             <button
-              onClick={() => void deleteChat()}
+              onClick={() => setConfirmDelete(true)}
               className="flex-1 rounded-lg border border-border-strong hover:bg-raised py-2 text-sm text-danger"
             >
               Delete chat
@@ -571,7 +634,7 @@ export default function Chat() {
                     }
                   >
                     <span>{o.label}</span>
-                    {ttl === o.value && <span aria-hidden>✓</span>}
+                    {ttl === o.value && <CheckIcon className="h-4 w-4" />}
                   </button>
                 ))}
               </div>
@@ -600,6 +663,15 @@ export default function Chat() {
         </button>
       </footer>
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete chat"
+        message={`Delete your chat with ${contact?.name || peerId}? This removes it and its messages from this device.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => void doDeleteChat()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </main>
   );
 }

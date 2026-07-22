@@ -28,6 +28,9 @@ export default {
         "accent-subtle": "var(--color-accent-subtle)",
         "accent-bg": "var(--color-accent-bg)",
 
+        "bubble-out": "var(--color-bubble-out)",
+        "bubble-out-text": "var(--color-bubble-out-text)",
+
         success: "var(--color-success)",
         "success-bg": "var(--color-success-bg)",
         warning: "var(--color-warning)",

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";
 import { identiconCells, identiconHue } from "../components/Avatar";
+import { ArrowLeftIcon } from "../components/icons";
 
 /** Draw the identicon badge into the centre of an already-rendered QR canvas. */
 function drawIdenticonBadge(canvas: HTMLCanvasElement, seed: string): void {
@@ -78,41 +79,46 @@ export default function MyQr() {
   const navBack = () => nav(-1);
 
   return (
-    <main className="min-h-screen bg-surface text-text-primary flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm text-center">
-        <button
-          onClick={navBack}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
-        >
-          ←
-        </button>
-        <h1 className="mt-4 text-xl font-semibold">Your Privex ID</h1>
+    <main className="min-h-full bg-surface text-text-primary">
+      <div className="mx-auto w-full max-w-sm px-4 py-6">
+        <header className="flex items-center gap-3">
+          <button
+            onClick={navBack}
+            aria-label="Back"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
+          >
+            <ArrowLeftIcon className="h-5 w-5" />
+          </button>
+          <h1 className="text-xl font-semibold">Your Privex ID</h1>
+        </header>
         <p className="mt-2 text-sm text-text-secondary">Ask them to scan this to add you.</p>
 
-        {/* Keyed on pxId so a sign-out/account switch remounts a blank canvas
-            instead of leaving the previous ID's QR bitmap on screen. */}
-        {pxId ? (
-          <canvas
-            key={pxId}
-            ref={canvasRef}
-            role="img"
-            aria-label="Your Privex ID QR code"
-            className="mx-auto mt-6 h-auto max-w-full rounded-xl bg-qr-bg p-3"
-          />
-        ) : null}
+        <div className="mt-6 flex flex-col items-center text-center">
+          {/* Keyed on pxId so a sign-out/account switch remounts a blank canvas
+              instead of leaving the previous ID's QR bitmap on screen. */}
+          {pxId ? (
+            <canvas
+              key={pxId}
+              ref={canvasRef}
+              role="img"
+              aria-label="Your Privex ID QR code"
+              className="h-auto max-w-full rounded-xl bg-qr-bg p-3"
+            />
+          ) : null}
 
-        <code className="mt-6 block break-all rounded-lg bg-elevated p-3 font-mono text-xs text-accent-subtle">
-          {pxId}
-        </code>
+          <code className="mt-6 block w-full break-all rounded-lg bg-elevated p-3 font-mono text-xs text-accent-subtle">
+            {pxId}
+          </code>
 
-        <button
-          onClick={() => void copy()}
-          className="mt-4 rounded-lg bg-raised hover:bg-border-strong px-4 py-2 text-sm transition-colors"
-        >
-          {copied ? "Copied" : "Copy ID"}
-        </button>
+          <button
+            onClick={() => void copy()}
+            className="mt-4 rounded-lg bg-raised hover:bg-border-strong px-4 py-2 text-sm transition-colors"
+          >
+            {copied ? "Copied" : "Copy ID"}
+          </button>
+        </div>
 
-        <p className="mt-8 text-xs text-text-subtle">
+        <p className="mt-8 text-center text-xs text-text-subtle">
           Your ID is safe to share — it&rsquo;s only used to establish encrypted sessions.
         </p>
       </div>
