@@ -327,4 +327,32 @@ describe("mutual add", () => {
     sendSpy.mockRestore();
     ackSpy.mockRestore();
   });
+
+  it("blocking a pending request drops their future requests (no re-surfacing)", async () => {
+    resetMessaging();
+    await Promise.all([db.contacts.clear(), db.sessions.clear(), db.messages.clear(), db.identity.clear()]);
+    const me = genIdentityBundle(wasm, entropy(0xd1));
+    const peer = genIdentityBundle(wasm, entropy(0xd2));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("test-token", me.userId);
+    const ackSpy = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+
+    // They request us → pending_inbound. We block WITHOUT accepting/declining.
+    await receiveMessage(
+      { message_id: "rq1", content: sealedFirstMessage(peer, me, encodeContactHello(0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect((await getContact(peer.userId))?.status).toBe("pending_inbound");
+    await blockContact(peer.userId);
+    expect((await getContact(peer.userId))?.status).toBe("blocked");
+
+    // A repeat request from them is dropped and does NOT re-surface as pending.
+    await receiveMessage(
+      { message_id: "rq2", content: sealedFirstMessage(peer, me, encodeContactHello(0)), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect((await getContact(peer.userId))?.status).toBe("blocked"); // still blocked
+    expect(ackSpy).toHaveBeenCalledWith(["rq2"], "test-token");
+    ackSpy.mockRestore();
+  });
 });
