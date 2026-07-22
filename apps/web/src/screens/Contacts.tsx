@@ -4,16 +4,14 @@
 //
 // QR scanning uses html5-qrcode, lazy-imported only when the user taps Scan - it
 // never lands in the main bundle.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { Html5Qrcode } from "html5-qrcode";
 import { addContact } from "../contacts/add";
 import { getContact, listContacts } from "../data/contacts";
 import { onContactsChanged } from "../services/events";
 import ContactRequests from "../components/ContactRequests";
 import BlockedContacts from "../components/BlockedContacts";
-
-const QR_ELEMENT_ID = "qr-reader";
+import QrScanner from "../components/QrScanner";
 
 type Tab = "add" | "requests" | "blocked";
 
@@ -38,10 +36,9 @@ export default function Contacts() {
 
   const [pxId, setPxId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [scanning, setScanning] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   async function submit() {
     setBusy(true);
@@ -62,35 +59,6 @@ export default function Contacts() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add contact.");
       setBusy(false);
-    }
-  }
-
-  async function stopScan() {
-    const s = scannerRef.current;
-    scannerRef.current = null;
-    setScanning(false);
-    if (s) await s.stop().catch(() => {});
-  }
-
-  async function startScan() {
-    setError(null);
-    setScanning(true);
-    try {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      const scanner = new Html5Qrcode(QR_ELEMENT_ID);
-      scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: 240 },
-        (decoded) => {
-          setPxId(decoded.trim());
-          void stopScan();
-        },
-        () => {}, // per-frame decode failures are normal; ignore
-      );
-    } catch {
-      setError("Couldn't start the camera. Paste the ID instead.");
-      await stopScan();
     }
   }
 
@@ -179,26 +147,24 @@ export default function Contacts() {
               className="mt-1 w-full rounded-lg bg-input border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-border-focus"
             />
 
-            {/* html5-qrcode renders the camera preview into this element while scanning. */}
-            <div id={QR_ELEMENT_ID} className={scanning ? "mt-4 overflow-hidden rounded-lg" : "hidden"} />
-
             <div className="mt-3 flex gap-3">
-              {scanning ? (
-                <button
-                  onClick={() => void stopScan()}
-                  className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm"
-                >
-                  Cancel scan
-                </button>
-              ) : (
-                <button
-                  onClick={() => void startScan()}
-                  className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm"
-                >
-                  Scan QR
-                </button>
-              )}
+              <button
+                onClick={() => setShowScanner(true)}
+                className="rounded-lg border border-border-strong hover:bg-elevated px-4 py-2 text-sm"
+              >
+                Scan QR
+              </button>
             </div>
+
+            <QrScanner
+              open={showScanner}
+              onClose={() => setShowScanner(false)}
+              onResult={(id) => {
+                setPxId(id);
+                setError(null);
+                setShowScanner(false);
+              }}
+            />
 
             {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
