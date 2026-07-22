@@ -93,7 +93,7 @@ export default function ContactList() {
   return (
     <ul className="divide-y divide-divider">
       {contacts.map((c) => (
-        <li key={c.px_id} className="flex items-center gap-3 py-3">
+        <li key={c.px_id} className="flex items-center gap-1.5 py-3">
           <button
             onClick={() => nav(`/chat/${c.px_id}`)}
             className="flex-1 text-left min-w-0"

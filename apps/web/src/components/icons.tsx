@@ -27,6 +27,15 @@ export function FileIcon({ className = base }: P) {
   );
 }
 
+// Clock - per-message queue TTL ("delete if undelivered after…").
+export function ClockIcon({ className = base }: P) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" strokeWidth={1.5} stroke="currentColor" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+    </svg>
+  );
+}
+
 // Person + plus - pending friend requests entry point.
 export function UserPlusIcon({ className = base }: P) {
   return (
