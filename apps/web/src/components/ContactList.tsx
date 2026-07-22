@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import { listContacts, removeContact, setDisplayName, type PlainContact } from "../data/contacts";
 import { onContactsChanged, onMessage } from "../services/events";
 import { db } from "../db";
+import EmptyChats from "./EmptyChats";
 
 /** Load the latest message timestamp per session from IndexedDB. Uses the signed
  *  server_anchor when available (docs 9.6), falling back to the local timestamp.
@@ -87,7 +88,7 @@ export default function ContactList() {
   }
 
   if (contacts.length === 0) {
-    return <p className="text-text-muted">No contacts yet. Add someone by their Privex ID.</p>;
+    return <EmptyChats />;
   }
 
   return (
