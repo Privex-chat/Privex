@@ -97,7 +97,15 @@ export default function Contacts() {
   return (
     <main className="min-h-screen bg-surface text-text-primary">
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
-        <h1 className="text-2xl font-semibold">Contacts</h1>
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Contacts</h1>
+          <button
+            onClick={() => nav("/settings/guide")}
+            className="shrink-0 text-xs text-accent-text transition-colors hover:underline"
+          >
+            How this works
+          </button>
+        </div>
 
         {/* Add / Requests / Blocked tabs - requests live here (not on the Chats list). */}
         <div className="mt-5 flex gap-1 border-b border-divider text-sm">

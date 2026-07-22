@@ -369,12 +369,12 @@ function GuideTab() {
             </p>
           </div>
           <div className="px-4 py-3">
-<h3 className="font-medium text-text-primary-primary">Adding contacts</h3>
+<h3 className="font-medium text-text-primary">Adding contacts</h3>
             <ol className="mt-2 list-inside list-decimal space-y-1 text-text-secondary">
              <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
-             <li>Tap <span className="text-accent-text">+ Add contact</span> on the home screen and paste their Privex ID.</li>
+             <li>Open the <span className="text-accent-text">Contacts</span> tab, tap <span className="text-accent-text">Add</span>, and paste their Privex ID (or scan their QR).</li>
               <li>Privex fetches their keys, verifies them against the key transparency log, and sets up an encrypted session.</li>
-              <li>Compare safety codes over a separate channel (in person, phone call, another app).</li>
+              <li>They accept your request, then you compare safety codes over a separate channel (in person, phone call, another app).</li>
               <li>If the codes match, tap <strong>Mark Verified</strong> — you&rsquo;re ready to chat.</li>
             </ol>
           </div>
@@ -384,6 +384,28 @@ function GuideTab() {
               Type in the composer at the bottom of a conversation and press Enter or tap Send.
               Use the paperclip icon to attach files (up to 100 MB). Drag-and-drop is also supported.
             </p>
+          </div>
+          <div className="px-4 py-3">
+            <h3 className="font-medium text-text-primary">Requests, blocking &amp; verifying</h3>
+            <ul className="mt-1 list-inside list-disc space-y-1 text-text-secondary">
+              <li>
+                <strong>Requests:</strong> adding someone sends a request. Incoming ones wait under
+                <span className="text-accent-text"> Contacts → Requests</span> until you accept.
+                Declining is silent — they&rsquo;re never told either way.
+              </li>
+              <li>
+                <strong>Blocking:</strong> block someone from a request, or from the
+                <strong> ⋮ menu</strong> at the top of a chat. Blocked people can&rsquo;t reach you and
+                their messages are dropped. Manage them under <span className="text-accent-text">Contacts → Blocked</span>
+                and unblock anytime. Blocking is client-side — the server never learns who you blocked.
+              </li>
+              <li>
+                <strong>Verifying:</strong> a <span className="text-warning">⚠</span> next to a contact means
+                their safety code isn&rsquo;t confirmed yet; a <span className="text-success">✓</span> means it is.
+                It&rsquo;s a status indicator only — use the separate <strong>Code</strong> button next to a
+                contact to compare safety codes.
+              </li>
+            </ul>
           </div>
         </div>
       </section>
