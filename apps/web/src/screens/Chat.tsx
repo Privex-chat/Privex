@@ -15,6 +15,7 @@ import { sendMessage, sendFile } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { getClientConfig } from "../services/client-config";
+import { buildChatTimeline } from "../services/chat-timeline";
 import {
   AlertCircleIcon,
   ArrowLeftIcon,
@@ -403,31 +404,50 @@ export default function Chat() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 relative">
+      <div className="flex-1 overflow-y-auto px-4 py-3 relative">
         {dragging && (
           <div className="absolute inset-2 z-10 rounded-xl border-2 border-dashed border-border-focus bg-accent-bg flex items-center justify-center text-accent-subtle text-sm pointer-events-none">
             Drop to send
           </div>
         )}
         {msgs.length === 0 && <p className="text-text-subtle text-sm">No messages yet.</p>}
-        {msgs.map((m) => {
+        {buildChatTimeline(msgs).map((row) => {
+          if (row.kind === "day") {
+            return (
+              <div key={row.key} className="my-4 flex justify-center">
+                <span className="rounded-full bg-elevated px-3 py-1 text-[11px] text-text-muted">{row.label}</span>
+              </div>
+            );
+          }
+          const m = row.m;
           const out = m.direction === "out";
           const meta = m.kind === "file" ? parseFileMeta(m.content) : null;
           const dl = downloads[m.msg_id];
+          // Tuck the grouped corner so a run of same-side bubbles reads as one cluster.
+          const tuck = out
+            ? (row.firstOfGroup ? "" : " rounded-tr-md") + (row.lastOfGroup ? "" : " rounded-br-md")
+            : (row.firstOfGroup ? "" : " rounded-tl-md") + (row.lastOfGroup ? "" : " rounded-bl-md");
+          const warned = m.status === "received-unverified" || m.status === "received-key-changed";
           return (
             <div
               key={m.msg_id}
               ref={(el) => observeForRead(el, m)}
-              className={out ? "flex justify-end" : "flex justify-start"}
+              className={(row.firstOfGroup ? "mt-3" : "mt-0.5") + (out ? " flex justify-end" : " flex justify-start")}
             >
-              <div className={"max-w-[75%] rounded-2xl px-3 py-2 text-sm " + (out ? "bg-accent" : "bg-raised")}>
+              <div
+                className={
+                  "max-w-[75%] rounded-2xl px-3 py-2 text-sm " +
+                  (out ? "bg-bubble-out text-bubble-out-text" : "bg-raised") +
+                  tuck
+                }
+              >
                 {meta ? (
                   <div className="space-y-2">
                     {meta.thumb && (
                       <img src={meta.thumb} alt={meta.name} className="max-h-48 rounded-lg" />
                     )}
                     <div className="flex items-center gap-2">
-                      <FileIcon className="w-6 h-6 shrink-0 text-text" />
+                      <FileIcon className="w-6 h-6 shrink-0 text-text-secondary" />
                       <div className="min-w-0">
                         <div className="truncate">{meta.name}</div>
                         <div className="text-[11px] text-text-muted">{formatSize(meta.size)}</div>
@@ -450,20 +470,24 @@ export default function Chat() {
                 ) : (
                   <p className="whitespace-pre-wrap break-words">{m.content}</p>
                 )}
-                <div className="mt-1 flex items-center gap-1 text-[10px] text-text-muted">
-                  <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                  {out && <StatusTicks status={m.status} />}
-                  {m.status === "received-unverified" && (
-                    <span title="Sender not verified" className="inline-flex items-center gap-1">
-                      · <WarningTriangleIcon className="h-3 w-3" /> unverified
-                    </span>
-                  )}
-                  {m.status === "received-key-changed" && (
-                    <span className="inline-flex items-center gap-1 text-danger" title="This contact's key changed - re-verify">
-                      · <WarningTriangleIcon className="h-3 w-3" /> key changed
-                    </span>
-                  )}
-                </div>
+                {(row.lastOfGroup || warned) && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-text-muted">
+                    {row.lastOfGroup && (
+                      <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                    )}
+                    {row.lastOfGroup && out && <StatusTicks status={m.status} />}
+                    {m.status === "received-unverified" && (
+                      <span title="Sender not verified" className="inline-flex items-center gap-1">
+                        <WarningTriangleIcon className="h-3 w-3" /> unverified
+                      </span>
+                    )}
+                    {m.status === "received-key-changed" && (
+                      <span className="inline-flex items-center gap-1 text-danger" title="This contact's key changed - re-verify">
+                        <WarningTriangleIcon className="h-3 w-3" /> key changed
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
