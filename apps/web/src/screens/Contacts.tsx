@@ -63,7 +63,7 @@ export default function Contacts() {
   }
 
   return (
-    <main className="min-h-screen bg-surface text-text-primary">
+    <main className="min-h-full bg-surface text-text-primary">
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
         <div className="flex items-baseline justify-between gap-3">
           <h1 className="text-2xl font-semibold">Contacts</h1>

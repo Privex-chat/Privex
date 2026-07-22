@@ -305,7 +305,7 @@ export default function Chat() {
 
   return (
     <main
-      className="min-h-screen bg-surface text-text-primary flex flex-col"
+      className="h-[100dvh] bg-surface text-text-primary flex flex-col"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);

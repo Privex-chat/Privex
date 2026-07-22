@@ -10,7 +10,7 @@ export default function ConversationList() {
   const nav = useNavigate();
 
   return (
-    <main className="min-h-screen bg-surface text-text-primary">
+    <main className="min-h-full bg-surface text-text-primary">
       <div className="mx-auto w-full max-w-2xl px-4 py-6">
         <header className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">

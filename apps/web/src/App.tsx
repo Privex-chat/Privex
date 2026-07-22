@@ -171,7 +171,9 @@ export default function App() {
           <AnnouncementBanner />
           <HashRouter>
             <Routes>
-              {/* Primary tabs share the AppShell (bottom bar / desktop rail). */}
+              {/* Primary tabs + MyQr share the AppShell (bottom bar / desktop rail).
+                  MyQr is a sub-page of Chats, not a tab, so no item is highlighted -
+                  but the nav stays visible instead of a full-screen takeover. */}
               <Route element={<AppShell />}>
                 <Route
                   path="/"
@@ -179,6 +181,7 @@ export default function App() {
                 />
                 <Route path="/contacts" element={<Contacts />} />
                 <Route path="/settings/:tab?" element={<Settings />} />
+                <Route path="/my-qr" element={<MyQr />} />
               </Route>
               {/* Full-screen pushes - no shell nav. */}
               <Route path="/onboarding" element={<Onboarding />} />
@@ -188,7 +191,6 @@ export default function App() {
               <Route path="/chat/:id" element={<Chat />} />
               <Route path="/call/:id" element={<Call />} />
               <Route path="/device-transfer" element={<DeviceTransfer />} />
-              <Route path="/my-qr" element={<MyQr />} />
               <Route path="/verify/:id" element={<KeyVerification />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
