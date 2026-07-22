@@ -35,7 +35,12 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   resetMessaging();
-  await Promise.all([db.identity.clear(), db.settings.clear(), db.receipt_outbox.clear()]);
+  await Promise.all([
+    db.identity.clear(),
+    db.settings.clear(),
+    db.receipt_outbox.clear(),
+    db.contacts.clear(),
+  ]);
   useAuth.setState({ sessionToken: null, userId: null, authenticated: false });
 });
 
@@ -52,14 +57,19 @@ const wasmCrypto: MessageCryptoApi = {
   pqxdhRespond: async (i, ik, sp, op, ky) => mc.pqxdhRespond(wasm, i, ik, sp, op, ky),
 };
 
-const dueReceipt = (token: string, type: "delivered" | "read") =>
-  db.receipt_outbox.add({
-    to: "px_" + "aa".repeat(16),
+const RECEIPT_TO = "px_" + "aa".repeat(16);
+// A receipt only drains to an ACCEPTED contact (drainReceipts enforces the same
+// "accepted only" invariant as queueReceipt), so seed one for the recipient.
+const dueReceipt = async (token: string, type: "delivered" | "read") => {
+  await db.contacts.put({ px_id: RECEIPT_TO, status: "accepted", added_at: 0 });
+  return db.receipt_outbox.add({
+    to: RECEIPT_TO,
     token_hex: token,
     receipt_type: type,
     queued_at: 0,
     not_before: 0, // already due
   });
+};
 
 describe("cover-traffic Poisson cycle", () => {
   it("drains due receipts AND emits a cover send when cover traffic is on", async () => {

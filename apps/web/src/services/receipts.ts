@@ -133,6 +133,16 @@ export async function drainReceipts(send: SendReceipt): Promise<void> {
     const now = Date.now();
     const due = (await db.receipt_outbox.toArray()).filter((r) => r.not_before <= now);
     for (const r of due) {
+      // Enforce the queueReceipt "accepted only" invariant at SEND time too: a
+      // contact BLOCKED (or removed) AFTER a receipt was queued must not receive
+      // it. Closes the block race where a "delivered"/"read" would otherwise leak
+      // to someone you just blocked, in the seconds/minutes before this tick. Uses
+      // the CURRENT status, so a quick block→unblock still delivers correctly.
+      const contact = await getContact(r.to);
+      if (!contact || contact.status !== "accepted") {
+        await db.receipt_outbox.delete(r.id!);
+        continue;
+      }
       try {
         await send(r.to, fromHex(r.token_hex), r.receipt_type);
         await db.receipt_outbox.delete(r.id!);
