@@ -702,6 +702,7 @@ function SeedPhraseView() {
 }
 
 function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
+  const myPxId = useAuth((s) => s.userId) ?? "";
   const [contacts, setContacts] = useState<PlainContact[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
@@ -709,9 +710,22 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Only ACCEPTED contacts (not yourself, not unaccepted inbound requests) can hold
+  // a recovery share: they must have a real two-way relationship with you and be
+  // willing to approve. A one-sided/pending contact can't be relied on to recover.
   useEffect(() => {
-    if (open) void listContacts().then((c) => setContacts(c.filter((x) => x.ik_x25519.length > 0)));
-  }, [open]);
+    if (!open) return;
+    void listContacts().then((c) => {
+      const eligible = c.filter(
+        (x) => x.ik_x25519.length > 0 && x.status === "accepted" && x.px_id !== myPxId,
+      );
+      setContacts(eligible);
+      // Drop any picked ids that are no longer eligible (e.g. a contact was
+      // blocked/removed since selection) so the count + setup batch stay correct.
+      const ids = new Set(eligible.map((x) => x.px_id));
+      setPicked((prev) => new Set([...prev].filter((id) => ids.has(id))));
+    });
+  }, [open, myPxId]);
 
   function toggle(id: string) {
     setPicked((s) => {
@@ -741,7 +755,10 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
   return (
     <div>
       <div className="text-sm text-text-secondary">Emergency contacts</div>
-      <p className="text-xs text-text-muted">Split your recovery key across 2–3 trusted friends.</p>
+      <p className="text-xs text-text-muted">
+        Split your recovery key across 2–3 trusted friends who have added you back. They&rsquo;ll
+        each need to approve in their app for you to recover, so pick people who will.
+      </p>
       {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
       {!open ? (
         <button onClick={() => setOpen(true)} className="mt-2 rounded-lg bg-raised hover:bg-border-strong px-3 py-1.5 text-sm">
@@ -786,6 +803,7 @@ function EmergencyContacts({ onConfigured }: { onConfigured: () => void }) {
  *  shares, decrypts the one sealed to this device, and posts it to the rendezvous.
  *  The server never learns this device is a recovery contact of that owner. */
 function ApproveRecovery() {
+  const myPxId = useAuth((s) => s.userId) ?? "";
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [sas, setSas] = useState<string | null>(null);
@@ -796,8 +814,14 @@ function ApproveRecovery() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) void listContacts().then((c) => setContacts(c.filter((x) => x.ik_x25519.length > 0)));
-  }, [open]);
+    if (!open) return;
+    void listContacts().then((c) => {
+      const eligible = c.filter((x) => x.ik_x25519.length > 0 && x.px_id !== myPxId);
+      setContacts(eligible);
+      // Clear a stale selection if the chosen contact is no longer in the list.
+      setChosen((prev) => (eligible.some((x) => x.px_id === prev) ? prev : ""));
+    });
+  }, [open, myPxId]);
 
   async function onCode(v: string) {
     setCode(v);

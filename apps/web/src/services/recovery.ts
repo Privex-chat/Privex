@@ -190,6 +190,11 @@ export async function setupEmergencyContacts(
   }
   const bundle = await loadBundle();
   if (!bundle) throw new Error("Your identity isn't loaded.");
+  // You can't be your own recovery contact: sealing a share to yourself defeats
+  // the whole point (a lost device loses that share too) and weakens the threshold.
+  if (contacts.some((c) => c.px_id === bundle.userId)) {
+    throw new Error("You can't choose yourself as a recovery contact.");
+  }
   const token = useAuth.getState().sessionToken;
   if (!token) throw new Error("not authenticated");
 
@@ -337,19 +342,21 @@ export async function unsealAndReconstruct(
 }
 
 /** One poll pass: pull the bucket, decrypt any new shares, and reconstruct if >=2
- *  distinct shares now open. Returns the recovered userId, or null to keep polling.
- *  `collected` is carried across calls (the caller owns the loop + cadence). */
+ *  distinct shares now open. Returns the recovered userId (or null to keep polling)
+ *  plus `posted` = how many blobs the bucket held this pass. `posted > 0` while
+ *  `collected` stays 0 means blobs arrived but none decrypted with our RK - i.e.
+ *  the code the contacts used is from a different recovery session (diagnostic). */
 export async function pollContactRecovery(
   session: RecoverySession,
   collected: Map<string, Uint8Array>,
   crypto: ContactRecoveryCryptoApi = workerContactRecoveryCrypto,
-): Promise<string | null> {
+): Promise<{ userId: string | null; posted: number }> {
   const { blobs } = await api.rendezvousPoll(session.recoveryId);
   const seed = await unsealAndReconstruct(session.rk.priv, blobs, collected, crypto);
-  if (!seed) return null;
+  if (!seed) return { userId: null, posted: blobs.length };
   const bundle = await crypto.recoverBundleFromSeed(seed);
   await completeRecovery(bundle); // persists identity, auths, re-provisions prekeys
-  return bundle.userId;
+  return { userId: bundle.userId, posted: blobs.length };
 }
 
 /** Contact side: verify who is recovering out of band FIRST (SAS), then approve.
