@@ -53,6 +53,7 @@ import {
 } from "../services/device-sync";
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
 import ThemeToggle from "../components/ThemeToggle";
+import BlockedContacts from "../components/BlockedContacts";
 import { useScreenRecord } from "../store/screenRecord";
 
 const HISTORY_WARNING =
@@ -274,6 +275,11 @@ function PrivacyTab({
           <span className="text-sm text-text-secondary">Connection mode</span>
           <span className="text-sm text-text-muted">Direct</span>
         </div>
+        <p className="text-xs text-text-muted">
+          How your app reaches Privex. For now it connects directly over an encrypted
+          channel. Network-level anonymity — routing through a mixnet so even your own
+          network can&rsquo;t tell you use Privex — arrives in a later phase.
+        </p>
       </Row>
       <Row>
         <MessageStatusSettings />
@@ -298,6 +304,15 @@ function PrivacyTab({
             className="mt-1 h-4 w-4 accent-accent-hover"
           />
         </label>
+      </Row>
+      <Row>
+        <div className="text-sm text-text-secondary">Blocked contacts</div>
+        <p className="text-xs text-text-muted">
+          People you block can&rsquo;t message you or send you requests, and their messages are
+          dropped. Blocking happens only on your device — the server never learns who you blocked.
+          Unblock anyone here.
+        </p>
+        <BlockedContacts />
       </Row>
     </Section>
   );
@@ -397,7 +412,8 @@ function GuideTab() {
                 <strong>Blocking:</strong> block someone from a request, or from the
                 <strong> ⋮ menu</strong> at the top of a chat. Blocked people can&rsquo;t reach you and
                 their messages are dropped. Manage them under <span className="text-accent-text">Contacts → Blocked</span>
-                and unblock anytime. Blocking is client-side — the server never learns who you blocked.
+                or <span className="text-accent-text">Settings → Privacy</span>, and unblock anytime. Blocking is
+                client-side — the server never learns who you blocked.
               </li>
               <li>
                 <strong>Verifying:</strong> a <span className="text-warning">⚠</span> next to a contact means
@@ -614,8 +630,9 @@ function OpaqueRecoveryToggle({
         )}
       </div>
       <p className="text-xs text-text-muted">
-        Off means no OPAQUE recovery record exists on the server. On means password recovery is
-        available, but the encrypted record becomes part of your server-side footprint.
+        Recover your account on a new device with just your password. We store a scrambled record
+        only your password can unlock — we can&rsquo;t read it. The trade-off: that record stays on
+        our servers while this is on (turning it off deletes it). Off means nothing is stored.
       </p>
       {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
       {open && !enabled && (
