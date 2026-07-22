@@ -17,6 +17,7 @@ import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { getClientConfig } from "../services/client-config";
 import { AttachIcon, ClockIcon, DownloadIcon, FileIcon } from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
+import Avatar from "../components/Avatar";
 
 /** Outgoing status ticks (docs 4.10): ◷ in flight, ✓ at server, ✓✓ delivered,
  *  ✓✓ (highlighted) read. Incoming messages show nothing - receipts are outgoing-only. */
@@ -322,10 +323,8 @@ export default function Chat() {
         >
           ←
         </button>
-        {/* Contact avatar — initials fallback */}
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-bg text-sm font-semibold text-accent-text">
-          {(contact?.name || peerId || "?").charAt(0).toUpperCase()}
-        </div>
+        {/* Contact avatar — deterministic identicon from the px_id. */}
+        <Avatar seed={peerId ?? ""} size={36} title={contact?.name || peerId} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold">{title}</span>

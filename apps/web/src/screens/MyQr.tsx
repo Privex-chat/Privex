@@ -1,5 +1,5 @@
-// Shows the user's own Privex ID as a QR code for someone else to scan from
-// AddContact. The QR encodes the raw px_... string — exactly what Scan QR expects.
+// Shows the user's own Privex ID as a QR code for someone else to scan from the
+// Contacts tab. The QR encodes the raw px_... string — exactly what Scan QR expects.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../store/auth";

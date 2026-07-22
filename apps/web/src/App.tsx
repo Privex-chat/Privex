@@ -14,11 +14,12 @@ import Chat from "./screens/Chat";
 import Call from "./screens/Call";
 import Settings from "./screens/Settings";
 import KeyVerification from "./screens/KeyVerification";
-import AddContact from "./screens/AddContact";
+import Contacts from "./screens/Contacts";
 import Recovery from "./screens/Recovery";
 import DeviceTransfer from "./screens/DeviceTransfer";
 import MyQr from "./screens/MyQr";
 import UnlockScreen from "./screens/UnlockScreen";
+import AppShell from "./components/AppShell";
 import AnnouncementBanner from "./components/AnnouncementBanner";
 import InstallPrompt from "./components/InstallPrompt";
 import AppLockGuard from "./components/AppLockGuard";
@@ -165,16 +166,22 @@ export default function App() {
           <AnnouncementBanner />
           <HashRouter>
             <Routes>
-              <Route
-                path="/"
-                element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
-              />
+              {/* Primary tabs share the AppShell (bottom bar / desktop rail). */}
+              <Route element={<AppShell />}>
+                <Route
+                  path="/"
+                  element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
+                />
+                <Route path="/contacts" element={<Contacts />} />
+                <Route path="/settings/:tab?" element={<Settings />} />
+              </Route>
+              {/* Full-screen pushes - no shell nav. */}
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/recover" element={<Recovery />} />
-              <Route path="/add-contact" element={<AddContact />} />
+              {/* Legacy alias - the screen is now "Contacts" at /contacts. */}
+              <Route path="/add-contact" element={<Navigate to="/contacts" replace />} />
               <Route path="/chat/:id" element={<Chat />} />
               <Route path="/call/:id" element={<Call />} />
-              <Route path="/settings/:tab?" element={<Settings />} />
               <Route path="/device-transfer" element={<DeviceTransfer />} />
               <Route path="/my-qr" element={<MyQr />} />
               <Route path="/verify/:id" element={<KeyVerification />} />
