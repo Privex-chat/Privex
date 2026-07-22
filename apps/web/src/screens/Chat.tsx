@@ -477,7 +477,7 @@ export default function Chat() {
           <p className="text-sm text-text-secondary">
             <span className="font-mono text-text-secondary">{peerId}</span> wants to connect.
             Accepting lets you reply; declining deletes this request (they can ask again).
-            Blocking drops this and any future requests. They are not notified either way.
+            Blocking drops this and any future requests and messages. They are not notified either way.
           </p>
           <div className="flex gap-2">
             <button

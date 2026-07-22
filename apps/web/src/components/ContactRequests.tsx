@@ -15,6 +15,7 @@ import { onContactsChanged } from "../services/events";
 export default function ContactRequests() {
   const [incoming, setIncoming] = useState<PlainContact[]>([]);
   const [outgoing, setOutgoing] = useState<PlainContact[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     void listContacts().then((all) => {
@@ -27,6 +28,14 @@ export default function ContactRequests() {
     return onContactsChanged(reload); // accept/decline/new-request all re-fire this
   }, [reload]);
 
+  // Surface store/network failures instead of discarding the rejected promise -
+  // a silent Block failure would give a false sense of privacy (finding parity
+  // with Chat.block()).
+  const run = (p: Promise<unknown>, fallback: string) => {
+    setError(null);
+    void p.catch((e) => setError(e instanceof Error ? e.message : fallback));
+  };
+
   if (incoming.length === 0 && outgoing.length === 0) {
     return (
       <p className="mt-6 text-sm text-text-muted">
@@ -37,6 +46,7 @@ export default function ContactRequests() {
 
   return (
     <div className="mt-4 space-y-6">
+      {error && <p className="text-sm text-danger">{error}</p>}
       {incoming.length > 0 && (
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Incoming</h3>
@@ -48,19 +58,19 @@ export default function ContactRequests() {
                   <div className="text-xs text-text-muted">wants to connect</div>
                 </div>
                 <button
-                  onClick={() => void acceptContactRequest(c.px_id)}
+                  onClick={() => run(acceptContactRequest(c.px_id), "Couldn't accept.")}
                   className="rounded bg-accent px-3 py-1 text-xs font-medium hover:bg-accent-hover"
                 >
                   Accept
                 </button>
                 <button
-                  onClick={() => void removeContact(c.px_id)}
+                  onClick={() => run(removeContact(c.px_id), "Couldn't decline.")}
                   className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
                 >
                   Decline
                 </button>
                 <button
-                  onClick={() => void blockContact(c.px_id)}
+                  onClick={() => run(blockContact(c.px_id), "Couldn't block this contact.")}
                   title="Block — drops this and all their future requests/messages"
                   className="rounded px-2 py-1 text-xs text-danger hover:bg-raised"
                 >
@@ -83,7 +93,7 @@ export default function ContactRequests() {
                   <div className="text-xs text-text-muted">Request sent — waiting for them to accept</div>
                 </div>
                 <button
-                  onClick={() => void removeContact(c.px_id)}
+                  onClick={() => run(removeContact(c.px_id), "Couldn't cancel.")}
                   className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
                 >
                   Cancel
