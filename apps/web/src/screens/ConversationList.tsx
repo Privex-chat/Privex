@@ -50,9 +50,12 @@ export default function ConversationList() {
             )}
             <button
               onClick={() => nav("/add-contact")}
-              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium transition-colors hover:bg-accent-hover"
+              title="Add contact"
+              aria-label="Add contact"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-sm font-medium transition-colors hover:bg-accent-hover"
             >
-              + Add contact
+              <span className="text-base leading-none">+</span>
+              <span className="hidden sm:inline">Add contact</span>
             </button>
             <button
               onClick={() => nav("/my-qr")}

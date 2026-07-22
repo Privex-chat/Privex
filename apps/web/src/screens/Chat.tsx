@@ -15,7 +15,7 @@ import { sendMessage, sendFile } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { getClientConfig } from "../services/client-config";
-import { AttachIcon, DownloadIcon, FileIcon } from "../components/icons";
+import { AttachIcon, ClockIcon, DownloadIcon, FileIcon } from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
 
 /** Outgoing status ticks (docs 4.10): ◷ in flight, ✓ at server, ✓✓ delivered,
@@ -46,13 +46,13 @@ function parseFileMeta(content: string): FileMeta | null {
 // enforces [1 h, 60 d]; 30 d is its default. Resets to default per conversation
 // visit - the safe direction for a forgotten setting.
 const DEFAULT_TTL = 30 * 24 * 3600;
-const TTL_OPTIONS: { label: string; value: number }[] = [
-  { label: "1 hour", value: 3600 },
-  { label: "6 hours", value: 6 * 3600 },
-  { label: "24 hours", value: 24 * 3600 },
-  { label: "7 days", value: 7 * 24 * 3600 },
-  { label: "30 days (default)", value: DEFAULT_TTL },
-  { label: "60 days", value: 60 * 24 * 3600 },
+const TTL_OPTIONS: { label: string; short: string; value: number }[] = [
+  { label: "1 hour", short: "1h", value: 3600 },
+  { label: "6 hours", short: "6h", value: 6 * 3600 },
+  { label: "24 hours", short: "24h", value: 24 * 3600 },
+  { label: "7 days", short: "7d", value: 7 * 24 * 3600 },
+  { label: "30 days (default)", short: "30d", value: DEFAULT_TTL },
+  { label: "60 days", short: "60d", value: 60 * 24 * 3600 },
 ];
 
 export default function Chat() {
@@ -68,20 +68,27 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null);
   const [fileUploadsEnabled, setFileUploadsEnabled] = useState(true);
   const [ttl, setTtl] = useState(DEFAULT_TTL);
+  const [ttlOpen, setTtlOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const ttlRef = useRef<HTMLDivElement>(null);
 
-  // Close the overflow menu on an outside tap or Escape (mouseleave alone leaves
-  // it stuck open on touch devices - this is a PWA).
+  // Close either popover (header ⋮ overflow, composer TTL) on an outside tap or
+  // Escape (mouseleave alone leaves them stuck open on touch devices - this is a PWA).
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen && !ttlOpen) return;
     const onDown = (e: MouseEvent | TouchEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      const t = e.target as Node;
+      if (menuRef.current && !menuRef.current.contains(t)) setMenuOpen(false);
+      if (ttlRef.current && !ttlRef.current.contains(t)) setTtlOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        setTtlOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown);
@@ -91,7 +98,7 @@ export default function Chat() {
       document.removeEventListener("touchstart", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [menuOpen]);
+  }, [menuOpen, ttlOpen]);
 
   useEffect(() => {
     void getClientConfig().then((c) => setFileUploadsEnabled(c.file_uploads_enabled));
@@ -104,6 +111,7 @@ export default function Chat() {
     // picker and the (peer-specific) overflow menu must not carry over.
     setTtl(DEFAULT_TTL);
     setMenuOpen(false);
+    setTtlOpen(false);
     const store = new EncryptedMessages(db);
     const reload = () => void store.listBySession(peerId).then(setMsgs);
     const loadContact = () => void getContact(peerId).then(setContact);
@@ -524,24 +532,53 @@ export default function Chat() {
             </button>
           </>
         )}
-        {/* Per-message TTL (docs 4.12): delete from the server queue if
-            undelivered after this long. Applies to messages sent from here on. */}
-        <select
-          value={ttl}
-          onChange={(e) => setTtl(Number(e.target.value))}
-          title="Delete if undelivered after…"
-          aria-label="Delete if undelivered after"
-          className={
-            "shrink-0 rounded-full border border-border-strong bg-input px-2 py-2 text-xs outline-none focus:border-border-focus " +
-            (ttl === DEFAULT_TTL ? "text-text-muted" : "text-accent-subtle")
-          }
-        >
-          {TTL_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              ⏱ {o.label}
-            </option>
-          ))}
-        </select>
+        {/* Per-message TTL (docs 4.12): delete from the server queue if undelivered
+            after this long. Applies to messages sent from here on. Icon-button +
+            popover instead of an inline <select> so the composer fits narrow screens. */}
+        <div className="relative shrink-0" ref={ttlRef}>
+          <button
+            type="button"
+            onClick={() => setTtlOpen((v) => !v)}
+            title="Delete if undelivered after…"
+            aria-label="Delete if undelivered after"
+            aria-haspopup="menu"
+            aria-expanded={ttlOpen}
+            className={
+              "relative flex h-9 items-center gap-1 rounded-full border border-border-strong px-2.5 text-xs transition-colors hover:bg-raised " +
+              (ttl === DEFAULT_TTL ? "text-text-secondary" : "text-accent-subtle border-border-focus")
+            }
+          >
+            <ClockIcon className="h-4 w-4" />
+            {ttl !== DEFAULT_TTL && (
+              <span className="font-medium">{TTL_OPTIONS.find((o) => o.value === ttl)?.short}</span>
+            )}
+          </button>
+          {ttlOpen && (
+            <div className="absolute bottom-full left-0 z-20 mb-2 w-48 overflow-hidden rounded-xl border border-divider bg-elevated text-sm shadow-lg">
+              <p className="px-3 pb-1 pt-2 text-[11px] text-text-muted">Delete if undelivered after</p>
+              <div role="menu">
+                {TTL_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    role="menuitemradio"
+                    aria-checked={ttl === o.value}
+                    onClick={() => {
+                      setTtl(o.value);
+                      setTtlOpen(false);
+                    }}
+                    className={
+                      "flex w-full items-center justify-between px-3 py-2 text-left hover:bg-raised " +
+                      (ttl === o.value ? "text-accent-subtle" : "text-text-secondary")
+                    }
+                  >
+                    <span>{o.label}</span>
+                    {ttl === o.value && <span aria-hidden>✓</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
