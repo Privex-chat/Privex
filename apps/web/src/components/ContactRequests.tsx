@@ -1,13 +1,14 @@
 // Friend requests (Discord-style, opt-in). Two sections:
 //  - INCOMING (`pending_inbound`): someone requested us → Accept (sends a sealed
-//    contact_accept back so they learn the outcome) or Decline (dropped locally;
-//    NO signal is sent, so there's no accept/decline oracle — they just stay on
-//    "pending"). Declining is not a block: they can request again later.
+//    contact_accept back so they learn the outcome), Decline (dropped locally; NO
+//    signal is sent, so there's no accept/decline oracle — they just stay on
+//    "pending"; they CAN request again later), or Block (drops this request AND
+//    all their future requests/messages, without ever accepting them). All silent.
 //  - OUTGOING (`pending_outbound`): we requested them and are waiting. Cancel just
 //    forgets it locally (there is no server-side request record to retract).
 // Everything rides Sealed Sender, so the server still learns no social graph.
 import { useCallback, useEffect, useState } from "react";
-import { listContacts, removeContact, type PlainContact } from "../data/contacts";
+import { blockContact, listContacts, removeContact, type PlainContact } from "../data/contacts";
 import { acceptContactRequest } from "../services/messaging";
 import { onContactsChanged } from "../services/events";
 
@@ -57,6 +58,13 @@ export default function ContactRequests() {
                   className="rounded px-2 py-1 text-xs text-text-secondary hover:bg-raised"
                 >
                   Decline
+                </button>
+                <button
+                  onClick={() => void blockContact(c.px_id)}
+                  title="Block — drops this and all their future requests/messages"
+                  className="rounded px-2 py-1 text-xs text-danger hover:bg-raised"
+                >
+                  Block
                 </button>
               </li>
             ))}

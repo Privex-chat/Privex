@@ -476,8 +476,8 @@ export default function Chat() {
         <footer className="border-t border-divider p-4 space-y-3">
           <p className="text-sm text-text-secondary">
             <span className="font-mono text-text-secondary">{peerId}</span> wants to connect.
-            Accepting lets you reply; declining deletes this request and its messages.
-            They are not notified either way.
+            Accepting lets you reply; declining deletes this request (they can ask again).
+            Blocking drops this and any future requests. They are not notified either way.
           </p>
           <div className="flex gap-2">
             <button
@@ -488,9 +488,15 @@ export default function Chat() {
             </button>
             <button
               onClick={() => void declineRequest()}
+              className="flex-1 rounded-lg border border-border-strong hover:bg-raised py-2 text-sm"
+            >
+              Decline
+            </button>
+            <button
+              onClick={() => void block()}
               className="flex-1 rounded-lg border border-border-strong hover:bg-raised py-2 text-sm text-danger"
             >
-              Decline &amp; delete
+              Block
             </button>
           </div>
         </footer>
