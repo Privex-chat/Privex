@@ -58,6 +58,7 @@ function cameraErrorMessage(e: unknown): string {
 export default function QrScanner({ open, onResult, onClose }: Props) {
   const [state, setState] = useState<State>({ s: "starting" });
   const instRef = useRef<Html5Qrcode | null>(null);
+  const startRef = useRef<Promise<unknown> | null>(null); // in-flight start(), if any
   const handledRef = useRef(false); // guard: process at most one valid hit
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -81,7 +82,8 @@ export default function QrScanner({ open, onResult, onClose }: Props) {
     setState({ s: "starting" });
     try {
       await release(inst); // clean slate if a previous session/file decode ran
-      await inst.start(
+      if (instRef.current !== inst) return; // closed during setup - don't start
+      const starting = inst.start(
         { facingMode: "environment" },
         {
           fps: 10,
@@ -97,9 +99,13 @@ export default function QrScanner({ open, onResult, onClose }: Props) {
         },
         () => {}, // per-frame decode misses are normal; ignore
       );
+      startRef.current = starting;
+      await starting;
       if (!handledRef.current) setState({ s: "scanning" });
     } catch (e) {
       setState({ s: "error", msg: cameraErrorMessage(e) });
+    } finally {
+      startRef.current = null;
     }
   }, [succeed]);
 
@@ -129,7 +135,12 @@ export default function QrScanner({ open, onResult, onClose }: Props) {
       cancelled = true;
       const inst = instRef.current;
       instRef.current = null;
-      void release(inst);
+      // html5-qrcode #830: stop() no-ops while start() is still pending and can
+      // leave the camera live once it resolves - wait for the start to settle first.
+      const pending = startRef.current;
+      void Promise.resolve(pending)
+        .catch(() => {})
+        .then(() => release(inst));
     };
   }, [open]);
 

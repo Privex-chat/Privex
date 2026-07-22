@@ -89,12 +89,17 @@ export default function MyQr() {
         <h1 className="mt-4 text-xl font-semibold">Your Privex ID</h1>
         <p className="mt-2 text-sm text-text-secondary">Ask them to scan this to add you.</p>
 
-        <canvas
-          ref={canvasRef}
-          role="img"
-          aria-label="Your Privex ID QR code"
-          className="mx-auto mt-6 h-auto max-w-full rounded-xl bg-qr-bg p-3"
-        />
+        {/* Keyed on pxId so a sign-out/account switch remounts a blank canvas
+            instead of leaving the previous ID's QR bitmap on screen. */}
+        {pxId ? (
+          <canvas
+            key={pxId}
+            ref={canvasRef}
+            role="img"
+            aria-label="Your Privex ID QR code"
+            className="mx-auto mt-6 h-auto max-w-full rounded-xl bg-qr-bg p-3"
+          />
+        ) : null}
 
         <code className="mt-6 block break-all rounded-lg bg-elevated p-3 font-mono text-xs text-accent-subtle">
           {pxId}
