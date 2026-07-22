@@ -31,6 +31,7 @@ import {
 } from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
 import Avatar from "../components/Avatar";
+import { ConfirmDialog } from "../components/Modal";
 
 /** Outgoing status ticks (docs 4.10): clock in flight, single check at server,
  *  double check delivered, accent double check read. Incoming messages show
@@ -90,6 +91,7 @@ export default function Chat() {
   const [ttl, setTtl] = useState(DEFAULT_TTL);
   const [ttlOpen, setTtlOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -309,9 +311,9 @@ export default function Chat() {
     }
   }
 
-  async function deleteChat() {
+  async function doDeleteChat() {
     if (!peerId) return;
-    if (!window.confirm(`Delete chat with ${contact?.name || peerId}? This can't be undone.`)) return;
+    setConfirmDelete(false);
     try {
       await removeContact(peerId);
       nav("/", { replace: true });
@@ -394,7 +396,7 @@ export default function Chat() {
                       Block
                     </button>
                   )}
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); void deleteChat(); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); setConfirmDelete(true); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
                     Delete chat
                   </button>
                 </div>
@@ -519,7 +521,7 @@ export default function Chat() {
               Unblock
             </button>
             <button
-              onClick={() => void deleteChat()}
+              onClick={() => setConfirmDelete(true)}
               className="flex-1 rounded-lg border border-border-strong hover:bg-raised py-2 text-sm text-danger"
             >
               Delete chat
@@ -657,6 +659,15 @@ export default function Chat() {
         </button>
       </footer>
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete chat"
+        message={`Delete your chat with ${contact?.name || peerId}? This removes it and its messages from this device.`}
+        confirmLabel="Delete"
+        danger
+        onConfirm={() => void doDeleteChat()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </main>
   );
 }

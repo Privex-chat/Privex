@@ -82,7 +82,7 @@ export default function Contacts() {
             className={`-mb-px border-b-2 px-3 py-2 ${
               tab === "add"
                 ? "border-border-focus text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             Add
@@ -92,7 +92,7 @@ export default function Contacts() {
             className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 ${
               tab === "requests"
                 ? "border-border-focus text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             Requests
@@ -107,7 +107,7 @@ export default function Contacts() {
             className={`-mb-px border-b-2 px-3 py-2 ${
               tab === "blocked"
                 ? "border-border-focus text-text-primary"
-                : "border-transparent text-text-secondary hover:text-text"
+                : "border-transparent text-text-secondary hover:text-text-primary"
             }`}
           >
             Blocked
