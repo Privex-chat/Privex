@@ -374,105 +374,125 @@ function RecoveryTab({
 /* ───────── Tab: Guide ───────── */
 function GuideTab() {
   return (
-    <div className="space-y-6 text-sm text-text-secondary leading-relaxed">
+    <div className="space-y-8 text-sm text-text-secondary leading-relaxed">
       <section>
         <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Getting started</h2>
-        <div className="mt-2 rounded-xl border border-divider divide-y divide-divider">
-          <div className="px-4 py-3 space-y-2">
+        <div className="mt-3 rounded-xl border border-divider divide-y divide-divider">
+          <div className="px-4 py-4">
             <p>
-              Privex is a zero-knowledge, end-to-end encrypted messenger. Your identity lives
-              only on your device — the server cannot read messages, identify users, or trace
-              relationships.
+              Privex is a private messenger with one simple promise: the server is blind. Think of it
+              as a post office that only ever handles <strong>sealed envelopes it can&rsquo;t open</strong> — it
+              can&rsquo;t read your messages, work out who you are, or see who you talk to. Everything that
+              matters lives on your device, not on our servers.
             </p>
           </div>
-          <div className="px-4 py-3">
-<h3 className="font-medium text-text-primary">Adding contacts</h3>
-            <ol className="mt-2 list-inside list-decimal space-y-1 text-text-secondary">
-             <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
-             <li>Open the <span className="text-accent-text">Contacts</span> tab, tap <span className="text-accent-text">Add</span>, and paste their Privex ID (or scan their QR).</li>
-              <li>Privex fetches their keys, verifies them against the key transparency log, and sets up an encrypted session.</li>
-              <li>They accept your request, then you compare safety codes over a separate channel (in person, phone call, another app).</li>
-              <li>If the codes match, tap <strong>Mark Verified</strong> — you&rsquo;re ready to chat.</li>
+
+          <div className="px-4 py-4">
+            <h3 className="font-medium text-text-primary">Adding someone</h3>
+            <p className="mt-1">
+              There&rsquo;s no phone book here — nobody can look you up. You connect by trading
+              <strong> Privex IDs</strong> (the <span className="font-mono text-xs">px_…</span> string).
+            </p>
+            <ol className="mt-3 list-decimal space-y-1.5 pl-5">
+              <li>Share your ID, or let them scan your QR code (the QR button on the Chats screen).</li>
+              <li>Open <span className="text-accent-text">Contacts → Add</span> and paste their ID, or scan theirs.</li>
+              <li>Privex quietly fetches their keys and checks them against a public tamper-evident log, then sets up an encrypted channel.</li>
+              <li>They accept your request. Now make sure it&rsquo;s really them: compare <strong>safety codes</strong> over a different channel — in person, a phone call, or another app.</li>
+              <li>If the codes match, tap <strong>Mark Verified</strong>. That&rsquo;s it.</li>
             </ol>
           </div>
-          <div className="px-4 py-3">
-            <h3 className="font-medium text-text-primary">Sending messages &amp; files</h3>
-            <p className="mt-1 text-text-secondary">
-              Type in the composer at the bottom of a conversation and press Enter or tap Send.
-              Use the paperclip icon to attach files (up to 100 MB). Drag-and-drop is also supported.
+
+          <div className="px-4 py-4">
+            <h3 className="font-medium text-text-primary">Sending messages and files</h3>
+            <p className="mt-1">
+              Type in the box at the bottom and press Enter (or tap Send). The paperclip — or a simple
+              drag-and-drop — attaches files up to 100&nbsp;MB. The little clock beside the box sets a
+              <strong> self-destruct timer</strong>: if the other person is offline, that&rsquo;s how long the
+              message waits on the server before it deletes itself, undelivered.
             </p>
           </div>
-          <div className="px-4 py-3">
-            <h3 className="font-medium text-text-primary">Requests, blocking &amp; verifying</h3>
-            <ul className="mt-1 list-inside list-disc space-y-1 text-text-secondary">
-              <li>
-                <strong>Requests:</strong> adding someone sends a request. Incoming ones wait under
-                <span className="text-accent-text"> Contacts → Requests</span> until you accept.
-                Declining is silent — they&rsquo;re never told either way.
-              </li>
-              <li>
-                <strong>Blocking:</strong> block someone from a request, or from the
-                <strong> ⋮ menu</strong> at the top of a chat. Blocked people can&rsquo;t reach you and
-                their messages are dropped. Manage them under <span className="text-accent-text">Contacts → Blocked</span>
-                or <span className="text-accent-text">Settings → Privacy</span>, and unblock anytime. Blocking is
-                client-side — the server never learns who you blocked.
-              </li>
-              <li>
-                <strong>Verifying:</strong> a <span className="text-warning">⚠</span> next to a contact means
-                their safety code isn&rsquo;t confirmed yet; a <span className="text-success">✓</span> means it is.
-                It&rsquo;s a status indicator only — use the separate <strong>Code</strong> button next to a
-                contact to compare safety codes.
-              </li>
-            </ul>
+
+          <div className="px-4 py-4 space-y-3">
+            <h3 className="font-medium text-text-primary">Requests, blocking, and verifying</h3>
+            <p>
+              <strong className="text-text-primary">Requests.</strong> Adding someone sends them a request.
+              Requests coming to you wait under <span className="text-accent-text">Contacts → Requests</span>
+              until you accept. Declining is silent — the other person is never told either way.
+            </p>
+            <p>
+              <strong className="text-text-primary">Blocking.</strong> Block someone straight from their
+              request, or from the menu (the three-dots button at the top of a chat). Blocked people
+              can&rsquo;t reach you and their messages are dropped. You&rsquo;ll find everyone you&rsquo;ve blocked under
+              <span className="text-accent-text"> Contacts → Blocked</span> or
+              <span className="text-accent-text"> Settings → Privacy</span>, and you can unblock anytime.
+              Blocking stays on your device — the server never learns who you blocked.
+            </p>
+            <p>
+              <strong className="text-text-primary">Verifying.</strong> The badge next to a contact is a
+              status light: a <strong>warning badge</strong> means their safety code isn&rsquo;t confirmed yet, a
+              <strong> shield-check badge</strong> means it is. The badge itself is just an indicator — to
+              actually compare codes, use the <strong>Code</strong> button next to the contact.
+            </p>
           </div>
         </div>
       </section>
 
       <section>
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Privacy &amp; settings guide</h2>
-        <div className="mt-2 rounded-xl border border-divider divide-y divide-divider">
-          <div className="px-4 py-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">Your privacy settings, in plain terms</h2>
+        <div className="mt-3 rounded-xl border border-divider divide-y divide-divider">
+          <div className="px-4 py-4">
             <h3 className="font-medium text-text-primary">Cover traffic</h3>
-            <p className="mt-1 text-text-secondary">
-              Sends decoy messages at random intervals so an observer can&rsquo;t tell when you&rsquo;re
-              actually active. <strong>Off</strong> = no decoys (saves battery/data). <strong>Low–High</strong> = increasing
-              protection at the cost of more traffic. Recommended: <strong>Low</strong> or <strong>Medium</strong> for most users.
+            <p className="mt-1">
+              Like leaving a radio playing so nobody can tell from outside whether you&rsquo;re home. Privex
+              sends steady decoy messages, so someone watching your connection can&rsquo;t tell when you&rsquo;re
+              actually chatting. <strong>Off</strong> is quiet (saves battery and data);
+              <strong> Low</strong> to <strong>High</strong> add more cover for more traffic. Most people are
+              happy on <strong>Low</strong> or <strong>Medium</strong>.
             </p>
           </div>
-          <div className="px-4 py-3">
-            <h3 className="font-medium text-text-primary">Delivery &amp; read receipts</h3>
-            <p className="mt-1 text-text-secondary">
-              Receipts are mutual — turning them off means you neither send nor receive them.
-              Each receipt is end-to-end encrypted and carries no timestamp. The privacy delay
-              adds a random jitter (avg 5 min) before your receipts send, useful for high-threat
-              scenarios.
+          <div className="px-4 py-4">
+            <h3 className="font-medium text-text-primary">Delivery and read receipts</h3>
+            <p className="mt-1">
+              The checkmarks that tell a sender their message arrived, and later that it was read.
+              They&rsquo;re <strong>mutual</strong> — switch them off and you neither send nor receive them.
+              Every receipt is encrypted and carries no time, so it can&rsquo;t reveal your schedule. The
+              <strong> privacy delay</strong> adds a random lag before your receipts go out, for higher-risk
+              situations.
             </p>
           </div>
-          <div className="px-4 py-3">
+          <div className="px-4 py-4">
             <h3 className="font-medium text-text-primary">History backup</h3>
-            <p className="mt-1 text-text-secondary">
-              Off by default. When on, your encrypted message history is stored on Privex servers.
-              Only you can decrypt it. The trade-off: your data exists in more places. Not
-              recommended if your threat model includes targeted surveillance.
+            <p className="mt-1">
+              Off by default. Turn it on and a copy of your chat history — encrypted with a key only you
+              hold — is kept on our servers, so you can restore it on a new device. We still can&rsquo;t read
+              it, but your history now exists in more than one place. If you might be
+              <strong> specifically targeted</strong>, leave this off.
             </p>
           </div>
-          <div className="px-4 py-3">
+          <div className="px-4 py-4">
             <h3 className="font-medium text-text-primary">App lock</h3>
-            <p className="mt-1 text-text-secondary">
-              Encrypts this device&rsquo;s data behind a passphrase or biometrics. Required after
-              reload or 5 min idle. This is a deterrent lock — a short passphrase is not
-              offline-brute-force-proof. Recommended for anyone who shares their device.
+            <p className="mt-1">
+              Locks this device&rsquo;s data behind a passphrase or your fingerprint, and re-locks after a
+              reload or five minutes idle. It&rsquo;s a strong deterrent, not a bank vault — a short passphrase
+              can still be guessed given enough time. Well worth it if anyone else uses your device.
             </p>
           </div>
-          <div className="px-4 py-3">
-            <h3 className="font-medium text-text-primary">Recovery options</h3>
-            <p className="mt-1 text-text-secondary">
-              <strong>Password recovery (OPAQUE):</strong> Creates an encrypted server record. Off by default —
-              the record becomes part of your server-side footprint. <br />
-              <strong>Seed phrase:</strong> 24 words that are your master key. Store them offline.
-              Privex never asks for them. <br />
-              <strong>Emergency contacts:</strong> Split your recovery key across 2–3 trusted friends.
-              Each share is useless alone; all shares together can restore your account.
+          <div className="px-4 py-4 space-y-3">
+            <h3 className="font-medium text-text-primary">Getting back in if you lose your device</h3>
+            <p>
+              <strong className="text-text-primary">Password recovery.</strong> Recover with just a
+              password. We keep a scrambled record only your password can unlock — we can&rsquo;t read it.
+              Off by default, because it&rsquo;s one more thing stored on our side.
+            </p>
+            <p>
+              <strong className="text-text-primary">Seed phrase.</strong> Twenty-four words that
+              <em> are</em> your account. Write them down and keep them offline. Privex will never ask you
+              for them — anyone who does is an impostor.
+            </p>
+            <p>
+              <strong className="text-text-primary">Emergency contacts.</strong> Split a recovery key
+              across two or three trusted friends. Any one share is useless on its own; together they can
+              help you back in.
             </p>
           </div>
         </div>
