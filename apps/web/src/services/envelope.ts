@@ -28,9 +28,14 @@ export function encodeText(body: string, sentAt: number, receipt?: ReceiptReques
   }).finish();
 }
 
-/** Silent contact announcement (auto-add). No visible message body. */
+/** Contact REQUEST ("I want to add you"). No visible message body. */
 export function encodeContactHello(sentAt: number): Uint8Array {
   return proto.privex.Content.encode({ contactHello: { sentAt } }).finish();
+}
+
+/** Contact ACCEPT (sent back to the requester so they learn they were accepted). */
+export function encodeContactAccept(sentAt: number): Uint8Array {
+  return proto.privex.Content.encode({ contactAccept: { sentAt } }).finish();
 }
 
 /** Delivery/read receipt (docs 4.10) — NO timestamp, no message reference beyond
@@ -95,11 +100,13 @@ export function decodeContent(
   text?: DecodedText;
   file?: FileFields;
   contactHello?: boolean;
+  contactAccept?: boolean;
   receipt?: DecodedReceipt;
   receiptRequest?: ReceiptRequestWire;
 } {
   const c = proto.privex.Content.decode(bytes);
   if (c.contactHello) return { contactHello: true };
+  if (c.contactAccept) return { contactAccept: true };
   if (c.receipt) {
     const t = c.receipt.receiptType === "read" ? "read" : "delivered";
     return { receipt: { tokenId: u8(c.receipt.tokenId), type: t } };

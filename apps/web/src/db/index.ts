@@ -71,15 +71,18 @@ export interface ContactRow {
   display_name_enc?: Uint8Array;
   // Set to the agreed safety code once the user confirms it out-of-band.
   verified_fingerprint?: string;
-  // Friend-request state. "accepted" = a contact the user chose (or a request they
-  // accepted); "pending_inbound" = an unsolicited inbound hello/message awaiting the
-  // user's accept/decline. Absent on rows created before opt-in → treated as
-  // "accepted" (they predate the feature). Not an index → no schema version bump.
+  // Friend-request state (Discord-style explicit requests):
+  //   "pending_outbound" = I sent a request, awaiting their accept.
+  //   "pending_inbound"  = they requested me, I must accept/decline.
+  //   "accepted"         = mutual contact (I can message them).
+  //   "blocked"          = I blocked them; their messages/requests are auto-dropped.
+  // Absent on rows created before opt-in → treated as "accepted" (predate the feature).
+  // Not an index → no schema version bump.
   status?: ContactStatus;
   added_at: number;
 }
 
-export type ContactStatus = "accepted" | "pending_inbound";
+export type ContactStatus = "accepted" | "pending_inbound" | "pending_outbound" | "blocked";
 
 export interface GroupRow {
   group_id: string;

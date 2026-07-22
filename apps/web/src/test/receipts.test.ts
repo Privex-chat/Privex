@@ -18,7 +18,7 @@ import { pqxdhInitiate, type VerifiedBundle } from "../crypto/contact-crypto";
 import * as mc from "../crypto/message-crypto";
 import { decodeContent, encodeEnvelope, encodeReceipt, encodeText } from "../services/envelope";
 import { b64encode } from "../services/bytes";
-import { addVerifiedContact } from "../data/contacts";
+import { acceptContact, addVerifiedContact, blockContact } from "../data/contacts";
 import { persistGeneratedIdentity } from "../onboarding/store";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
@@ -133,7 +133,8 @@ async function addAccepted(me: IdentityBundle, peer: IdentityBundle): Promise<vo
     kyber1024_pub: peer.identity.kyber1024_pub,
   });
   const state = wasm.ratchet_init_alice(pqx.shared_secret, peer.spk.pub);
-  await addVerifiedContact(verifiedOf(peer), pqx, state);
+  await addVerifiedContact(verifiedOf(peer), pqx, state); // → pending_outbound
+  await acceptContact(peer.userId); // mark accepted so messages can be sent
 }
 
 describe("receipt wire format", () => {
@@ -225,6 +226,26 @@ describe("receiving a message with a receipt request", () => {
     // Auto-added as pending_inbound → NOTHING queued (accepting later must not
     // retroactively signal either - the queue stays empty until they message again).
     expect(await db.receipt_outbox.count()).toBe(0);
+  });
+
+  it("does NOT send a receipt queued before the contact was blocked", async () => {
+    const me = await setupMe(0xdb);
+    const peer = genIdentityBundle(wasm, entropy(0xdc));
+    await addAccepted(me, peer); // accepted → receipt queues normally
+
+    await queueDeliveryReceipt(peer.userId, TOKEN);
+    await db.receipt_outbox.toCollection().modify({ not_before: 0 }); // due now
+    expect(await db.receipt_outbox.count()).toBe(1);
+
+    // Block AFTER the receipt was queued: the drain must drop it (not leak a
+    // "delivered" to someone we just blocked), even though it was queued while accepted.
+    await blockContact(peer.userId);
+    const sent: string[] = [];
+    await drainReceipts(async (to) => {
+      sent.push(to);
+    });
+    expect(sent).toEqual([]); // nothing sent to the blocked contact
+    expect(await db.receipt_outbox.count()).toBe(0); // row dropped
   });
 
   it("is mutual: disabling receipts stops outgoing requests AND incoming confirmations", async () => {

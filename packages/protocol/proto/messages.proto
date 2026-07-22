@@ -34,10 +34,20 @@ message FileMessage {
   uint64 sent_at             = 9;
 }
 
-// Silent contact announcement (docs 4.1). Sent automatically when you add someone
-// so they auto-add you back - rides Sealed Sender, so the server still learns no
-// social graph. Carries no visible message.
+// Contact REQUEST (docs 4.1). Sent when you add someone: "I want to add you."
+// Rides Sealed Sender, so the server still learns no social graph. The recipient
+// sees a pending request they must accept (Discord-style explicit requests).
+// (Historically named ContactHello / an auto-add announcement.)
 message ContactHello {
+  uint64 sent_at = 1;
+}
+
+// Contact ACCEPT: sent back to the requester when you accept their request, so
+// they learn the outcome (pending_outbound -> accepted). Rides the same Sealed
+// Sender + ratchet + padding as any message - the server can't distinguish it.
+// A DECLINE sends nothing (silent by design: the requester can't tell rejected
+// from ignored/offline - stronger anti-harassment than a decline signal).
+message ContactAccept {
   uint64 sent_at = 1;
 }
 
@@ -71,8 +81,9 @@ message Content {
     IceCandidate   ice           = 5;
     CallHangup     call_hangup   = 6;
     MLSMessage     mls           = 7;
-    ContactHello   contact_hello = 8;
+    ContactHello   contact_hello = 8;  // = contact request
     ReceiptMessage receipt       = 9;
+    ContactAccept  contact_accept = 11;
   }
   // Set on text/file when the sender requests delivery/read receipts.
   ReceiptRequest receipt_request = 10;

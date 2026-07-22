@@ -11,9 +11,9 @@ import {
   type VerifiedBundle,
 } from "../crypto/contact-crypto";
 import { cryptoCall } from "../workers/crypto-client";
-import { addVerifiedContact, isKeyChanged } from "../data/contacts";
+import { addVerifiedContact, getContact, isKeyChanged } from "../data/contacts";
 import { loadBundle } from "../onboarding/store";
-import { sendContactHello } from "../services/messaging";
+import { acceptContactRequest, sendContactHello } from "../services/messaging";
 import { solveServerPow } from "../services/pow";
 
 export interface ContactCryptoApi {
@@ -51,6 +51,24 @@ export async function addContact(
   // Load our identity before spending a PoW solve, so a missing identity fails fast.
   const me = await loadBundle();
   if (!me) throw new Error("Your identity isn't loaded. Finish onboarding first.");
+  if (pxId === me.userId) throw new Error("You can't add yourself as a contact.");
+
+  // Short-circuit on the existing relationship (no fetch/PoW needed):
+  //  - they already requested US → "adding" them accepts it (we already hold their
+  //    key + session from their request), and notifies them.
+  //  - already accepted / already requested → no-op.
+  //  - blocked → refuse (unblock first).
+  const existing = await getContact(pxId);
+  if (existing?.status === "pending_inbound") {
+    await acceptContactRequest(pxId);
+    return { userId: pxId, ik_ed25519: existing.ik_ed25519 };
+  }
+  if (existing?.status === "accepted" || existing?.status === "pending_outbound") {
+    return { userId: pxId, ik_ed25519: existing.ik_ed25519 };
+  }
+  if (existing?.status === "blocked") {
+    throw new Error("You've blocked this contact. Unblock them first.");
+  }
 
   // Solve a PoW to fetch the bundle. This is the cost that closes account
   // enumeration / OPK drain - the server consumes the proof single-use and the
