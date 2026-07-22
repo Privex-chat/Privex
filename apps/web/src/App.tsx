@@ -2,7 +2,7 @@
 // On boot we restore the returning user's session from the locally-persisted
 // identity (the in-memory token is lost on every reload) and open the WebSocket.
 import { useEffect, useRef, useState } from "react";
-import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import { restoreSession, startTokenRenewal, stopTokenRenewal } from "./services/auth-session";
 import { connectWebSocket, disconnectWebSocket } from "./services/websocket";
@@ -35,6 +35,11 @@ function Center({ children }: { children: React.ReactNode }) {
       {children}
     </main>
   );
+}
+
+// Legacy /add-contact deep links carry ?tab=requests|blocked - preserve it on redirect.
+function AddContactRedirect() {
+  return <Navigate to={`/contacts${useLocation().search}`} replace />;
 }
 
 const MAX_BOOT_RETRIES = 6;
@@ -179,7 +184,7 @@ export default function App() {
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/recover" element={<Recovery />} />
               {/* Legacy alias - the screen is now "Contacts" at /contacts. */}
-              <Route path="/add-contact" element={<Navigate to="/contacts" replace />} />
+              <Route path="/add-contact" element={<AddContactRedirect />} />
               <Route path="/chat/:id" element={<Chat />} />
               <Route path="/call/:id" element={<Call />} />
               <Route path="/device-transfer" element={<DeviceTransfer />} />

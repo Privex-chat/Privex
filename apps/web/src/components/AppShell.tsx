@@ -46,7 +46,7 @@ export default function AppShell() {
   return (
     <div className="min-h-screen bg-surface text-text-primary">
       {/* Content: offset for the bottom bar (mobile) / left rail (desktop). */}
-      <div className="pb-[4.5rem] md:pb-0 md:pl-16">
+      <div className="pb-[calc(4.5rem_+_env(safe-area-inset-bottom))] md:pb-0 md:pl-16">
         <Outlet />
       </div>
 
