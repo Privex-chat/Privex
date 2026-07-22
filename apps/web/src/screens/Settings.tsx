@@ -54,6 +54,7 @@ import {
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
 import ThemeToggle from "../components/ThemeToggle";
 import BlockedContacts from "../components/BlockedContacts";
+import { ArrowLeftIcon, CheckIcon, XIcon } from "../components/icons";
 import { useScreenRecord } from "../store/screenRecord";
 
 const HISTORY_WARNING =
@@ -130,10 +131,11 @@ export default function Settings() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => nav("/")}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
               title="Back"
+              aria-label="Back"
             >
-              ←
+              <ArrowLeftIcon className="h-5 w-5" />
             </button>
             <h1 className="text-2xl font-semibold">Settings</h1>
           </div>
@@ -218,7 +220,7 @@ function AccountSecurityTab({ pxId }: { pxId: string }) {
           <Link to="/" className="text-sm text-accent-text hover:underline">
             Verify contacts &amp; safety codes
           </Link>
-          <p className="text-xs text-text-muted">Compare codes in a chat&rsquo;s ⚠ badge.</p>
+          <p className="text-xs text-text-muted">Compare safety codes from a chat&rsquo;s verification badge.</p>
         </Row>
         <Row>
           <AppLockToggle />
@@ -530,7 +532,9 @@ function RecoveryStatus({
 }) {
   const Item = ({ ok, label }: { ok: boolean; label: string }) => (
     <div className="flex items-center gap-2 text-sm">
-      <span className={ok ? "text-success" : "text-text-subtle"}>{ok ? "✓" : "✗"}</span>
+      <span className={"inline-flex " + (ok ? "text-success" : "text-text-subtle")}>
+        {ok ? <CheckIcon className="h-4 w-4" /> : <XIcon className="h-4 w-4" />}
+      </span>
       <span className={ok ? "text-text-primary" : "text-text-muted"}>{label}</span>
     </div>
   );
@@ -1088,7 +1092,7 @@ function MessageStatusSettings() {
       <div className="mt-2">
         <Toggle
           label="Delivery receipts"
-          hint="Show ✓✓ when your message reaches the recipient's device."
+          hint="Shows a double check when your message reaches the recipient's device."
           value={delivery}
           onChange={(v) => {
             setDelivery(v);

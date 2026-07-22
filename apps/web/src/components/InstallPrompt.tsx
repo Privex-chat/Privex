@@ -3,6 +3,7 @@
 // the user installs on our terms. Dismissal + install are remembered in settings.
 import { useEffect, useState } from "react";
 import { db } from "../db";
+import { XIcon } from "./icons";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -59,8 +60,8 @@ export default function InstallPrompt() {
         >
           Install
         </button>
-        <button onClick={dismiss} aria-label="Dismiss" className="text-text-muted hover:text-text-secondary text-sm">
-          ✕
+        <button onClick={dismiss} aria-label="Dismiss" className="flex items-center text-text-muted hover:text-text-secondary">
+          <XIcon className="h-4 w-4" />
         </button>
       </div>
     </div>

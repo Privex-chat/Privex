@@ -15,18 +15,36 @@ import { sendMessage, sendFile } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { getClientConfig } from "../services/client-config";
-import { AttachIcon, ClockIcon, DownloadIcon, FileIcon } from "../components/icons";
+import {
+  AlertCircleIcon,
+  ArrowLeftIcon,
+  AttachIcon,
+  CheckIcon,
+  ClockIcon,
+  DotsVerticalIcon,
+  DoubleCheckIcon,
+  DownloadIcon,
+  FileIcon,
+  ShieldCheckIcon,
+  WarningTriangleIcon,
+} from "../components/icons";
 import ConnectionStatus from "../components/ConnectionStatus";
 import Avatar from "../components/Avatar";
 
-/** Outgoing status ticks (docs 4.10): ◷ in flight, ✓ at server, ✓✓ delivered,
- *  ✓✓ (highlighted) read. Incoming messages show nothing - receipts are outgoing-only. */
+/** Outgoing status ticks (docs 4.10): clock in flight, single check at server,
+ *  double check delivered, accent double check read. Incoming messages show
+ *  nothing - receipts are outgoing-only. */
 function StatusTicks({ status }: { status: string }) {
-  if (status === "queued") return <span title="Waiting for connection">◷</span>;
-  if (status === "delivered") return <span title="Delivered">✓✓</span>;
-  if (status === "read") return <span className="text-accent-subtle" title="Read">✓✓</span>;
-  if (status === "failed") return <span className="text-danger" title="Failed">!</span>;
-  return <span title="Sent">✓</span>; // "sent"
+  const wrap = (title: string, node: JSX.Element, cls = "") => (
+    <span title={title} className={"inline-flex " + cls}>
+      {node}
+    </span>
+  );
+  if (status === "queued") return wrap("Waiting for connection", <ClockIcon className="h-3.5 w-3.5" />);
+  if (status === "delivered") return wrap("Delivered", <DoubleCheckIcon className="h-3.5 w-3.5" />);
+  if (status === "read") return wrap("Read", <DoubleCheckIcon className="h-3.5 w-3.5" />, "text-accent-subtle");
+  if (status === "failed") return wrap("Failed", <AlertCircleIcon className="h-3.5 w-3.5" />, "text-danger");
+  return wrap("Sent", <CheckIcon className="h-3.5 w-3.5" />);
 }
 
 function formatSize(n: number): string {
@@ -317,11 +335,11 @@ export default function Chat() {
       <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-divider bg-header px-4 py-3 backdrop-blur-sm">
         <button
           onClick={() => nav("/")}
-          className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary transition-colors hover:bg-raised hover:text-text-primary"
           title="Back to conversations"
           aria-label="Back to conversations"
         >
-          ←
+          <ArrowLeftIcon className="h-5 w-5" />
         </button>
         {/* Contact avatar — deterministic identicon from the px_id. */}
         <Avatar seed={peerId ?? ""} size={36} title={contact?.name || peerId} />
@@ -329,9 +347,18 @@ export default function Chat() {
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold">{title}</span>
             {contact?.verified ? (
-              <span title="Verified" className="text-success text-sm">✓</span>
+              <span title="Verified" className="inline-flex text-success">
+                <ShieldCheckIcon className="h-4 w-4" />
+              </span>
             ) : (
-              <button onClick={() => peerId && nav(`/verify/${peerId}`)} title="Not verified — compare safety code" aria-label="Verify safety code" className="text-warning text-sm">⚠</button>
+              <button
+                onClick={() => peerId && nav(`/verify/${peerId}`)}
+                title="Not verified — compare safety code"
+                aria-label="Verify safety code"
+                className="inline-flex text-warning"
+              >
+                <WarningTriangleIcon className="h-4 w-4" />
+              </button>
             )}
           </div>
           <div className="truncate font-mono text-[11px] text-text-muted">{peerId}</div>
@@ -350,7 +377,7 @@ export default function Chat() {
                 aria-expanded={menuOpen}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary hover:bg-raised hover:text-text-primary"
               >
-                ⋮
+                <DotsVerticalIcon className="h-5 w-5" />
               </button>
               {menuOpen && (
                 <div
@@ -426,9 +453,15 @@ export default function Chat() {
                 <div className="mt-1 flex items-center gap-1 text-[10px] text-text-muted">
                   <span>{new Date(m.timestamp * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                   {out && <StatusTicks status={m.status} />}
-                  {m.status === "received-unverified" && <span title="Sender not verified">· ⚠ unverified</span>}
+                  {m.status === "received-unverified" && (
+                    <span title="Sender not verified" className="inline-flex items-center gap-1">
+                      · <WarningTriangleIcon className="h-3 w-3" /> unverified
+                    </span>
+                  )}
                   {m.status === "received-key-changed" && (
-                    <span className="text-danger" title="This contact's key changed - re-verify">· ⚠ key changed</span>
+                    <span className="inline-flex items-center gap-1 text-danger" title="This contact's key changed - re-verify">
+                      · <WarningTriangleIcon className="h-3 w-3" /> key changed
+                    </span>
                   )}
                 </div>
               </div>
@@ -571,7 +604,7 @@ export default function Chat() {
                     }
                   >
                     <span>{o.label}</span>
-                    {ttl === o.value && <span aria-hidden>✓</span>}
+                    {ttl === o.value && <CheckIcon className="h-4 w-4" />}
                   </button>
                 ))}
               </div>

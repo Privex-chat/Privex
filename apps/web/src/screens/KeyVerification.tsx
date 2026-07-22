@@ -9,6 +9,7 @@ import type { Html5Qrcode } from "html5-qrcode";
 import { safetyCode } from "../crypto/contact-crypto";
 import { getContact, setVerified } from "../data/contacts";
 import { loadBundle } from "../onboarding/store";
+import { ArrowLeftIcon, CheckIcon, XIcon } from "../components/icons";
 
 const QR_ELEMENT_ID = "verify-qr-reader";
 
@@ -108,8 +109,8 @@ export default function KeyVerification() {
   return (
     <main className="min-h-screen bg-surface text-text-primary p-6">
       <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/")} className="text-sm text-text-muted hover:text-text-secondary">
-          ← Back
+        <button onClick={() => nav("/")} className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary">
+          <ArrowLeftIcon className="h-4 w-4" /> Back
         </button>
         <h1 className="mt-4 text-xl font-semibold">Verify {name}</h1>
 
@@ -137,14 +138,20 @@ export default function KeyVerification() {
             <div id={QR_ELEMENT_ID} className={scanning ? "mt-4 overflow-hidden rounded-lg" : "hidden"} />
 
             {scanResult === "match" && (
-              <p className="mt-4 text-success text-sm">✓ Codes match — automatically verified.</p>
+              <p className="mt-4 inline-flex items-center gap-1.5 text-success text-sm">
+                <CheckIcon className="h-4 w-4" /> Codes match — automatically verified.
+              </p>
             )}
             {scanResult === "no-match" && (
-              <p className="mt-4 text-danger text-sm">✗ Codes do not match. Do not verify.</p>
+              <p className="mt-4 inline-flex items-center gap-1.5 text-danger text-sm">
+                <XIcon className="h-4 w-4" /> Codes do not match. Do not verify.
+              </p>
             )}
 
             {verified ? (
-              <p className="mt-6 text-success">✓ Verified</p>
+              <p className="mt-6 inline-flex items-center gap-1.5 text-success">
+                <CheckIcon className="h-5 w-5" /> Verified
+              </p>
             ) : (
               <div className="mt-6 space-y-3">
                 {scanning ? (

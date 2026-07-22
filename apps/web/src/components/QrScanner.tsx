@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Html5Qrcode } from "html5-qrcode";
 import { parseScannedPxId } from "../services/qr";
+import { XIcon } from "./icons";
 
 type State =
   | { s: "starting" }
@@ -195,9 +196,9 @@ export default function QrScanner({ open, onResult, onClose }: Props) {
         <button
           onClick={onClose}
           aria-label="Close scanner"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-xl text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+          className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
         >
-          ✕
+          <XIcon className="h-5 w-5" />
         </button>
       </div>
 
