@@ -54,7 +54,7 @@ export default function EmptyChats() {
               className={
                 "rounded-lg px-3 py-1.5 text-xs transition-colors " +
                 (copied
-                  ? "bg-success-bg text-success"
+                  ? "bg-success-bg text-white"
                   : "bg-raised text-text-secondary hover:bg-border-strong")
               }
             >

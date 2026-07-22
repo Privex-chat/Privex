@@ -202,7 +202,7 @@ function AccountSecurityTab({ pxId }: { pxId: string }) {
               onClick={() => copy(pxId)}
               className={`rounded px-2 py-1 text-xs transition-colors ${
                 copied
-                  ? "bg-success-bg text-success"
+                  ? "bg-success-bg text-white"
                   : "bg-raised hover:bg-border-strong text-text-secondary"
               }`}
             >
@@ -748,7 +748,7 @@ function SeedPhraseView() {
               onClick={() => copy(phraseText)}
               className={`rounded px-2 py-1 text-xs transition-colors ${
                 copied
-                  ? "bg-success-bg text-success"
+                  ? "bg-success-bg text-white"
                   : "bg-raised hover:bg-border-strong text-text-secondary"
               }`}
             >

@@ -127,7 +127,7 @@ export default function Contacts() {
               get a request to accept before you can message.
             </p>
             {sent && (
-              <p className="mt-3 rounded-lg bg-success-bg px-3 py-2 text-sm text-success">
+              <p className="mt-3 rounded-lg bg-success-bg px-3 py-2 text-sm text-white">
                 Request sent — you can message them once they accept. See the{" "}
                 <button className="underline" onClick={() => setTab("requests")}>
                   Requests
