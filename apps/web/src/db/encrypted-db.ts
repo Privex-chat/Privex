@@ -193,18 +193,30 @@ export class EncryptedContacts {
     ikX: Uint8Array,
     status: ContactStatus = "accepted",
   ): Promise<void> {
-    const existing = await this.db.contacts.get(pxId);
-    const sticky = existing?.status === "blocked" || existing?.status === "accepted";
-    const row: ContactRow = {
-      px_id: pxId,
-      ik_ed25519_pub: ikEd.length > 0 ? ikEd : existing?.ik_ed25519_pub,
-      ik_x25519_pub: ikX.length > 0 ? ikX : existing?.ik_x25519_pub,
-      display_name_enc: existing?.display_name_enc,
-      verified_fingerprint: existing?.verified_fingerprint,
-      status: sticky ? existing!.status : status,
-      added_at: existing?.added_at ?? Math.floor(Date.now() / 1000),
-    };
-    await this.db.contacts.put(row);
+    // Read-modify-write in ONE transaction so a concurrent setStatus()/blockContact()
+    // (e.g. a UI block landing while a WS frame processes an inbound from the same
+    // peer) can't be lost between the get and the put - which would silently unblock
+    // or re-accept a contact.
+    await this.db.transaction("rw", this.db.contacts, async () => {
+      const existing = await this.db.contacts.get(pxId);
+      // Legacy rows predate the status field → treat as "accepted" (matches
+      // toPlain), so a re-add / inbound request can't downgrade a long-standing
+      // accepted contact to pending and revoke messaging access.
+      const prev: ContactStatus | undefined = existing ? existing.status ?? "accepted" : undefined;
+      // "blocked" and "accepted" are STICKY: never downgraded by a re-add/inbound.
+      const finalStatus: ContactStatus =
+        prev === "blocked" || prev === "accepted" ? prev : status;
+      const row: ContactRow = {
+        px_id: pxId,
+        ik_ed25519_pub: ikEd.length > 0 ? ikEd : existing?.ik_ed25519_pub,
+        ik_x25519_pub: ikX.length > 0 ? ikX : existing?.ik_x25519_pub,
+        display_name_enc: existing?.display_name_enc,
+        verified_fingerprint: existing?.verified_fingerprint,
+        status: finalStatus,
+        added_at: existing?.added_at ?? Math.floor(Date.now() / 1000),
+      };
+      await this.db.contacts.put(row);
+    });
   }
 
   /** Promote a pending request to an accepted contact. */

@@ -71,6 +71,27 @@ export default function Chat() {
   const [menuOpen, setMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the overflow menu on an outside tap or Escape (mouseleave alone leaves
+  // it stuck open on touch devices - this is a PWA).
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     void getClientConfig().then((c) => setFileUploadsEnabled(c.file_uploads_enabled));
@@ -78,9 +99,11 @@ export default function Chat() {
 
   useEffect(() => {
     if (!peerId) return;
-    // TTL is per-conversation: reset on every peer switch, not just on mount
-    // (React Router reuses this component across /chat/:id navigations).
+    // Per-conversation UI state resets on every peer switch, not just on mount
+    // (React Router reuses this component across /chat/:id navigations): the TTL
+    // picker and the (peer-specific) overflow menu must not carry over.
     setTtl(DEFAULT_TTL);
+    setMenuOpen(false);
     const store = new EncryptedMessages(db);
     const reload = () => void store.listBySession(peerId).then(setMsgs);
     const loadContact = () => void getContact(peerId).then(setContact);
@@ -240,19 +263,33 @@ export default function Chat() {
 
   async function block() {
     if (!peerId) return;
-    await blockContact(peerId); // their future messages/requests are dropped
+    try {
+      await blockContact(peerId); // their future messages/requests are dropped
+    } catch (e) {
+      // Surface a failed block: a privacy control must never look successful when
+      // the write didn't land (a false sense of "blocked").
+      setError(e instanceof Error ? e.message : "Couldn't block this contact.");
+    }
   }
 
   async function unblock() {
     if (!peerId) return;
-    await unblockContact(peerId);
+    try {
+      await unblockContact(peerId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't unblock this contact.");
+    }
   }
 
   async function deleteChat() {
     if (!peerId) return;
     if (!window.confirm(`Delete chat with ${contact?.name || peerId}? This can't be undone.`)) return;
-    await removeContact(peerId);
-    nav("/", { replace: true });
+    try {
+      await removeContact(peerId);
+      nav("/", { replace: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete this chat.");
+    }
   }
 
   const title = contact?.name || peerId || "";
@@ -297,30 +334,32 @@ export default function Chat() {
           {/* Overflow menu: Block / Unblock / Delete chat (WhatsApp-style). Only
               meaningful for an existing relationship, not a bare pending request. */}
           {contact && !pending && (
-            <div className="relative">
+            <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setMenuOpen((v) => !v)}
                 title="More"
                 aria-label="More options"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
                 className="flex h-9 w-9 items-center justify-center rounded-full text-text-secondary hover:bg-raised hover:text-text-primary"
               >
                 ⋮
               </button>
               {menuOpen && (
                 <div
+                  role="menu"
                   className="absolute right-0 top-10 z-20 w-40 overflow-hidden rounded-lg border border-divider bg-elevated text-sm shadow-lg"
-                  onMouseLeave={() => setMenuOpen(false)}
                 >
                   {blocked ? (
-                    <button onClick={() => { setMenuOpen(false); void unblock(); }} className="block w-full px-3 py-2 text-left hover:bg-raised">
+                    <button role="menuitem" onClick={() => { setMenuOpen(false); void unblock(); }} className="block w-full px-3 py-2 text-left hover:bg-raised">
                       Unblock
                     </button>
                   ) : (
-                    <button onClick={() => { setMenuOpen(false); void block(); }} className="block w-full px-3 py-2 text-left hover:bg-raised">
+                    <button role="menuitem" onClick={() => { setMenuOpen(false); void block(); }} className="block w-full px-3 py-2 text-left hover:bg-raised">
                       Block
                     </button>
                   )}
-                  <button onClick={() => { setMenuOpen(false); void deleteChat(); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); void deleteChat(); }} className="block w-full px-3 py-2 text-left text-danger hover:bg-raised">
                     Delete chat
                   </button>
                 </div>

@@ -68,6 +68,9 @@ export async function addVerifiedContact(
     pqxdh_init_enc: await encryptString(k, JSON.stringify(buildInitStash(bundle, pqx))),
     created_at: Math.floor(Date.now() / 1000),
   });
+  // Notify listeners AFTER both writes so a mounted Requests/contacts view reloads
+  // to show the new pending_outbound ("Sent") entry.
+  emitContactsChanged();
 }
 
 /** Auto-add a sender we received a first message from but haven't KT-verified

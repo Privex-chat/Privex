@@ -369,6 +369,25 @@ describe("opt-in friend requests", () => {
     expect((await getContact(peer.userId, key))?.status).toBe("accepted");
   });
 
+  it("a legacy contact (no status field) is treated as accepted and not downgraded", async () => {
+    await db.contacts.clear();
+    const key = await testKey();
+    const peer = genIdentityBundle(wasm, entropy(0x7f));
+    // A row written before the status field existed (status omitted entirely).
+    await db.contacts.put({
+      px_id: peer.userId,
+      ik_ed25519_pub: peer.identity.ed25519_pub,
+      ik_x25519_pub: peer.identity.x25519_pub,
+      added_at: 0,
+    });
+    expect((await getContact(peer.userId, key))?.status).toBe("accepted"); // toPlain default
+
+    // An inbound hello must NOT downgrade the legacy-accepted contact to pending
+    // (would silently revoke messaging access) — and it materializes to "accepted".
+    await upsertInboundContact(peer.userId, peer.identity.ed25519_pub, peer.identity.x25519_pub, key);
+    expect((await getContact(peer.userId, key))?.status).toBe("accepted");
+  });
+
   it("accepting an inbound request promotes it to accepted; a fresh add is pending_outbound", async () => {
     await db.contacts.clear();
     await db.sessions.clear();
