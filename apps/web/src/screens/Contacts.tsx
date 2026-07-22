@@ -17,7 +17,7 @@ const QR_ELEMENT_ID = "qr-reader";
 
 type Tab = "add" | "requests" | "blocked";
 
-export default function AddContact() {
+export default function Contacts() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   // Deep-linkable: /add-contact?tab=requests|blocked.
@@ -95,14 +95,12 @@ export default function AddContact() {
   }
 
   return (
-    <main className="min-h-screen bg-surface text-text-primary p-6">
-      <div className="mx-auto w-full max-w-md">
-        <button onClick={() => nav("/")} className="text-sm text-text-muted hover:text-text-secondary">
-          ← Back
-        </button>
+    <main className="min-h-screen bg-surface text-text-primary">
+      <div className="mx-auto w-full max-w-2xl px-4 py-6">
+        <h1 className="text-2xl font-semibold">Contacts</h1>
 
-        {/* Add / Requests tabs - requests live here (not on the home list). */}
-        <div className="mt-4 flex gap-1 border-b border-divider text-sm">
+        {/* Add / Requests / Blocked tabs - requests live here (not on the Chats list). */}
+        <div className="mt-5 flex gap-1 border-b border-divider text-sm">
           <button
             onClick={() => setTab("add")}
             className={`-mb-px border-b-2 px-3 py-2 ${

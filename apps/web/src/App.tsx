@@ -2,7 +2,7 @@
 // On boot we restore the returning user's session from the locally-persisted
 // identity (the in-memory token is lost on every reload) and open the WebSocket.
 import { useEffect, useRef, useState } from "react";
-import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./store/auth";
 import { restoreSession, startTokenRenewal, stopTokenRenewal } from "./services/auth-session";
 import { connectWebSocket, disconnectWebSocket } from "./services/websocket";
@@ -14,11 +14,12 @@ import Chat from "./screens/Chat";
 import Call from "./screens/Call";
 import Settings from "./screens/Settings";
 import KeyVerification from "./screens/KeyVerification";
-import AddContact from "./screens/AddContact";
+import Contacts from "./screens/Contacts";
 import Recovery from "./screens/Recovery";
 import DeviceTransfer from "./screens/DeviceTransfer";
 import MyQr from "./screens/MyQr";
 import UnlockScreen from "./screens/UnlockScreen";
+import AppShell from "./components/AppShell";
 import AnnouncementBanner from "./components/AnnouncementBanner";
 import InstallPrompt from "./components/InstallPrompt";
 import AppLockGuard from "./components/AppLockGuard";
@@ -34,6 +35,11 @@ function Center({ children }: { children: React.ReactNode }) {
       {children}
     </main>
   );
+}
+
+// Legacy /add-contact deep links carry ?tab=requests|blocked - preserve it on redirect.
+function AddContactRedirect() {
+  return <Navigate to={`/contacts${useLocation().search}`} replace />;
 }
 
 const MAX_BOOT_RETRIES = 6;
@@ -165,16 +171,22 @@ export default function App() {
           <AnnouncementBanner />
           <HashRouter>
             <Routes>
-              <Route
-                path="/"
-                element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
-              />
+              {/* Primary tabs share the AppShell (bottom bar / desktop rail). */}
+              <Route element={<AppShell />}>
+                <Route
+                  path="/"
+                  element={authenticated ? <ConversationList /> : <Navigate to="/onboarding" replace />}
+                />
+                <Route path="/contacts" element={<Contacts />} />
+                <Route path="/settings/:tab?" element={<Settings />} />
+              </Route>
+              {/* Full-screen pushes - no shell nav. */}
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/recover" element={<Recovery />} />
-              <Route path="/add-contact" element={<AddContact />} />
+              {/* Legacy alias - the screen is now "Contacts" at /contacts. */}
+              <Route path="/add-contact" element={<AddContactRedirect />} />
               <Route path="/chat/:id" element={<Chat />} />
               <Route path="/call/:id" element={<Call />} />
-              <Route path="/settings/:tab?" element={<Settings />} />
               <Route path="/device-transfer" element={<DeviceTransfer />} />
               <Route path="/my-qr" element={<MyQr />} />
               <Route path="/verify/:id" element={<KeyVerification />} />
