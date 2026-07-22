@@ -34,24 +34,34 @@ async function latestPerSession(sessionIds: string[]): Promise<Map<string, numbe
 export default function ContactList() {
   const nav = useNavigate();
   const [contacts, setContacts] = useState<PlainContact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     void (async () => {
-      const all = await listContacts();
-      // Home list = ACCEPTED contacts only (legacy rows default to accepted).
-      // pending_inbound → Requests tab, pending_outbound → Requests "Sent",
-      // blocked → Blocked tab. So the DM list stays clean.
-      const accepted = (c: PlainContact) => c.status === "accepted";
-      const contactIds = all.filter(accepted).map((c) => c.px_id);
-      const [latest] = await Promise.all([latestPerSession(contactIds)]);
-      const sorted = all
-        .filter(accepted)
-        .sort((a, b) => {
-          const aKey = latest.get(a.px_id) ?? a.added_at;
-          const bKey = latest.get(b.px_id) ?? b.added_at;
-          return bKey - aKey;
-        });
-      setContacts(sorted);
+      try {
+        const all = await listContacts();
+        // Home list = ACCEPTED contacts only (legacy rows default to accepted).
+        // pending_inbound → Requests tab, pending_outbound → Requests "Sent",
+        // blocked → Blocked tab. So the DM list stays clean.
+        const accepted = (c: PlainContact) => c.status === "accepted";
+        const contactIds = all.filter(accepted).map((c) => c.px_id);
+        const [latest] = await Promise.all([latestPerSession(contactIds)]);
+        const sorted = all
+          .filter(accepted)
+          .sort((a, b) => {
+            const aKey = latest.get(a.px_id) ?? a.added_at;
+            const bKey = latest.get(b.px_id) ?? b.added_at;
+            return bKey - aKey;
+          });
+        setContacts(sorted);
+        setError(null);
+      } catch (e) {
+        console.error("[privex] failed to load contacts:", e);
+        setError("Couldn't load your contacts.");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
   const msgTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -88,6 +98,8 @@ export default function ContactList() {
   }
 
   if (contacts.length === 0) {
+    if (error) return <p className="p-4 text-sm text-danger">{error}</p>;
+    if (loading) return null;
     return <EmptyChats />;
   }
 

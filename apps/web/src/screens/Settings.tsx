@@ -372,7 +372,7 @@ function GuideTab() {
 <h3 className="font-medium text-text-primary">Adding contacts</h3>
             <ol className="mt-2 list-inside list-decimal space-y-1 text-text-secondary">
              <li>Share your Privex ID (px_…) with someone you want to chat with.</li>
-             <li>Open the <span className="text-accent-text">Contacts</span> tab, tap <span className="text-accent-text">+ Add</span>, and paste their Privex ID (or scan their QR).</li>
+             <li>Open the <span className="text-accent-text">Contacts</span> tab, tap <span className="text-accent-text">Add</span>, and paste their Privex ID (or scan their QR).</li>
               <li>Privex fetches their keys, verifies them against the key transparency log, and sets up an encrypted session.</li>
               <li>They accept your request, then you compare safety codes over a separate channel (in person, phone call, another app).</li>
               <li>If the codes match, tap <strong>Mark Verified</strong> — you&rsquo;re ready to chat.</li>
@@ -402,7 +402,8 @@ function GuideTab() {
               <li>
                 <strong>Verifying:</strong> a <span className="text-warning">⚠</span> next to a contact means
                 their safety code isn&rsquo;t confirmed yet; a <span className="text-success">✓</span> means it is.
-                Tap the badge to compare codes.
+                It&rsquo;s a status indicator only — use the separate <strong>Code</strong> button next to a
+                contact to compare safety codes.
               </li>
             </ul>
           </div>
