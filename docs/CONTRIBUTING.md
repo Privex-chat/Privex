@@ -4,7 +4,7 @@ Welcome. Privex is a Phase-1 beta, built and maintained by one person, and it ne
 
 New to the project? The [wiki](https://wiki.privex.chat) is the fastest way in (every page has a Plain and a Technical view), and [SECURITY_DESIGN.md](SECURITY_DESIGN.md) is the fastest way to start attacking it.
 
-This repository is licensed under **AGPL-3.0** (see [`LICENSE`](../LICENSE)): you are free to use, study, modify, and self-host it, with the copyleft condition that if you run a modified version as a network service, your changes go back to the community too. **By submitting a contribution, you agree it is licensed under AGPL-3.0.** The **Privex name and branding** are protected separately (see [`TRADEMARK.md`](../TRADEMARK.md)) so that "Privex" always means this one accountable project.
+This repository is licensed under **AGPL-3.0-or-later** (see [`LICENSE`](../LICENSE)): you are free to use, study, modify, and self-host it. The AGPL's network clause (§13) is the condition — if you run a **modified** version as a network service, you must offer its users the corresponding source of your modified version. **By submitting a contribution, you agree it is licensed under AGPL-3.0-or-later.** The **Privex name and branding** are protected separately (see [`TRADEMARK.md`](../TRADEMARK.md)) so that "Privex" always means this one accountable project.
 
 ## The Absolute Laws
 
@@ -32,7 +32,7 @@ Privex is currently in Phase 1 (Web App). Here is the current status:
 
 ### Missing / Help Wanted
 Where help matters most, roughly in priority order:
-- **Nym mixnet integration** — the headline. Today the client uses direct WebSockets; the Nym worker is a skeleton. Wiring the full mixnet gateway path is the flagship Phase-2 deliverable, and it's what makes the network-undetectability (Law 4) and IP-hidden-from-server guarantees real rather than designed.
+- **Nym mixnet integration** — the headline. Today the client uses direct WebSockets; the Nym worker is a skeleton. Wiring the full mixnet gateway path is the flagship Phase-2 deliverable. It's what makes two guarantees real rather than merely designed: **network undetectability** (an observer can't tell you use Privex) and **hiding your IP from the server in transit**. Note the second is distinct from the "ZERO access logs" rule above — the server already refuses to *log* an IP, but not logging an IP is not the same as never *seeing* it, and only the mixnet delivers the latter.
 - **Push notifications** without Google/Apple push services — Service Worker push handling needs work.
 - **File sharing** — disabled in Phase 1 pending the client-side, zero-knowledge CSAM safeguard (PDQ hashing + PSI + a Groth16 proof); this must ship before files are enabled.
 - **Group messaging and calls** (MLS, WebRTC + SFrame) — specified and partly scaffolded, not shipped.

@@ -2,11 +2,11 @@
 
 ![Status](https://img.shields.io/badge/status-Phase_1_beta-4f74b8) ![License](https://img.shields.io/badge/license-AGPL--3.0-2f8f57) ![PQC](https://img.shields.io/badge/crypto-post--quantum_hybrid-6b93d6) ![Audit](https://img.shields.io/badge/audit-none_yet-c9a24a)
 
-**A messenger built on one hard promise: the server can't read your messages, can't tell who you are, and can't even prove you were ever there.**
+**A messenger built on one hard promise — the server can't read your messages or tell who you are — and one hard goal it's built toward: a network that can't even prove you were there.**
 
 - **Live beta:** [privex.chat](https://privex.chat)
 - **How it works, visually:** [wiki.privex.chat](https://wiki.privex.chat) — every page in plain language *and* full technical detail, with interactive diagrams
-- **The code:** this repository, open under AGPL-3.0
+- **The code:** this repository, open under AGPL-3.0-or-later
 
 ---
 
@@ -30,7 +30,7 @@ A zero-knowledge, end-to-end encrypted messenger — web-first today, with Andro
 
 ### The four laws it's built around
 
-```
+```text
 Law 1  The server CANNOT read content.        (not "does not" — cannot)
 Law 2  The server CANNOT identify users.       (no name, phone, email, or IP — ever)
 Law 3  The server CANNOT trace relationships.  (it can't tell who talks to whom)
@@ -62,7 +62,7 @@ Read that last row first. **Signal is the gold standard for a reason** — years
 
 What Privex offers is a different *architecture* — and, on paper, a more complete one:
 
-- **It goes after the network layer, not just the message.** Signal and WhatsApp still hand your IP and your connection timing to their servers; their answer to metadata is "trust us not to keep it." Privex routes through the [Nym mixnet](https://nymtech.net) so the server never sees your IP and a global observer can't correlate your traffic. Session does onion routing; SimpleX leans on Tor. Privex builds the mixnet in as the default transport. *(This is the headline in-progress piece — see Status.)*
+- **It goes after the network layer, not just the message.** Signal and WhatsApp still hand your IP and your connection timing to their servers; their answer to metadata is "trust us not to keep it." Privex is built to route through the [Nym mixnet](https://nymtech.net) so the server never sees your IP and a global observer can't correlate your traffic. Session does onion routing; SimpleX leans on Tor; Privex makes the mixnet the default transport. *(This is the headline in-progress piece — until it lands, the server still terminates your connection over TLS. See Status.)*
 - **Post-quantum from the identity up.** Signal's PQXDH adds post-quantum protection to the initial key exchange; that's real and good. Privex uses a hybrid of X25519 **and** Kyber-1024 for key agreement *and* Ed25519 **and** Dilithium3 for every identity signature — so a future quantum computer breaks neither your sessions nor your identity. "Harvest now, decrypt later" fails against it from day one.
 - **You can actually get your account back.** Most private messengers make you choose between security and recovery: lose your device, lose everything (Signal, Session), or manage raw keys yourself (SimpleX). Privex gives you three zero-knowledge recovery paths — an OPAQUE password envelope the server can never open, social recovery split across trusted contacts (Shamir), and a seed phrase — without the server learning anything.
 - **It's meant to be usable.** The privacy community is full of tools that are excellent and unusable. Privex is trying to feel like a normal chat app your less-technical contact can install, because a privacy tool nobody can use protects nobody.
@@ -85,8 +85,8 @@ It is not yet who Privex is *ready for*. Phase 1 is unaudited, the mixnet that d
 
 - **Identity** is a set of keypairs generated on your device. Your public ID is `px_` + the first 16 bytes of `SHA-256(your signing key)`. The server stores that ID and your public keys. Nothing else.
 - **Messages** use Signal's audited [PQXDH + Double Ratchet](https://signal.org/docs/) implementation (via `libsignal`), wrapped in **sealed sender** so the server sees a recipient and a blob, never a sender.
-- **Sign-up needs no IP.** Instead of rate-limiting by IP address (which means logging IP addresses), Privex uses a **proof-of-work** puzzle — Hashcash SHA-256 with a memory-hard Argon2id layer on top — so abuse costs CPU, not your anonymity.
-- **The server is a dumb, forgetful relay.** Offline messages sit in an `UNLOGGED` Postgres table with a time-to-live and are hard-deleted on delivery. No access logs. No analytics. No IP anywhere in the stack.
+- **Abuse is priced in CPU, not identity.** Rate-limiting by IP means logging IP addresses, so Privex doesn't do it. Public endpoints instead require a **proof-of-work** puzzle — Hashcash SHA-256 with a memory-hard Argon2id layer on top — so flooding costs an attacker CPU, not you your anonymity.
+- **The server is a dumb, forgetful relay.** Offline messages sit in an `UNLOGGED` Postgres table with a time-to-live and are hard-deleted on delivery. No access logs, no analytics, and **no IP is ever logged or stored**. (Hiding your IP from the server *in transit* is the mixnet's job — Phase 2; see Status.)
 - **Everything sensitive happens in your browser**, in WebAssembly and the Web Crypto API. Keys are non-extractable; local data is encrypted in IndexedDB.
 
 The full picture — storage, flows, cryptography, threat model, and what an attacker actually gets if they seize the servers — lives in the visual wiki:
@@ -116,8 +116,8 @@ Privex is in **Phase 1: the web app foundation.** A lot works. A lot is delibera
 - Sealed sender, so the server never learns who sent what
 - Offline delivery via an unlogged, TTL'd server queue with per-message "delete if undelivered after…" controls
 - Zero-knowledge account recovery: OPAQUE password, Shamir social recovery, and seed phrase — all live
-- Server-signed time to defend against message-reordering (desync) attacks
-- Proof-of-work registration and rate limiting, so no endpoint needs your IP
+- Server-signed timestamps that let the client detect message-reordering and desync attacks
+- Proof-of-work registration and rate limiting, so no endpoint uses or logs your IP
 - Delivery/read receipts with no timestamps and jittered sending, cross-device sync, an installable PWA, an in-app safety-code verification flow, and a full settings/recovery UI
 
 **In progress / not done — this is where help matters most**
@@ -150,7 +150,7 @@ Two ways to help that are worth more than they sound:
 - **Audit and attack it.** Read the [Security Design](docs/SECURITY_DESIGN.md), find the hole, open an issue. Responsible disclosure details are in that doc.
 - **Tell people it exists.** Reach is the bottleneck for a solo project. If the idea is worth building, it's worth boosting.
 
-Privex is **Copyright © 2026 Hemansh**, released under **AGPL-3.0-or-later** ([LICENSE](LICENSE)): free to use, study, modify, and self-host — with the copyleft catch that if you run a modified version as a service, your changes go back to the community too. The **Privex name and branding** are protected separately ([TRADEMARK.md](TRADEMARK.md)) so that "Privex" always means this specific, accountable project.
+Privex is **Copyright © 2026 Hemansh**, released under **AGPL-3.0-or-later** ([LICENSE](LICENSE)): free to use, study, modify, and self-host. The AGPL's network clause (§13) is the catch — if you run a **modified** version as a network service, you must offer its users the corresponding source. The **Privex name and branding** are protected separately ([TRADEMARK.md](TRADEMARK.md)) so that "Privex" always means this specific, accountable project.
 
 ---
 

@@ -19,7 +19,7 @@ The working assumption behind every decision is: **the server will be compromise
 Three principles follow from that:
 
 1. **No custom cryptography.** Privex invents zero new primitives. It composes audited, standard building blocks (Signal's `libsignal`, `libsodium`, `liboqs`, OPAQUE, Shamir's Secret Sharing). Novel crypto is how privacy tools get quietly broken; Privex's novelty is entirely in the *architecture*, never in the math.
-2. **The client holds everything; the server holds nothing usable.** All keys are generated and stored on the device. The server sees only random-looking ciphertext addressed to pseudonymous IDs.
+2. **The client holds everything; the server holds nothing it can read or link to a person.** All keys are generated and stored on the device. The server sees only random-looking ciphertext addressed to pseudonymous IDs — never content, and never a real identity.
 3. **Metadata is the real threat.** Encrypting content is table stakes. The hard, neglected problem — who talked to whom, when, from where, and whether they used the app at all — is where Privex spends most of its design budget.
 
 ---
@@ -46,16 +46,16 @@ Post-quantum protection is present **from the identity up**, not only at the key
 Privex is designed against a stack of adversaries, from the coffee-shop network up to a nation-state. For each, the question is the same: *what do they actually get?*
 
 **Passive network observer** (ISP, DNS provider, Wi-Fi operator)
-Wants to know you use Privex and read/correlate your traffic. Defended by DNS-over-HTTPS to a pinned resolver, transport through the Nym mixnet (fixed-size Sphinx packets, Poisson mixing delays), and constant cover traffic. → *They see connections to a mix network, not to Privex, and can't correlate your send with anyone's receive.* **(Mixnet transport is the flagship in-progress piece — see [§8](#8-current-status-and-known-limitations).)**
+Wants to know you use Privex and read/correlate your traffic. The design defends this with DNS-over-HTTPS to a pinned resolver, transport through the Nym mixnet (fixed-size Sphinx packets, Poisson mixing delays), and constant cover traffic → *once the mixnet is live, a global observer sees indistinguishable mix-network packets, not Privex traffic, and can't correlate your send with anyone's receive.* **Today the mixnet is not yet wired in, so an observer can currently see that you connect to the Privex server over TLS — not what you say, but that you're there. Closing this gap is the flagship Phase-2 work (see [§8](#8-current-status-and-known-limitations)).**
 
 **Active network attacker** (man-in-the-middle)
 Wants to intercept, modify, or inject. Defended by TLS 1.3, certificate pinning, HKDF-authenticated message keys (HMAC), and — for calls — DTLS-SRTP plus SFrame. Identity is confirmed out-of-band by comparing safety codes. → *Cannot inject or alter content without detection.*
 
 **Compromised Privex server** (hacked, insider, or coerced operator)
-Has full read/write access to the database and running code. It holds only: a pseudonymous recipient ID, a fixed-size encrypted blob, and a timestamp. No sender (sealed sender), no IP, no social graph, no plaintext. → *A full database dump yields nothing usable about any user.*
+Has full read/write access to the database and running code. It holds only pseudonymous data: recipient IDs (`px_…`), fixed-size encrypted blobs, delivery timestamps, and the public-key directory. No message content, no sender (sealed sender), no stored IP, no real identities. → *A full database dump reveals no content and nothing that ties to a human. It does expose pseudonymous metadata — which IDs are active and when, padded message sizes, public keys — which supports limited traffic analysis, but not deanonymization on its own.*
 
 **Nation-state with legal authority** (subpoena, gag order, seizure)
-Can compel the operator to hand over everything it has. The point is that "everything it has" is pseudonymous IDs and unreadable blobs. Key material never leaves user devices, so a valid court order reaches nothing of value. → *Legal compulsion can't produce user data because none exists server-side.* The [wiki's seizure page](https://wiki.privex.chat) enumerates exactly what each layer yields.
+Can compel the operator to hand over everything it has. The point is that "everything it has" is pseudonymous IDs, unreadable blobs, and timestamps. Key material never leaves user devices, so a valid court order reaches no message content and no user identity. → *Legal compulsion can't produce what a person said or who they are — only the pseudonymous, unlinkable metadata above. There is no plaintext and no identity to hand over.* The [wiki's seizure page](https://wiki.privex.chat) enumerates exactly what each layer yields.
 
 **Data-center / host** (physical access, RAM dumps, NIC capture)
 Sees connections arriving from mix-network gateways, not from users; storage is encrypted at rest; a RAM dump reveals encrypted buffers and session tokens, not identities. → *Cannot deanonymize a user or read a message.*
@@ -86,9 +86,9 @@ There are **no access logs, no analytics, and no telemetry** anywhere in the sta
 ## 5. Metadata and network protection
 
 - **Sealed sender** moves the sender's identity inside the encrypted payload. The server learns a recipient and nothing about who's talking to them.
-- **Nym mixnet transport** (Loopix-style): fixed-size Sphinx packets, per-hop Poisson delays, and continuous loop cover traffic, so a *global* passive adversary watching the whole network still can't correlate a send with a receive. This is the property (Law 4) that separates Privex from onion routing alone.
-- **No IP, ever.** Because rate-limiting by IP means logging IP, Privex rate-limits with proof-of-work and pseudonymous HMAC buckets instead (see §6).
-- **Server-signed time.** Delivery order is anchored to a server-signed timestamp, so a malicious relay can't silently reorder or replay your messages (desync attack) without detection.
+- **Nym mixnet transport** (Loopix-style): fixed-size Sphinx packets, per-hop Poisson delays, and continuous loop cover traffic, designed so a *global* passive adversary watching the whole network can't correlate a send with a receive. This is the property (network undetectability) that separates Privex from onion routing alone. **It is designed but not yet wired in — see [§8](#8-current-status-and-known-limitations); it's the single biggest gap between the design and today's build.**
+- **No IP logged, ever.** Privex never records IP addresses anywhere; rate-limiting uses proof-of-work and pseudonymous HMAC buckets instead of IP (see §6). Preventing the server from *seeing* your IP in transit is the mixnet's job (Phase 2, §8).
+- **Server-signed time.** Delivery order is anchored to a server-signed timestamp, so a malicious relay can't silently reorder or drop your messages (a desync attack) without the client noticing. Message *replay* is prevented separately, by the Double Ratchet's single-use message keys.
 - **Receipts leak nothing.** Delivery/read receipts carry no timestamp, are mutual (you can't receive them without sending them), and are jittered onto the cover-traffic schedule so they can't reveal when you came online.
 
 ---
