@@ -58,6 +58,10 @@ beforeEach(async () => {
     db.settings.clear(),
     db.receipt_outbox.clear(),
   ]);
+  // Receipts now default OFF (privacy by default). These tests exercise the ON
+  // behavior, so enable them explicitly; the "mutual: disabling" test overrides.
+  await setDeliveryReceipts(true);
+  await setReadReceipts(true);
 });
 
 const entropy = (f: number) => new Uint8Array(32).fill(f);

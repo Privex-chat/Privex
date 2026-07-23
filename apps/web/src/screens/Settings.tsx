@@ -287,9 +287,6 @@ function PrivacyTab({
         <MessageStatusSettings />
       </Row>
       <Row>
-        <HistoryBackup />
-      </Row>
-      <Row>
         <label className="flex items-start justify-between gap-3 cursor-pointer">
           <span>
             <span className="block text-sm text-text-secondary">Screen recording protection</span>
@@ -363,6 +360,9 @@ function RecoveryTab({
           Send your chat history directly to a new device (or receive it here). End-to-end
           encrypted, both devices online — nothing is stored on the server.
         </p>
+      </Row>
+      <Row>
+        <HistoryBackup />
       </Row>
       <Row>
         <DeviceSyncSettings />
@@ -1068,8 +1068,8 @@ function DeviceSyncSettings() {
  *  means you neither send that receipt type nor receive it (your outgoing messages
  *  stop carrying a receipt request, so peers have nothing to confirm). */
 function MessageStatusSettings() {
-  const [delivery, setDelivery] = useState(true);
-  const [read, setRead] = useState(true);
+  const [delivery, setDelivery] = useState(false);
+  const [read, setRead] = useState(false);
   const [delay, setDelay] = useState(false);
 
   useEffect(() => {
@@ -1107,8 +1107,9 @@ function MessageStatusSettings() {
     <div>
       <div className="text-sm text-text-secondary">Message status</div>
       <p className="text-xs text-text-muted">
-        Receipts are end-to-end encrypted, carry no timestamps, and are mutual - each
-        toggle applies to both sending and receiving.
+        Off by default. Receipts are end-to-end encrypted and carry no timestamps, and they&rsquo;re
+        mutual - turning one on lets you both send that status and see it from others; leaving it
+        off means neither of you does.
       </p>
       <div className="mt-2">
         <Toggle

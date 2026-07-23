@@ -1,20 +1,102 @@
-// Registration + onboarding (docs 6 / 8.5). Six steps; progress is persisted so a
-// closed browser resumes where it left off. All key material is generated in the
-// browser (crypto worker) and never sent to the server in the clear.
-import { useEffect, useRef, useState } from "react";
+// Registration + onboarding (docs 6 / 8.5). Five visible steps with a progress
+// bar; progress is persisted so a closed browser resumes where it left off. All
+// key material is generated in the browser (crypto worker) and never sent to the
+// server in the clear.
+//
+// Flow: welcome → keys (forge + identicon reveal) → register (PoW) → secure
+// (recovery) → safety orientation → enter. finishOnboarding() strips the mnemonic
+// and signs in, so it runs at the end of the recovery step; the safety step is a
+// post-signin orientation shown once (progress is already "done" on reload).
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { completeRegistration, finishOnboarding, generateIdentity } from "../onboarding/flow";
 import { loadBundle, loadProgress } from "../onboarding/store";
 import { checkConfirm, pickConfirmIndices } from "../onboarding/seed-confirm";
-import { enableOpaqueRecovery } from "../services/recovery";
+import { enableOpaqueRecovery, opaqueRecoveryStatus } from "../services/recovery";
+import { db } from "../db";
+import Avatar from "../components/Avatar";
+import { SEED_SAVED_KEY } from "../components/FinishSetup";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { ArrowLeftIcon, CheckIcon, KeyIcon, LockIcon, ShieldCheckIcon, WarningTriangleIcon } from "../components/icons";
 
-type UiStep = "loading" | "welcome" | "keys" | "register" | "password" | "recovery";
+type UiStep = "loading" | "welcome" | "keys" | "register" | "password" | "recovery" | "safety";
 
-function Shell({ children }: { children: React.ReactNode }) {
+const TOTAL_STEPS = 5;
+
+function Stepper({ current }: { current: number }) {
   return (
-    <main className="min-h-screen bg-surface text-text-primary flex items-center justify-center p-6">
-      <div className="w-full max-w-md">{children}</div>
+    <div className="flex shrink-0 justify-center gap-1.5 px-6 pt-6" aria-hidden="true">
+      {Array.from({ length: TOTAL_STEPS }, (_, i) => (
+        <span
+          key={i}
+          className={"h-1 w-8 rounded-full transition-colors " + (i < current ? "bg-accent" : "bg-border")}
+        />
+      ))}
+    </div>
+  );
+}
+
+function Shell({ step, children }: { step?: number; children: ReactNode }) {
+  return (
+    <main className="flex min-h-[100dvh] flex-col bg-surface text-text-primary">
+      {step ? <Stepper current={step} /> : null}
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-md items-center justify-center p-6">
+          <div className="w-full">{children}</div>
+        </div>
+      </div>
     </main>
+  );
+}
+
+/* ── Illustrations (geometric, theme-aware) ── */
+
+function ShieldIllustration() {
+  return (
+    <svg viewBox="0 0 96 96" className="mx-auto h-24 w-24" fill="none" aria-hidden="true">
+      <circle cx="48" cy="48" r="44" className="stroke-border" strokeWidth="1.5" />
+      <circle cx="48" cy="48" r="32" className="stroke-divider" strokeWidth="1.5" />
+      <path
+        d="M48 26l16 7v11c0 10-7 15-16 19-9-4-16-9-16-19V33z"
+        className="fill-accent-bg stroke-accent-subtle"
+        strokeWidth="2"
+      />
+      <path
+        d="M41 48l5 5 9-10"
+        className="stroke-accent-subtle"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** The "forging" moment: a slow dashed ring that resolves into the identicon. */
+function ForgeIllustration() {
+  return (
+    <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+      <svg
+        viewBox="0 0 96 96"
+        className="absolute inset-0 h-full w-full motion-safe:animate-spin [animation-duration:6s]"
+        fill="none"
+        aria-hidden="true"
+      >
+        <circle cx="48" cy="48" r="44" className="stroke-accent-subtle" strokeWidth="1.5" strokeDasharray="6 9" opacity="0.55" />
+      </svg>
+      <div className="h-10 w-10 rounded-xl bg-accent-bg motion-safe:animate-pulse" />
+    </div>
+  );
+}
+
+function RingedAvatar({ seed }: { seed: string }) {
+  return (
+    <div className="relative mx-auto flex h-24 w-24 items-center justify-center">
+      <svg viewBox="0 0 96 96" className="absolute inset-0 h-full w-full" fill="none" aria-hidden="true">
+        <circle cx="48" cy="48" r="44" className="stroke-border" strokeWidth="1.5" strokeDasharray="4 7" />
+      </svg>
+      <Avatar seed={seed} size={64} title="Your identicon" />
+    </div>
   );
 }
 
@@ -68,7 +150,6 @@ export default function Onboarding() {
   if (step === "password")
     return (
       <PasswordStep
-        userId={userId}
         error={error}
         onBack={() => {
           setError(null);
@@ -85,38 +166,43 @@ export default function Onboarding() {
         }}
       />
     );
+  if (step === "safety") return <SafetyStep onEnter={() => nav("/", { replace: true })} />;
   return (
     <RecoveryStep
+      userId={userId}
       onPasswordRecovery={() => {
         setError(null);
         setStep("password");
       }}
-      onDone={() => nav("/", { replace: true })}
+      onDone={() => setStep("safety")}
       onError={setError}
       error={error}
     />
   );
 }
 
-// --- STEP 1 ---
+// --- STEP 1: Welcome ---
 function Welcome({ onStart }: { onStart: () => void }) {
   return (
-    <Shell>
-      <h1 className="text-2xl font-semibold">Welcome to Privex</h1>
-      <p className="mt-4 text-text-secondary leading-relaxed">
-        What you&rsquo;re about to create: an identity that only exists on your device.
-        We never know who you are. Even if we wanted to, we couldn&rsquo;t.
-      </p>
-      <p className="mt-3 text-text-muted text-sm">No phone number. No email. No name.</p>
+    <Shell step={1}>
+      <div className="text-center">
+        <ShieldIllustration />
+        <h1 className="mt-6 text-2xl font-semibold">Welcome to Privex</h1>
+        <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-text-secondary">
+          You&rsquo;re about to create an identity that lives only on this device. We never learn who
+          you are — even if we wanted to, we couldn&rsquo;t.
+        </p>
+        <p className="mt-3 text-sm text-text-muted">No phone number. No email. No name.</p>
+      </div>
       <button
         onClick={onStart}
-        className="mt-8 w-full rounded-lg bg-accent hover:bg-accent-hover py-3 font-medium"
+        className="mt-8 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover"
       >
-        Create My Identity
+        Create my identity
       </button>
       <Link
         to="/recover"
-        className="mt-4 block text-center text-sm text-text-secondary hover:text-text-primary"
+        className="mt-4 block text-center text-sm text-text-secondary transition-colors hover:text-text-primary"
       >
         Recover an existing account
       </Link>
@@ -124,7 +210,7 @@ function Welcome({ onStart }: { onStart: () => void }) {
   );
 }
 
-// --- STEP 2 ---
+// --- STEP 2: keys (forge + identicon reveal) ---
 function KeyGen({
   onDone,
   onError,
@@ -135,6 +221,7 @@ function KeyGen({
   error: string | null;
 }) {
   const [userId, setUserId] = useState("");
+  const [copied, copy] = useCopyToClipboard();
   const started = useRef(false);
 
   useEffect(() => {
@@ -151,133 +238,46 @@ function KeyGen({
   }, [onError]);
 
   return (
-    <Shell>
+    <Shell step={2}>
       {!userId ? (
-        <>
-          <div className="flex items-center gap-3">
-            <Spinner />
-            <h1 className="text-xl font-semibold">Generating your identity keys&hellip;</h1>
-          </div>
-<p className="mt-4 text-text-secondary text-sm">
-            Ed25519 + Dilithium3 signing keys, X25519 + Kyber1024 for messaging. Entirely in your
-            browser. Never sent to the server.
+        <div className="text-center">
+          <ForgeIllustration />
+          <h1 className="mt-6 text-xl font-semibold">Forging your keys</h1>
+          <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-text-secondary">
+            Post-quantum signing and messaging keys (Ed25519 + Dilithium3, X25519 + Kyber-1024),
+            generated entirely in your browser and never sent to us.
           </p>
-{error && <p className="mt-4 text-danger text-sm">{error}</p>}
-        </>
+          {error && <p className="mt-4 text-sm text-danger">{error}</p>}
+        </div>
       ) : (
-        <>
-          <h1 className="text-xl font-semibold">This is your Privex ID</h1>
-          <p className="mt-4 break-all font-mono text-accent-subtle bg-elevated rounded-lg p-3">
-            {userId}
+        <div className="text-center">
+          <RingedAvatar seed={userId} />
+          <h1 className="mt-6 text-2xl font-semibold">This is you</h1>
+          <p className="mt-2 text-sm text-text-secondary">
+            Your device just generated these keys. Nobody assigned this to you.
           </p>
-          <p className="mt-3 text-text-secondary text-sm">Share it with people to receive messages.</p>
+          <button
+            type="button"
+            onClick={() => copy(userId)}
+            title="Click to copy"
+            className="mx-auto mt-5 block w-full break-all rounded-lg border border-divider bg-elevated p-3 text-center font-mono text-xs text-accent-subtle transition-colors hover:text-accent-hover"
+          >
+            {userId}
+          </button>
+          <p className="mt-2 text-xs text-text-muted">{copied ? "Copied" : "Tap to copy — share it so people can reach you."}</p>
           <button
             onClick={() => onDone(userId)}
-className="mt-8 w-full rounded-lg bg-accent hover:bg-accent-hover py-3 font-medium"
+            className="mt-8 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover"
           >
             Continue
           </button>
-        </>
-      )}
-    </Shell>
-  );
-}
-
-// --- STEP 3 ---
-function PasswordStep({
-  userId,
-  onSubmit,
-  onBack,
-  error,
-}: {
-  userId: string;
-  onSubmit: (pw: string) => Promise<void>;
-  onBack: () => void;
-  error: string | null;
-}) {
-  const [pw, setPw] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
-  // zxcvbn is ~400 kB - load it on demand here, not in the app's main bundle
-  // (already-onboarded users never reach this step).
-  const [scorer, setScorer] = useState<((pw: string) => number) | null>(null);
-  useEffect(() => {
-    void import("zxcvbn").then((m) => setScorer(() => (p: string) => m.default(p).score));
-  }, []);
-  const score = scorer && pw ? scorer(pw) : 0;
-  const strongEnough = scorer !== null && score >= 3;
-  const matches = pw.length > 0 && pw === confirm;
-  const labels = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
-  const colors = ["bg-password-weak", "bg-password-fair", "bg-password-good", "bg-password-strong", "bg-password-vstrong"];
-
-  async function submit() {
-    setBusy(true);
-    try {
-      await onSubmit(pw);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Shell>
-      <h1 className="text-xl font-semibold">Enable password recovery</h1>
-      <p className="mt-3 text-text-secondary text-sm">
-        This creates an encrypted server recovery record. Leave it off for maximum privacy.
-      </p>
-      {userId && <p className="mt-3 font-mono text-xs text-text-subtle break-all">{userId}</p>}
-
-      <label className="block mt-6 text-sm text-text-secondary">Password</label>
-      <input
-        type="password"
-        value={pw}
-        onChange={(e) => setPw(e.target.value)}
-        minLength={8}
-        autoComplete="new-password"
-        className="mt-1 w-full rounded-lg bg-input border border-border-strong px-3 py-2 outline-none focus:border-border-focus"
-      />
-      {pw && scorer && (
-        <div className="mt-2">
-          <div className="h-1.5 w-full rounded bg-input overflow-hidden">
-            <div className={`h-full ${colors[score]}`} style={{ width: `${(score + 1) * 20}%` }} />
-          </div>
-          <p className="mt-1 text-xs text-text-secondary">
-            {labels[score]}
-            {!strongEnough && " - needs to be Strong or better"}
-          </p>
         </div>
       )}
-
-      <label className="block mt-4 text-sm text-text-secondary">Confirm password</label>
-      <input
-        type="password"
-        value={confirm}
-        onChange={(e) => setConfirm(e.target.value)}
-        autoComplete="new-password"
-        className="mt-1 w-full rounded-lg bg-input border border-border-strong px-3 py-2 outline-none focus:border-border-focus"
-      />
-      {confirm && !matches && <p className="mt-1 text-xs text-danger">Passwords don&rsquo;t match.</p>}
-
-      <button
-        disabled={busy || !strongEnough || !matches}
-        onClick={() => void submit()}
-        className="mt-8 w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed py-3 font-medium"
-      >
-        {busy ? "Enabling..." : "Enable password recovery"}
-      </button>
-      {error && <p className="mt-3 text-danger text-sm">{error}</p>}
-      <button
-        onClick={onBack}
-        disabled={busy}
-        className="mt-3 w-full rounded-lg border border-border-strong hover:bg-elevated disabled:opacity-40 py-3 text-sm text-text-secondary"
-      >
-        Back
-      </button>
     </Shell>
   );
 }
 
-// --- STEP 4 ---
+// --- STEP 3: register (PoW) ---
 function Registering({
   onDone,
   onError,
@@ -307,12 +307,17 @@ function Registering({
 
   if (error) {
     return (
-      <Shell>
-        <h1 className="text-xl font-semibold">Registration failed</h1>
-        <p className="mt-3 text-danger text-sm">{error}</p>
+      <Shell step={3}>
+        <div className="text-center">
+          <span className="inline-flex text-danger">
+            <WarningTriangleIcon className="h-10 w-10" />
+          </span>
+          <h1 className="mt-4 text-xl font-semibold">Registration failed</h1>
+          <p className="mt-3 text-sm text-danger">{error}</p>
+        </div>
         <button
           onClick={onBack}
-          className="mt-8 w-full rounded-lg bg-accent hover:bg-accent-hover py-3 font-medium"
+          className="mt-8 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover"
         >
           Try again
         </button>
@@ -321,47 +326,139 @@ function Registering({
   }
 
   return (
-    <Shell>
-      <div className="flex items-center gap-3">
-        <Spinner />
-        <h1 className="text-xl font-semibold">Registering your identity&hellip;</h1>
+    <Shell step={3}>
+      <div className="text-center">
+        <ForgeIllustration />
+        <h1 className="mt-6 text-xl font-semibold">Setting you up</h1>
+        <p className="mx-auto mt-3 max-w-xs text-sm leading-relaxed text-text-secondary">
+          Solving a proof-of-work puzzle so registration never needs your IP address.
+        </p>
       </div>
-      <p className="mt-4 text-text-secondary text-sm">
-        Solving a proof-of-work puzzle so we never need your IP address.
-      </p>
-      <div className="mt-4 h-1.5 w-full rounded bg-input overflow-hidden">
+      <div className="mt-6 h-1.5 w-full overflow-hidden rounded bg-input">
         <div className="h-full bg-accent transition-all" style={{ width: `${percent}%` }} />
       </div>
-      <p className="mt-1 text-xs text-text-muted">{percent}% complete</p>
+      <p className="mt-1 text-center text-xs text-text-muted">{percent}% complete</p>
     </Shell>
   );
 }
 
-// --- STEP 5 + 6 ---
+// --- STEP 4 (sub): password recovery ---
+function PasswordStep({
+  onSubmit,
+  onBack,
+  error,
+}: {
+  onSubmit: (pw: string) => Promise<void>;
+  onBack: () => void;
+  error: string | null;
+}) {
+  const [pw, setPw] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  // zxcvbn is ~400 kB - load it on demand here, not in the app's main bundle.
+  const [scorer, setScorer] = useState<((pw: string) => number) | null>(null);
+  useEffect(() => {
+    void import("zxcvbn").then((m) => setScorer(() => (p: string) => m.default(p).score));
+  }, []);
+  const score = scorer && pw ? scorer(pw) : 0;
+  const strongEnough = scorer !== null && score >= 3;
+  const matches = pw.length > 0 && pw === confirm;
+  const labels = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
+  const colors = ["bg-password-weak", "bg-password-fair", "bg-password-good", "bg-password-strong", "bg-password-vstrong"];
+
+  async function submit() {
+    setBusy(true);
+    try {
+      await onSubmit(pw);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Shell step={4}>
+      <button onClick={onBack} disabled={busy} className="inline-flex items-center gap-1 text-sm text-text-muted transition-colors hover:text-text-secondary disabled:opacity-40">
+        <ArrowLeftIcon className="h-4 w-4" /> Back
+      </button>
+      <h1 className="mt-3 text-xl font-semibold">Password recovery</h1>
+      <p className="mt-2 text-sm text-text-secondary">
+        Recover your account on a new device with just a password. We store a scrambled record only
+        your password can unlock — we can&rsquo;t read it.
+      </p>
+
+      <label htmlFor="onboarding-password" className="mt-6 block text-sm text-text-secondary">Password</label>
+      <input
+        id="onboarding-password"
+        type="password"
+        value={pw}
+        onChange={(e) => setPw(e.target.value)}
+        minLength={8}
+        autoComplete="new-password"
+        className="mt-1 w-full rounded-lg border border-border-strong bg-input px-3 py-2 outline-none focus:border-border-focus"
+      />
+      {pw && scorer && (
+        <div className="mt-2">
+          <div className="h-1.5 w-full overflow-hidden rounded bg-input">
+            <div className={`h-full ${colors[score]}`} style={{ width: `${(score + 1) * 20}%` }} />
+          </div>
+          <p className="mt-1 text-xs text-text-secondary">
+            {labels[score]}
+            {!strongEnough && " - needs to be Strong or better"}
+          </p>
+        </div>
+      )}
+
+      <label htmlFor="onboarding-confirm-password" className="mt-4 block text-sm text-text-secondary">Confirm password</label>
+      <input
+        id="onboarding-confirm-password"
+        type="password"
+        value={confirm}
+        onChange={(e) => setConfirm(e.target.value)}
+        autoComplete="new-password"
+        className="mt-1 w-full rounded-lg border border-border-strong bg-input px-3 py-2 outline-none focus:border-border-focus"
+      />
+      {confirm && !matches && <p className="mt-1 text-xs text-danger">Passwords don&rsquo;t match.</p>}
+
+      <button
+        disabled={busy || !strongEnough || !matches}
+        onClick={() => void submit()}
+        className="mt-8 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {busy ? "Enabling…" : "Enable password recovery"}
+      </button>
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+    </Shell>
+  );
+}
+
+// --- STEP 4: secure your account (recovery) ---
 function RecoveryStep({
+  userId,
   onPasswordRecovery,
   onDone,
   onError,
   error,
 }: {
+  userId: string;
   onPasswordRecovery: () => void;
   onDone: () => void;
   onError: (e: string) => void;
   error: string | null;
 }) {
   const [mnemonic, setMnemonic] = useState<string | null>(null);
+  const [hasPassword, setHasPassword] = useState(false);
+  const [mode, setMode] = useState<"choose" | "seed">("choose");
   const [revealed, setRevealed] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [seedDone, setSeedDone] = useState(false);
   const [indices, setIndices] = useState<number[]>([]);
   const [answers, setAnswers] = useState<string[]>(["", "", ""]);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
-    void (async () => {
-      const b = await loadBundle();
-      setMnemonic(b?.mnemonic ?? "");
-    })();
+    void loadBundle().then((b) => setMnemonic(b?.mnemonic ?? ""));
+    void opaqueRecoveryStatus().then(setHasPassword).catch(() => setHasPassword(false));
   }, []);
 
   async function finish() {
@@ -383,98 +480,74 @@ function RecoveryStep({
   }
 
   function submitConfirm() {
-    if (mnemonic && checkConfirm(mnemonic, indices, answers)) void finish();
-    else setConfirmError("Those words don't match. Check your written copy.");
+    if (mnemonic && checkConfirm(mnemonic, indices, answers)) {
+      setSeedDone(true);
+      void db.settings.put({ key: SEED_SAVED_KEY, value: true });
+      void finish();
+    } else {
+      setConfirmError("Those words don't match. Check your written copy.");
+    }
   }
 
   const words = mnemonic ? mnemonic.trim().split(/\s+/) : [];
+  const hasAnyRecovery = hasPassword || seedDone;
 
-  return (
-    <Shell>
-      <h1 className="text-2xl font-semibold">You&rsquo;re in.</h1>
-      <p className="mt-2 text-text-secondary text-sm">No name. No phone. No email. Just you.</p>
-      <p className="mt-6 text-text-secondary text-sm">Set up account recovery (you can do this later):</p>
-
-      <div className="mt-4 rounded-xl border border-divider p-4">
-        <p className="font-medium">Password recovery</p>
-        <p className="mt-1 text-text-secondary text-sm">
-          Optional. Creates an encrypted server recovery record protected by your password.
-        </p>
+  // Seed sub-view: reveal → confirm.
+  if (mode === "seed") {
+    return (
+      <Shell step={4}>
         <button
-          onClick={onPasswordRecovery}
-          className="mt-3 rounded-lg bg-raised hover:bg-border-strong px-4 py-2 text-sm"
+          onClick={() => { setMode("choose"); setRevealed(false); setConfirming(false); }}
+          className="inline-flex items-center gap-1 text-sm text-text-muted transition-colors hover:text-text-secondary"
         >
-          Set up password recovery
+          <ArrowLeftIcon className="h-4 w-4" /> Back
         </button>
-      </div>
-
-      {/* Card A - multi-device linking (deferred to Phase 2: needs WebSocket fan-out) */}
-      <div className="mt-4 rounded-xl border border-divider p-4 opacity-60">
-        <p className="font-medium">Link another device</p>
-        <p className="mt-1 text-text-secondary text-sm">
-          Transfer your account to another phone or computer. Available in a future update.
-        </p>
-      </div>
-
-      {/* Card B - emergency contacts (needs contacts first; set up in Settings > Recovery) */}
-      <div className="mt-3 rounded-xl border border-divider p-4 opacity-60">
-        <p className="font-medium">Emergency contacts</p>
-        <p className="mt-1 text-text-secondary text-sm">
-          Split your recovery key across trusted friends. Add contacts first, then set this up in Settings.
-        </p>
-      </div>
-
-      {/* Card C - seed phrase (real) */}
-      <div className="mt-3 rounded-xl border border-divider p-4">
-        <p className="font-medium">Write down your seed phrase</p>
+        <h1 className="mt-3 text-xl font-semibold">Your seed phrase</h1>
         {!revealed ? (
           <>
-            <p className="mt-1 text-text-secondary text-sm">
-              24 words that are your master key. We will never show them again.
+            <p className="mt-2 text-sm text-text-secondary">
+              24 words that <em>are</em> your account. Write them down and keep them offline — we
+              will never show them again, and never ask for them.
             </p>
             <button
               onClick={() => setRevealed(true)}
-              className="mt-3 rounded-lg bg-raised hover:bg-border-strong px-4 py-2 text-sm"
+              className="mt-6 w-full rounded-lg bg-raised py-3 text-sm font-medium transition-colors hover:bg-border-strong"
             >
               Reveal seed phrase
             </button>
           </>
         ) : !confirming ? (
           <>
-            <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="mt-4 grid grid-cols-3 gap-2">
               {words.map((w, i) => (
-                <div key={i} className="rounded bg-elevated px-2 py-1 text-sm font-mono">
-                  <span className="text-text-subtle mr-1">{i + 1}</span>
+                <div key={i} className="rounded bg-elevated px-2 py-1 font-mono text-xs">
+                  <span className="mr-1 text-text-subtle">{i + 1}</span>
                   {w}
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-text-secondary text-sm">
-              Store these somewhere safe. This is your master key.
-            </p>
+            <p className="mt-3 text-xs text-warning">Store these somewhere safe before continuing.</p>
             <button
               onClick={startConfirm}
-              className="mt-3 rounded-lg bg-raised hover:bg-border-strong px-4 py-2 text-sm"
+              className="mt-4 w-full rounded-lg bg-accent py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
             >
               I&rsquo;ve written them down
             </button>
           </>
         ) : (
           <>
-            <p className="mt-3 text-text-secondary text-sm">Confirm these words to continue:</p>
-            <div className="mt-2 space-y-2">
+            <p className="mt-3 text-sm text-text-secondary">Confirm a few words to make sure you have them:</p>
+            <div className="mt-3 space-y-2">
               {indices.map((pos, i) => (
                 <div key={pos} className="flex items-center gap-2">
-                  <span className="w-16 text-text-muted text-sm">Word #{pos}</span>
+                  <span className="w-16 text-sm text-text-muted">Word #{pos}</span>
                   <input
                     value={answers[i]}
-                    onChange={(e) =>
-                      setAnswers((a) => a.map((v, j) => (j === i ? e.target.value : v)))
-                    }
+                    onChange={(e) => setAnswers((a) => a.map((v, j) => (j === i ? e.target.value : v)))}
                     maxLength={8}
                     spellCheck={false}
                     autoCapitalize="none"
-                    className="flex-1 rounded bg-input border border-border-strong px-2 py-1 text-sm outline-none focus:border-border-focus"
+                    className="flex-1 rounded border border-border-strong bg-input px-2 py-1 text-sm outline-none focus:border-border-focus"
                   />
                 </div>
               ))}
@@ -483,29 +556,175 @@ function RecoveryStep({
             <button
               onClick={submitConfirm}
               disabled={finishing}
-              className="mt-3 rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-4 py-2 text-sm"
+              className="mt-4 w-full rounded-lg bg-accent py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-40"
             >
-              Confirm &amp; finish
+              {finishing ? "Finishing…" : "Confirm & finish"}
             </button>
           </>
         )}
+        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      </Shell>
+    );
+  }
+
+  // Choose view.
+  const Option = ({
+    icon,
+    title,
+    desc,
+    onClick,
+    done,
+    tag,
+    disabled,
+  }: {
+    icon: ReactNode;
+    title: string;
+    desc: string;
+    onClick?: () => void;
+    done?: boolean;
+    tag?: string;
+    disabled?: boolean;
+  }) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={
+        "flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors " +
+        (done
+          ? "border-success bg-elevated"
+          : disabled
+            ? "cursor-default border-divider opacity-70"
+            : "border-divider hover:border-border-strong hover:bg-elevated")
+      }
+    >
+      <span className={"inline-flex shrink-0 " + (done ? "text-success" : "text-accent-text")}>
+        {done ? <CheckIcon className="h-5 w-5" /> : icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="text-sm font-medium">{title}</span>
+          {tag && (
+            <span className="rounded-full bg-accent-bg px-2 py-0.5 text-[10px] font-medium text-accent-text">{tag}</span>
+          )}
+        </span>
+        <span className="mt-0.5 block text-xs text-text-muted">{done ? "Set up" : desc}</span>
+      </span>
+    </button>
+  );
+
+  return (
+    <Shell step={4}>
+      <div className="text-center">
+        <span className="inline-flex text-accent-text">
+          <KeyIcon className="h-10 w-10" />
+        </span>
+        <h1 className="mt-4 text-2xl font-semibold">How do you get back in?</h1>
+        <p className="mx-auto mt-2 max-w-xs text-sm text-text-secondary">
+          If you lose this device, one of these is how you recover your account. Set up at least one.
+        </p>
       </div>
 
-      {error && <p className="mt-4 text-danger text-sm">{error}</p>}
+      <div className="mt-6 space-y-2.5">
+        <Option
+          icon={<LockIcon className="h-5 w-5" />}
+          title="Password"
+          desc="Recover with a password only you know."
+          tag="Recommended"
+          done={hasPassword}
+          onClick={hasPassword ? undefined : onPasswordRecovery}
+        />
+        <Option
+          icon={<KeyIcon className="h-5 w-5" />}
+          title="Seed phrase"
+          desc="24 words you keep offline."
+          done={seedDone}
+          onClick={() => setMode("seed")}
+        />
+        <Option
+          icon={<ShieldCheckIcon className="h-5 w-5" />}
+          title="Emergency contacts"
+          desc="Split a recovery key across trusted friends — set up in Settings once you have contacts."
+          disabled
+        />
+      </div>
+
+      {!hasAnyRecovery && (
+        <p className="mt-4 inline-flex items-start gap-1.5 text-xs text-warning">
+          <WarningTriangleIcon className="mt-px h-3.5 w-3.5 shrink-0" />
+          Without a recovery method, a lost device means a lost account.
+        </p>
+      )}
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
       <button
         onClick={() => void finish()}
         disabled={finishing}
-        className="mt-6 w-full rounded-lg border border-border-strong hover:bg-elevated disabled:opacity-40 py-3 text-sm text-text-secondary"
+        className={
+          "mt-6 w-full rounded-lg py-3 text-sm font-medium transition-colors disabled:opacity-40 " +
+          (hasAnyRecovery
+            ? "bg-accent text-white hover:bg-accent-hover"
+            : "border border-border-strong text-text-secondary hover:bg-elevated")
+        }
       >
-        Skip for now - enter Privex
+        {finishing ? "Finishing…" : hasAnyRecovery ? "Continue" : "Skip for now"}
       </button>
+      {/* userId shown small for reassurance/copy parity with the reveal step */}
+      {userId && <p className="mt-4 text-center font-mono text-[11px] text-text-subtle break-all">{userId}</p>}
     </Shell>
   );
 }
 
-function Spinner() {
+// --- STEP 5: safety orientation (post-signin, shown once) ---
+function SafetyStep({ onEnter }: { onEnter: () => void }) {
+  const Card = ({
+    icon,
+    title,
+    children,
+  }: {
+    icon: ReactNode;
+    title: string;
+    children: ReactNode;
+  }) => (
+    <div className="flex gap-3 rounded-xl border border-divider p-4">
+      <span className="inline-flex shrink-0 text-accent-text">{icon}</span>
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <p className="mt-0.5 text-xs leading-relaxed text-text-muted">{children}</p>
+      </div>
+    </div>
+  );
+
   return (
-    <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-text-subtle border-t-accent-text" />
+    <Shell step={5}>
+      <div className="text-center">
+        <span className="inline-flex text-success">
+          <ShieldCheckIcon className="h-12 w-12" />
+        </span>
+        <h1 className="mt-4 text-2xl font-semibold">You&rsquo;re in</h1>
+        <p className="mt-2 text-sm text-text-secondary">A few things Privex already does for you — and one worth turning on.</p>
+      </div>
+
+      <div className="mt-6 space-y-3">
+        <Card icon={<ShieldCheckIcon className="h-5 w-5" />} title="Privacy is already on">
+          Read and delivery receipts are off by default, your IP is never logged, and steady cover
+          traffic hides when you&rsquo;re active. You didn&rsquo;t have to configure any of it.
+        </Card>
+        <Card icon={<LockIcon className="h-5 w-5" />} title="Lock this app">
+          Add a passphrase or fingerprint so your messages can&rsquo;t be read from this device if it&rsquo;s
+          lost or shared. Turn it on in <span className="text-accent-text">Settings → Account</span>.
+        </Card>
+        <Card icon={<KeyIcon className="h-5 w-5" />} title="Recovery &amp; backups live here">
+          Change how you recover your account — and optionally back up your chat history — anytime in
+          <span className="text-accent-text"> Settings → Recovery</span>.
+        </Card>
+      </div>
+
+      <button
+        onClick={onEnter}
+        className="mt-8 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover"
+      >
+        Enter Privex
+      </button>
+    </Shell>
   );
 }

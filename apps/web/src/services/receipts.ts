@@ -19,7 +19,10 @@ import { emitMessage } from "./events";
 import type { ReceiptRequestWire } from "./envelope";
 import type { PlainMessage } from "../db/encrypted-db";
 
-// --- settings (db.settings; defaults: receipts ON, privacy delay OFF) ---
+// --- settings (db.settings; defaults: receipts OFF, privacy delay OFF) ---
+// Privacy by default (Law: secure on par by default): a new account sends and
+// receives no delivery/read status until the user opts in. Because receipts are
+// mutual, this also means peers get nothing back until you turn it on.
 
 const DELIVERY_KEY = "receipts_delivery";
 const READ_KEY = "receipts_read";
@@ -30,8 +33,8 @@ const flag = async (key: string, dflt: boolean): Promise<boolean> => {
   return v === undefined ? dflt : v === true;
 };
 
-export const deliveryReceiptsEnabled = () => flag(DELIVERY_KEY, true);
-export const readReceiptsEnabled = () => flag(READ_KEY, true);
+export const deliveryReceiptsEnabled = () => flag(DELIVERY_KEY, false);
+export const readReceiptsEnabled = () => flag(READ_KEY, false);
 export const receiptPrivacyDelayEnabled = () => flag(DELAY_KEY, false);
 
 export const setDeliveryReceipts = (on: boolean) => db.settings.put({ key: DELIVERY_KEY, value: on });
