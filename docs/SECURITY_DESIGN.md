@@ -26,7 +26,7 @@ Three principles follow from that:
 
 ## 2. Cryptographic foundations
 
-Everything is a **hybrid of a classical and a post-quantum primitive**, so an attacker must break *both* to win. A quantum computer breaks the classical half and gains nothing; a classical attacker breaks neither.
+The two layers that establish trust — **identity signatures and key agreement** — are each a **hybrid of a classical and a post-quantum primitive**, so an attacker must break *both* to win: a quantum computer breaks the classical half and gains nothing, and a classical attacker breaks neither. (Symmetric encryption doesn't need a second primitive — AES-256 and XChaCha20 keep roughly 256-bit strength against Grover — and OPAQUE and Shamir's Secret Sharing are classical.)
 
 | Purpose | Classical | Post-quantum | Library |
 |---|---|---|---|
@@ -46,7 +46,7 @@ Post-quantum protection is present **from the identity up**, not only at the key
 Privex is designed against a stack of adversaries, from the coffee-shop network up to a nation-state. For each, the question is the same: *what do they actually get?*
 
 **Passive network observer** (ISP, DNS provider, Wi-Fi operator)
-Wants to know you use Privex and read/correlate your traffic. The design defends this with DNS-over-HTTPS to a pinned resolver, transport through the Nym mixnet (fixed-size Sphinx packets, Poisson mixing delays), and constant cover traffic → *once the mixnet is live, a global observer sees indistinguishable mix-network packets, not Privex traffic, and can't correlate your send with anyone's receive.* **Today the mixnet is not yet wired in, so an observer can currently see that you connect to the Privex server over TLS — not what you say, but that you're there. Closing this gap is the flagship Phase-2 work (see [§8](#8-current-status-and-known-limitations)).**
+Wants to know you use Privex and read/correlate your traffic. The design defends this with DNS-over-HTTPS to a pinned resolver, transport through the Nym mixnet (fixed-size Sphinx packets, Poisson mixing delays), and constant cover traffic → *once the mixnet is live, a global observer sees indistinguishable mix-network packets, not Privex traffic, and correlating your send with anyone's receive becomes computationally infeasible (reduced, not provably zero — see [§7](#7-what-privex-does-not-protect-against)).* **Today the mixnet is not yet wired in: the client connects to the server directly over TLS, so the server sees your transport (peer) IP in transit — it never logs or stores it, but it does see it — and a network observer can tell you are talking to Privex. Wiring the mixnet is the flagship Phase-2 work (see [§8](#8-current-status-and-known-limitations)).**
 
 **Active network attacker** (man-in-the-middle)
 Wants to intercept, modify, or inject. Defended by TLS 1.3, certificate pinning, HKDF-authenticated message keys (HMAC), and — for calls — DTLS-SRTP plus SFrame. Identity is confirmed out-of-band by comparing safety codes. → *Cannot inject or alter content without detection.*
@@ -88,7 +88,7 @@ There are **no access logs, no analytics, and no telemetry** anywhere in the sta
 - **Sealed sender** moves the sender's identity inside the encrypted payload. The server learns a recipient and nothing about who's talking to them.
 - **Nym mixnet transport** (Loopix-style): fixed-size Sphinx packets, per-hop Poisson delays, and continuous loop cover traffic, designed so a *global* passive adversary watching the whole network can't correlate a send with a receive. This is the property (network undetectability) that separates Privex from onion routing alone. **It is designed but not yet wired in — see [§8](#8-current-status-and-known-limitations); it's the single biggest gap between the design and today's build.**
 - **No IP logged, ever.** Privex never records IP addresses anywhere; rate-limiting uses proof-of-work and pseudonymous HMAC buckets instead of IP (see §6). Preventing the server from *seeing* your IP in transit is the mixnet's job (Phase 2, §8).
-- **Server-signed time.** Delivery order is anchored to a server-signed timestamp, so a malicious relay can't silently reorder or drop your messages (a desync attack) without the client noticing. Message *replay* is prevented separately, by the Double Ratchet's single-use message keys.
+- **Server-signed time.** Delivery order is anchored to a server-signed timestamp, so a malicious relay can't silently **reorder** your messages or forge their ordering without the client detecting it. (A *dropped* message surfaces as a gap in the Double Ratchet's message counters, and *replay* is blocked by its single-use message keys — those are the ratchet's job, not the timestamp's.)
 - **Receipts leak nothing.** Delivery/read receipts carry no timestamp, are mutual (you can't receive them without sending them), and are jittered onto the cover-traffic schedule so they can't reveal when you came online.
 
 ---
@@ -99,7 +99,7 @@ Traditional abuse prevention logs IP addresses. Privex refuses to, so it prices 
 
 **How it works**
 1. To hit a public, target-revealing endpoint, the client first requests a challenge (`POST /auth/pow_challenge`).
-2. It solves a Hashcash puzzle — `SHA-256(challenge || nonce)` to a difficulty in leading zero bits — in the browser via WebAssembly, with a **memory-hard Argon2id layer on top** so GPU/ASIC farms don't get a cheap advantage.
+2. It solves a Hashcash puzzle — `SHA-256(challenge || nonce)` to a difficulty in leading zero bits — in the browser via WebAssembly. SHA-256 Hashcash is the always-on baseline; on top of it a **memory-hard Argon2id layer** (enabled by default via `POW_ARGON2_ENABLED`, with an emergency off-switch) denies GPU/ASIC farms a cheap advantage.
 3. The server verifies the proof, consumes it single-use, and processes the request.
 4. Difficulty scales with aggregate load: a flood raises the cost for everyone automatically, throttling attackers while ordinary use stays cheap.
 
