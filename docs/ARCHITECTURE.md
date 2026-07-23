@@ -2,6 +2,8 @@
 
 Privex is a zero-knowledge, end-to-end encrypted communication platform. The server is **architecturally** (not policy) blind — it cannot read messages, identify users, or trace relationships. This document describes the complete design: what is built, what is planned, and what the known limitations are.
 
+> **Prefer to explore it visually?** The [Privex wiki](https://wiki.privex.chat) covers everything below as navigable, diagrammed pages, each with a **Plain** and a **Technical** view — start there if you want the map before the manual. For the security-reviewer summary, see [SECURITY_DESIGN.md](SECURITY_DESIGN.md).
+
 ---
 
 ## Table of Contents

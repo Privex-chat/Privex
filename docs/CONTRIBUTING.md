@@ -1,8 +1,10 @@
 # Contributing to Privex
 
-Welcome! Privex is currently in Phase 1 of development. We invite contributions from the open-source community to help build the most private, secure, and resilient communication platform in the world.
+Welcome. Privex is a Phase-1 beta, built and maintained by one person, and it needs more eyes far more than it needs more features. Whether you do cryptography, Rust, TypeScript, threat modeling, design, or documentation — or you just want to try to break it — there is room here.
 
-Please note that this repository operates under a Custom EULA (see `LICENSE`) that permits contributions via Pull Requests but explicitly denies the reuse, copying, or selling of the codebase or its architecture for other products.
+New to the project? The [wiki](https://wiki.privex.chat) is the fastest way in (every page has a Plain and a Technical view), and [SECURITY_DESIGN.md](SECURITY_DESIGN.md) is the fastest way to start attacking it.
+
+This repository is licensed under **AGPL-3.0-or-later** (see [`LICENSE`](../LICENSE)): you are free to use, study, modify, and self-host it. The AGPL's network clause (§13) is the condition — if you run a **modified** version as a network service, you must offer its users the corresponding source of your modified version. **By submitting a contribution, you agree it is licensed under AGPL-3.0-or-later.** The **Privex name and branding** are protected separately (see [`TRADEMARK.md`](../TRADEMARK.md)) so that "Privex" always means this one accountable project.
 
 ## The Absolute Laws
 
@@ -20,22 +22,21 @@ Before contributing to Privex, you must understand and adhere to the Absolute La
 Privex is currently in Phase 1 (Web App). Here is the current status:
 
 ### Implemented
-- E2E 1:1 text messaging
-- Offline message delivery queue
-- PWA structure
-- Rust/Axum backend with UNLOGGED PostgreSQL tables
-- WebCrypto non-extractable master key & IndexedDB storage
+- 1:1 text messaging with Double Ratchet and full hybrid post-quantum crypto (Kyber-1024 / Dilithium3)
+- Sealed sender (the server never learns who sent a message)
+- Offline delivery via an `UNLOGGED` Postgres queue with per-message "delete if undelivered after…" TTLs
+- Zero-knowledge account recovery — OPAQUE password, Shamir social recovery, and seed phrase (all live)
+- Server-signed timestamps (desync-attack defense), delivery/read receipts with no timestamps + jittered sending, cross-device sync
+- Proof-of-work registration/rate-limiting (Hashcash SHA-256 + Argon2id), no IP logged anywhere
+- Rust/Axum backend, installable React/Vite PWA, WebCrypto non-extractable keys + encrypted IndexedDB, in-app safety-code verification
 
 ### Missing / Help Wanted
-We actively need help with the following Phase 1 deliverables:
-- **Nym Integration:** The Nym SDK/mixnet is planned but not yet implemented (we currently use direct WebSockets).
-- **Session Management:** Fixes needed for token invalidation during SPK rotation.
-- **Push Notifications:** Service Worker is registered, but push event handling is broken.
-- ~~**Time Synchronization:** Need to implement server-signed timestamps to prevent desync attacks.~~
-- **Cross-Device Sync:** Sent messages from Device A do not yet appear on Device B.
-- ~~**Delivery & Read Receipts:** Needs to be implemented securely without timing correlations.~~
-- **File Sharing:** Disabled up until Phase 2 for CSAM check implementations.
-- **Timing Mitigations:** Polling schedules, fetch size padding, and jittered receipt sending.
+Where help matters most, roughly in priority order:
+- **Nym mixnet integration** — the headline. Today the client uses direct WebSockets; the Nym worker is a skeleton. Wiring the full mixnet gateway path is the flagship Phase-2 deliverable. It's what makes two guarantees real rather than merely designed: **network undetectability** (an observer can't tell you use Privex) and **hiding your IP from the server in transit**. Note the second is distinct from the "ZERO access logs" rule above — the server already refuses to *log* an IP, but not logging an IP is not the same as never *seeing* it, and only the mixnet delivers the latter.
+- **Push notifications** without Google/Apple push services — Service Worker push handling needs work.
+- **File sharing** — disabled in Phase 1 pending the client-side, zero-knowledge CSAM safeguard (PDQ hashing + PSI + a Groth16 proof); this must ship before files are enabled.
+- **Group messaging and calls** (MLS, WebRTC + SFrame) — specified and partly scaffolded, not shipped.
+- **Independent review** — the most valuable contribution of all. Read the [security design](SECURITY_DESIGN.md), find the flaw, and report it (see below).
 
 ## Local Setup & Development
 
@@ -81,10 +82,14 @@ Privex uses a monorepo structure managed by `pnpm` and Turborepo.
 
 ## Submitting a Pull Request
 
-1. Fork the repository (for the purpose of contributing back only).
+1. Fork the repository.
 2. Create a feature branch (`git checkout -b feature/your-feature`).
 3. Commit your changes (`git commit -m 'feat: add some feature'`).
 4. Push to the branch (`git push origin feature/your-feature`).
 5. Open a Pull Request against the `main` branch.
 
 All code must pass formatting (`cargo fmt`, `eslint`, `prettier`) and tests before being merged. Ensure that any Rust code includes zeroize calls for memory clearing on sensitive material.
+
+## Found a security issue?
+
+Please don't open a public PR or issue for it first. Report it privately via a [GitHub Security Advisory](https://github.com/Privex-chat/Privex/security/advisories) or the maintainer links in the [README](../README.md), and give a reasonable window to fix before disclosure. Details in [SECURITY_DESIGN.md](SECURITY_DESIGN.md#reporting-a-vulnerability). Serious findings will be credited.

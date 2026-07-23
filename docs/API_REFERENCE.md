@@ -1,8 +1,8 @@
 # Privex API Reference
 
-**Base URL**: `https://privex.chat/v1` (Accessed natively or via Nym/onion routing)
+**Base URL**: `https://privex.chat/v1` (today over TLS/WebSockets; Nym mixnet transport is the Phase-2 default — see [Architecture §8](ARCHITECTURE.md))
 
-Privex's API is designed around zero-knowledge principles. The server acts as a blind relay and directory. It never sees plaintext payloads or caller identities.
+Privex's API is designed around zero-knowledge principles. The server acts as a blind relay and directory: it never sees plaintext payloads or caller identities. For the design behind these endpoints — auth, sealed sender, proof-of-work, recovery — see the [Architecture](ARCHITECTURE.md) doc and the visual [wiki](https://wiki.privex.chat) (its **server-api** page maps each route to what the server can and cannot learn from it).
 
 ## Authentication Endpoints
 
