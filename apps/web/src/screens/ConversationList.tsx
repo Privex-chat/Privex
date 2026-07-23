@@ -5,6 +5,7 @@
 import { useNavigate } from "react-router-dom";
 import ContactList from "../components/ContactList";
 import ConnectionStatus from "../components/ConnectionStatus";
+import FinishSetup from "../components/FinishSetup";
 
 export default function ConversationList() {
   const nav = useNavigate();
@@ -47,8 +48,8 @@ export default function ConversationList() {
           </div>
         </header>
 
-        {/* Contact list */}
         <div className="mt-6">
+          <FinishSetup />
           <ContactList />
         </div>
 

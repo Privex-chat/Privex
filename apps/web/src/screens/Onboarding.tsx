@@ -13,6 +13,7 @@ import { completeRegistration, finishOnboarding, generateIdentity } from "../onb
 import { loadBundle, loadProgress } from "../onboarding/store";
 import { checkConfirm, pickConfirmIndices } from "../onboarding/seed-confirm";
 import { enableOpaqueRecovery, opaqueRecoveryStatus } from "../services/recovery";
+import { db } from "../db";
 import Avatar from "../components/Avatar";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { ArrowLeftIcon, CheckIcon, KeyIcon, LockIcon, ShieldCheckIcon, WarningTriangleIcon } from "../components/icons";
@@ -478,6 +479,7 @@ function RecoveryStep({
   function submitConfirm() {
     if (mnemonic && checkConfirm(mnemonic, indices, answers)) {
       setSeedDone(true);
+      void db.settings.put({ key: "recovery_seed_saved", value: true }); // FinishSetup home checklist
       void finish();
     } else {
       setConfirmError("Those words don't match. Check your written copy.");
