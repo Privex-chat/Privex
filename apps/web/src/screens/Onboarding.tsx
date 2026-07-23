@@ -15,6 +15,7 @@ import { checkConfirm, pickConfirmIndices } from "../onboarding/seed-confirm";
 import { enableOpaqueRecovery, opaqueRecoveryStatus } from "../services/recovery";
 import { db } from "../db";
 import Avatar from "../components/Avatar";
+import { SEED_SAVED_KEY } from "../components/FinishSetup";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { ArrowLeftIcon, CheckIcon, KeyIcon, LockIcon, ShieldCheckIcon, WarningTriangleIcon } from "../components/icons";
 
@@ -385,8 +386,9 @@ function PasswordStep({
         your password can unlock — we can&rsquo;t read it.
       </p>
 
-      <label className="mt-6 block text-sm text-text-secondary">Password</label>
+      <label htmlFor="onboarding-password" className="mt-6 block text-sm text-text-secondary">Password</label>
       <input
+        id="onboarding-password"
         type="password"
         value={pw}
         onChange={(e) => setPw(e.target.value)}
@@ -406,8 +408,9 @@ function PasswordStep({
         </div>
       )}
 
-      <label className="mt-4 block text-sm text-text-secondary">Confirm password</label>
+      <label htmlFor="onboarding-confirm-password" className="mt-4 block text-sm text-text-secondary">Confirm password</label>
       <input
+        id="onboarding-confirm-password"
         type="password"
         value={confirm}
         onChange={(e) => setConfirm(e.target.value)}
@@ -479,7 +482,7 @@ function RecoveryStep({
   function submitConfirm() {
     if (mnemonic && checkConfirm(mnemonic, indices, answers)) {
       setSeedDone(true);
-      void db.settings.put({ key: "recovery_seed_saved", value: true }); // FinishSetup home checklist
+      void db.settings.put({ key: SEED_SAVED_KEY, value: true });
       void finish();
     } else {
       setConfirmError("Those words don't match. Check your written copy.");
