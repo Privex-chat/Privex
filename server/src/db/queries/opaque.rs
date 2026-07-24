@@ -14,31 +14,6 @@ pub struct OpaqueLoginRecord {
     pub envelope_mac: Vec<u8>,
 }
 
-pub async fn store_opaque_record(
-    pool: &PgPool,
-    user_id: &str,
-    oprf_record: &[u8],
-    envelope: &[u8],
-    envelope_mac: &[u8],
-    created_at: i32,
-    updated_at: i32,
-) -> sqlx::Result<()> {
-    sqlx::query!(
-        r#"INSERT INTO opaque_records
-           (user_id, oprf_record, envelope, envelope_mac, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
-        user_id,
-        oprf_record,
-        envelope,
-        envelope_mac,
-        created_at,
-        updated_at,
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 pub async fn get_opaque_record(pool: &PgPool, user_id: &str) -> sqlx::Result<Option<OpaqueRecord>> {
     sqlx::query_as!(
         OpaqueRecord,
