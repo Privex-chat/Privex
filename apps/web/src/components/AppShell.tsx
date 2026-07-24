@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { ChatBubbleIcon, GearIcon, UsersIcon } from "./icons";
 import { listContacts } from "../data/contacts";
 import { onContactsChanged } from "../services/events";
+import AnnouncementBanner from "./AnnouncementBanner";
 
 type Item = { to: string; label: string; Icon: (p: { className?: string }) => JSX.Element; badge?: number };
 
@@ -77,6 +78,11 @@ export default function AppShell() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Announcement bar: a shrink-0 flow sibling at the top of the column, so it
+          reduces the content region instead of pushing the whole 100dvh app down
+          (which shoved the bottom nav off-screen when it lived at the App root). */}
+      <AnnouncementBanner />
 
       {/* Content region: internal scroll on mobile, document scroll on desktop. */}
       <div className="min-h-0 flex-1 overflow-y-auto md:overflow-visible">
