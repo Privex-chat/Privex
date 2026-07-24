@@ -31,7 +31,7 @@ export default function AnnouncementBanner() {
 
   return (
     <div
-      className={`flex items-center gap-3 border-b px-4 py-2.5 text-sm ${style}`}
+      className={`flex shrink-0 items-center gap-3 border-b px-4 py-2.5 text-sm ${style}`}
     >
       <span className="flex-1 text-center font-medium">{announcement.message}</span>
       {announcement.dismissible && (

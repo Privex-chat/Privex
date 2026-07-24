@@ -265,7 +265,29 @@ pub fn app(state: AppState) -> Router {
         // Aggregate request counters (status class + latency sum). Label-free.
         .layer(axum::middleware::from_fn(metrics::track))
         .layer(cors)
+        // Belt to the CDN's suspenders: the origin itself declares every response
+        // non-cacheable, so no proxy/CDN can cache a per-user API response even if a
+        // cache rule is misconfigured (a shared edge cache once served one account's
+        // /recovery/opaque/status to everyone).
+        .layer(axum::middleware::from_fn(no_store))
         .with_state(state)
+}
+
+/// Force `Cache-Control: no-store` on every response that doesn't already set one.
+/// The API is entirely dynamic and per-user, so nothing here is safe for a shared
+/// cache to store; a handler that wants caching (e.g. a public value) can set its
+/// own `Cache-Control` and this leaves it untouched. Static assets are served by
+/// nginx, not this server, so a blanket default here is correct.
+async fn no_store(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let mut res = next.run(req).await;
+    let h = res.headers_mut();
+    if !h.contains_key(header::CACHE_CONTROL) {
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
+    res
 }
 
 fn init_tracing() {

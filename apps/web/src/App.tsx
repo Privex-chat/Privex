@@ -20,7 +20,6 @@ import DeviceTransfer from "./screens/DeviceTransfer";
 import MyQr from "./screens/MyQr";
 import UnlockScreen from "./screens/UnlockScreen";
 import AppShell from "./components/AppShell";
-import AnnouncementBanner from "./components/AnnouncementBanner";
 import InstallPrompt from "./components/InstallPrompt";
 import AppLockGuard from "./components/AppLockGuard";
 import ScreenRecordGuard from "./components/ScreenRecordGuard";
@@ -168,7 +167,6 @@ export default function App() {
       )}
       {boot === "ready" && (
         <>
-          <AnnouncementBanner />
           <HashRouter>
             <Routes>
               {/* Primary tabs + MyQr share the AppShell (bottom bar / desktop rail).
