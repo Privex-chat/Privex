@@ -62,7 +62,7 @@ function ShieldIllustration() {
         strokeWidth="2"
       />
       <path
-        d="M41 42l5 5 9-10"
+        d="M41 44l5 5 9-10"
         className="stroke-accent-subtle"
         strokeWidth="2.4"
         strokeLinecap="round"
