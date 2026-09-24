@@ -130,6 +130,7 @@ const cert = generate_sender_cert(
   alice.ed25519_pub,
   alice.dilithium3_priv,
   alice.dilithium3_pub,
+  alice.x25519_pub,
   BigInt(now),
   86_400n,
 );

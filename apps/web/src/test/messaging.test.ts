@@ -54,6 +54,7 @@ function aliceSend(
     alice.identity.ed25519_pub,
     alice.identity.dilithium3_priv,
     alice.identity.dilithium3_pub,
+    alice.identity.x25519_pub,
     NOW,
     86_400,
   );
@@ -176,6 +177,7 @@ describe("end-to-end send + receive", () => {
       bob.identity.ed25519_pub,
       bob.identity.dilithium3_priv,
       bob.identity.dilithium3_pub,
+      bob.identity.x25519_pub,
       NOW,
       86_400,
     );
@@ -201,6 +203,7 @@ describe("end-to-end send + receive", () => {
       attacker.identity.ed25519_pub,
       attacker.identity.dilithium3_priv,
       attacker.identity.dilithium3_pub,
+      attacker.identity.x25519_pub,
       NOW,
       86_400,
     );

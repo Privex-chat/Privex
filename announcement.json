@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "message": "This is a fragile environment — Currently under development. Data loss may occur in rare cases.",
-  "severity": "warning",
+  "version": 2,
+  "message": "Security update: please reload Privex on every device you use. Until the people you talk to have reloaded too, some messages and contact requests may be delayed - nothing is lost.",
+  "severity": "info",
   "dismissible": true
 }
