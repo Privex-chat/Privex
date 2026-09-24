@@ -8,6 +8,7 @@ import { restoreSession, startTokenRenewal, stopTokenRenewal } from "./services/
 import { connectWebSocket, disconnectWebSocket } from "./services/websocket";
 import { flushOutbox } from "./services/outbox";
 import { startCoverTraffic, stopCoverTraffic } from "./services/cover-traffic";
+import { migrateBackupIds } from "./services/history-backup";
 import Onboarding from "./screens/Onboarding";
 import ConversationList from "./screens/ConversationList";
 import Chat from "./screens/Chat";
@@ -114,6 +115,7 @@ export default function App() {
     if (boot === "ready" && authenticated && token) {
       void connectWebSocket(token);
       void startCoverTraffic();
+      void migrateBackupIds(); // one-time, no-op unless backup is on (best-effort)
       startTokenRenewal(); // silent re-mint at ~T-2h (PVX-07)
       return () => {
         stopCoverTraffic();

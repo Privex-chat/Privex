@@ -1,0 +1,11 @@
+-- Opt-in history backup: older clients keyed each contact sidecar as
+-- "contact:<px_id>" in the clear, so history_blobs held every backup user's
+-- contact list in readable form (a social graph the server must never have).
+-- Current clients name every blob with an opaque HMAC under a key derived from
+-- the user's master seed, and the server now refuses ':' in blob ids.
+--
+-- Drop the readable rows. The ciphertext is intact client-side: each device
+-- re-uploads its contact sidecars under opaque ids (one-time re-upload on next
+-- start, and again with the first message per contact). Message rows are left
+-- alone - their ids carry no contact identity - so no user loses history.
+DELETE FROM history_blobs WHERE blob_id LIKE 'contact:%';

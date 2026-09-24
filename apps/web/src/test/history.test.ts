@@ -20,12 +20,15 @@ import { useAuth } from "../store/auth";
 import { db } from "../db";
 import * as api from "../api/client";
 import {
+  backfillAll,
   backupMessage,
   enableBackup,
   isBackupEnabled,
+  migrateBackupIds,
   resetHistoryBackup,
   restoreHistory,
 } from "../services/history-backup";
+import { deriveHistoryIdKey, historyBlobId } from "../crypto/history-crypto";
 
 beforeAll(async () => {
   await initCrypto({
@@ -102,6 +105,54 @@ describe("history backup (Option A)", () => {
     const c = await getContact(peer.userId);
     expect(c?.name).toBe("Alice");
     expect(c?.verified).toBe(true);
+  });
+
+  it("names blobs with opaque ids: no contact px_id or message id reaches the server", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x74));
+    const peer = genIdentityBundle(wasm, entropy(0x75));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("tok", me.userId);
+    await upsertInboundContact(peer.userId, peer.identity.ed25519_pub, peer.identity.x25519_pub);
+    await new EncryptedMessages(db).add({ msg_id: "msg-1", session_id: peer.userId, content: "hi", timestamp: 1, created_at: 1, status: "sent", direction: "out", kind: "text" });
+
+    await enableBackup();
+    const ids = [...server.keys()];
+    expect(ids).toHaveLength(2);
+    for (const id of ids) {
+      expect(id).toMatch(/^[0-9a-f]{64}$/);
+      expect(id).not.toContain(peer.userId.slice(3)); // no readable contact id
+    }
+    expect(ids).not.toContain("msg-1");
+
+    // Stable ids: a second backfill overwrites instead of duplicating.
+    await backfillAll();
+    expect(server.size).toBe(2);
+  });
+
+  it("opaque ids depend on the user's seed (another user can't compute them)", async () => {
+    const a = await deriveHistoryIdKey(entropy(0x01));
+    const b = await deriveHistoryIdKey(entropy(0x02));
+    const rec = "contact:px_00000000000000000000000000000001";
+    expect(await historyBlobId(a, rec)).toBe(await historyBlobId(a, rec));
+    expect(await historyBlobId(a, rec)).not.toBe(await historyBlobId(b, rec));
+  });
+
+  it("re-uploads an existing backup under opaque ids once per device", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x76));
+    const peer = genIdentityBundle(wasm, entropy(0x77));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("tok", me.userId);
+    await upsertInboundContact(peer.userId, peer.identity.ed25519_pub, peer.identity.x25519_pub);
+    // Backup was enabled by an older build (flag set, ids not yet migrated).
+    await db.settings.put({ key: "history_backup", value: true });
+
+    await migrateBackupIds();
+    expect(api.uploadHistory).toHaveBeenCalledTimes(1);
+    expect([...server.keys()].every((id) => /^[0-9a-f]{64}$/.test(id))).toBe(true);
+    expect(server.size).toBe(1); // the contact sidecar is back, under an opaque id
+
+    await migrateBackupIds(); // already done → no-op
+    expect(api.uploadHistory).toHaveBeenCalledTimes(1);
   });
 
   it("the live hook does nothing while backup is disabled", async () => {

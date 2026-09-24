@@ -61,7 +61,8 @@ pub async fn upload(
     let now = now_unix() as i32;
     let mut stored = 0;
     for b in &body.blobs {
-        // blob_id must be a UUID or contact-key shape - reject anything else (PVX-18).
+        // blob_id: an opaque client-chosen id (legacy UUIDs still accepted); never
+        // a readable `contact:<px_id>` - see validate_history_blob_id (PVX-18).
         let safe_id = validate::validate_history_blob_id(&b.blob_id)?;
         let ct = validate::validate_b64(&b.ciphertext, validate::MAX_HISTORY_BLOB_BYTES)?;
         history::upsert(&st.db, &user, &safe_id, &ct, now)

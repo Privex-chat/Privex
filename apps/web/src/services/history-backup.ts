@@ -12,7 +12,13 @@ import * as api from "../api/client";
 import { db } from "../db";
 import { useAuth } from "../store/auth";
 import { loadBundle } from "../onboarding/store";
-import { deriveHistoryKey, encryptRecord, decryptRecord } from "../crypto/history-crypto";
+import {
+  deriveHistoryIdKey,
+  deriveHistoryKey,
+  encryptRecord,
+  decryptRecord,
+  historyBlobId,
+} from "../crypto/history-crypto";
 import {
   collectLocalRecords,
   contactRecordFor,
@@ -24,6 +30,8 @@ import {
 import { b64decode, b64encode } from "./bytes";
 
 const FLAG = "history_backup";
+// Set once this device has re-uploaded its backup under opaque (HMAC) blob ids.
+const IDS_V2_FLAG = "history_ids_v2";
 // Flush a batch at whichever comes first: MAX_COUNT items (server caps at 500) or
 // ~MAX_BODY bytes (server body limit is 2 MiB) - byte-aware so a few big file
 // manifests can't push a batch over the limit and wedge the backfill.
@@ -45,12 +53,19 @@ function token(): string {
   return t;
 }
 
-let keyCache: CryptoKey | null = null;
-async function historyKey(): Promise<CryptoKey> {
+interface HistoryKeys {
+  enc: CryptoKey; // encrypts record contents
+  id: CryptoKey; // names blobs (HMAC) - see historyBlobId
+}
+let keyCache: HistoryKeys | null = null;
+async function historyKey(): Promise<HistoryKeys> {
   if (keyCache) return keyCache;
   const b = await loadBundle();
   if (!b) throw new Error("identity not loaded");
-  keyCache = await deriveHistoryKey(b.masterSeed);
+  keyCache = {
+    enc: await deriveHistoryKey(b.masterSeed),
+    id: await deriveHistoryIdKey(b.masterSeed),
+  };
   return keyCache;
 }
 
@@ -63,8 +78,13 @@ export function resetHistoryBackup(): void {
   backedContacts.clear();
 }
 
-async function toBlob(key: CryptoKey, rec: HistoryRecord): Promise<Blob> {
-  return { blob_id: recordId(rec), ciphertext: b64encode(await encryptRecord(key, rec)) };
+async function toBlob(keys: HistoryKeys, rec: HistoryRecord): Promise<Blob> {
+  return {
+    // Opaque id: the plain record id would put message ids and - for contact
+    // sidecars - the contact's px_id in the server's table in readable form.
+    blob_id: await historyBlobId(keys.id, recordId(rec)),
+    ciphertext: b64encode(await encryptRecord(keys.enc, rec)),
+  };
 }
 
 async function uploadBatched(blobs: Blob[], onProgress?: (done: number, total: number) => void): Promise<void> {
@@ -95,6 +115,22 @@ export async function backfillAll(onProgress?: (done: number, total: number) => 
   const blobs: Blob[] = [];
   for (const rec of await collectLocalRecords()) blobs.push(await toBlob(key, rec));
   await uploadBatched(blobs, onProgress);
+}
+
+/** One-time, per device: re-upload the whole local history under opaque blob ids.
+ *  Older builds named contact sidecars `contact:<px_id>` in the clear; the server
+ *  deletes those rows (migration 0014), and this puts the contacts (and every
+ *  message) back under ids it can't read. Best-effort: on failure the flag stays
+ *  unset and it retries on the next start. No-op while backup is off. */
+export async function migrateBackupIds(): Promise<void> {
+  try {
+    if (!(await isBackupEnabled())) return;
+    if ((await db.settings.get(IDS_V2_FLAG))?.value === true) return;
+    await backfillAll();
+    await db.settings.put({ key: IDS_V2_FLAG, value: true });
+  } catch {
+    // retried next start
+  }
 }
 
 /** Best-effort live backup of one newly-persisted message (+ its contact once).
@@ -139,6 +175,7 @@ export async function backupMessage(m: {
 export async function enableBackup(onProgress?: (done: number, total: number) => void): Promise<void> {
   await db.settings.put({ key: FLAG, value: true });
   await backfillAll(onProgress);
+  await db.settings.put({ key: IDS_V2_FLAG, value: true }); // already opaque ids
 }
 
 export async function disableBackup(): Promise<void> {
@@ -160,7 +197,7 @@ export async function restoreHistory(onProgress?: (done: number) => void): Promi
   for (;;) {
     const page = await api.listHistory(tok, after);
     for (const w of page.blobs) {
-      await importRecord(await decryptRecord<HistoryRecord>(key, b64decode(w.ciphertext)));
+      await importRecord(await decryptRecord<HistoryRecord>(key.enc, b64decode(w.ciphertext)));
       done++;
       onProgress?.(done);
     }
