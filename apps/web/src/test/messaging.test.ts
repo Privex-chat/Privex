@@ -109,6 +109,9 @@ describe("end-to-end send + receive", () => {
     expect(
       Array.from(blob).join(",").includes(Array.from(idBytes).join(",")),
     ).toBe(false);
+    // Nor the handshake's initiator key - which names the sender via the public
+    // key directory - since the whole envelope is sealed, not just the cert.
+    expect(toHex(blob).includes(toHex(alice.identity.x25519_pub))).toBe(false);
 
     // Bob opens the seal, completes PQXDH, bootstraps his ratchet, decrypts.
     const opened = sealedSenderDecrypt(wasm, blob, bob.identity.x25519_priv, NOW + 10);

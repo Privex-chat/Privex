@@ -154,6 +154,21 @@ assert.equal(sres.sender_verified, true);
 const mallory = generate_identity_keypairs();
 assert.throws(() => sealed_sender_decrypt(blob, mallory.x25519_priv, BigInt(now + 1)));
 
+// v2 wire: the envelope is encrypted too - the message bytes never appear.
+assert.equal(blob[0], 2, "v2 version byte");
+const msgLeaked = Array.from({ length: blob.length - message.length + 1 }).some((_, i) =>
+  message.every((b, j) => blob[i + j] === b),
+);
+assert.equal(msgLeaked, false, "envelope must not appear in the sealed blob");
+
+// Any tampering (header or ciphertext) or truncation fails to open (Err path).
+for (const at of [0, 1, 40, 60, blob.length - 1]) {
+  const t = blob.slice();
+  t[at] ^= 0x01;
+  assert.throws(() => sealed_sender_decrypt(t, bob.x25519_priv, BigInt(now + 1)), `tamper @${at}`);
+}
+assert.throws(() => sealed_sender_decrypt(blob.slice(0, 70), bob.x25519_priv, BigInt(now + 1)));
+
 // ===== Part 3: Recovery =====
 // Shamir 3-of-5
 const secret = new Uint8Array(32).map((_, i) => (i * 7) & 0xff);
