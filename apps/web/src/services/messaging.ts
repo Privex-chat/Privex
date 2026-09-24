@@ -21,6 +21,7 @@ import {
   clearPqxdhInit,
   createInboundSession,
   loadSession,
+  markSessionReceived,
   saveRatchetState,
 } from "../data/sessions";
 import {
@@ -559,11 +560,16 @@ export async function receiveMessage(
   // the sender is the canonical initiator (smaller px_id). Both sides apply the
   // same rule, so they converge on one ratchet. (In a simultaneous double-send the
   // non-canonical party's very first message may be lost; everything after converges.)
+  // RESET: if the handshake doesn't decrypt on our session and that session has
+  // been WORKING (it has decrypted the peer before), this isn't glare - the peer
+  // started over (e.g. recovered their account on a new device) and our session
+  // is dead to them. Adopt the new one; otherwise the chat stayed broken both ways
+  // for every contact whose px_id sorted higher.
   const existing = await loadSession(senderId);
   const established = !!existing && !existing.pqxdhInit;
-  const adoptHandshake = !!env.pqxdh && (!established || senderId < me.userId);
+  let adoptHandshake = !!env.pqxdh && (!established || senderId < me.userId);
 
-  let plaintextBytes: Uint8Array;
+  let plaintextBytes: Uint8Array = new Uint8Array(0);
   if (!adoptHandshake) {
     if (!existing) {
       // A first message from an unknown peer with no handshake can NEVER be
@@ -573,28 +579,35 @@ export async function receiveMessage(
       await ackDelivered(ws.message_id);
       return;
     }
-    let dec;
+    let dec: RatchetDecrypted | undefined;
     try {
       dec = await crypto.ratchetDecrypt(existing.ratchetState, env.ciphertext, env.header);
     } catch (e) {
-      // Glare: the sender also initiated, but we're the canonical initiator (smaller
-      // px_id), so we kept our session. Their pre-convergence message can't be
-      // decrypted with it - drop it (acked, no redelivery loop). They re-send once
-      // they adopt our handshake.
-      if (env.pqxdh) {
+      if (env.pqxdh && existing.receivedOk) {
+        adoptHandshake = true; // reset: the peer started a new session (see above)
+      } else if (env.pqxdh) {
+        // Glare: the sender also initiated, but we're the canonical initiator
+        // (smaller px_id), so we kept our session. Their pre-convergence message
+        // can't be decrypted with it - drop it (acked, no redelivery loop). They
+        // re-send once they adopt our handshake.
+        await ackDelivered(ws.message_id);
+        return;
+      } else {
+        // Can never decrypt on this session. Ack it (tell the user, if it's a
+        // verified contact) - unless the crypto engine itself is failing.
+        if (!(await cryptoEngineHealthy(crypto, me))) throw e;
+        if (verified) await noteUndecryptable(senderId, ws.message_id, time.anchor);
         await ackDelivered(ws.message_id);
         return;
       }
-      // Can never decrypt on this session. Ack it (tell the user, if it's a
-      // verified contact) - unless the crypto engine itself is failing.
-      if (!(await cryptoEngineHealthy(crypto, me))) throw e;
-      if (verified) await noteUndecryptable(senderId, ws.message_id, time.anchor);
-      await ackDelivered(ws.message_id);
-      return;
     }
-    await saveRatchetState(senderId, dec.newState);
-    plaintextBytes = dec.plaintext;
-  } else {
+    if (dec) {
+      await saveRatchetState(senderId, dec.newState);
+      if (!existing.receivedOk) await markSessionReceived(senderId);
+      plaintextBytes = dec.plaintext;
+    }
+  }
+  if (adoptHandshake) {
     const pq = env.pqxdh!; // adoptHandshake implies a handshake is present
     const opkPriv =
       pq.opk_used && pq.opk_id

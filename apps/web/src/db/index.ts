@@ -23,6 +23,13 @@ export interface SessionRow {
   // carry so Bob can complete the handshake. Consumed + cleared in S16.
   pqxdh_init_enc?: Uint8Array;
   created_at: number;
+  // Has this session ever decrypted a message from the peer? A session that has
+  // is a working conversation, so a NEW handshake from the peer means they
+  // started over (e.g. recovered their account) and is adopted; one that hasn't
+  // is our own fresh initiator session, where the glare rule decides. Absent on
+  // rows written before this field existed → treated as true (they're working
+  // conversations). Not indexed → no schema version bump.
+  received_ok?: boolean;
 }
 
 export interface MessageRow {
