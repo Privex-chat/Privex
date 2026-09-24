@@ -101,6 +101,14 @@ export const workerMessageCrypto: MessageCryptoApi = {
 const now = () => Math.floor(Date.now() / 1000);
 const messages = () => new EncryptedMessages(db);
 
+/** Status of the local notice row shown when a contact's message can't be
+ *  decrypted (the row has no content). */
+export const UNDECRYPTABLE = "undecryptable";
+
+// The server keeps a queued message for at most 60 days (docs 4.12); a redelivery
+// can't arrive after that, so processed ids older than this are useless.
+const RECEIVED_RETENTION_SECS = 61 * 24 * 3600;
+
 // --- identity + sender cert caches ---
 
 let bundleCache: IdentityBundle | null = null;
@@ -373,6 +381,59 @@ export async function sendFile(
 
 // --- receive ---
 
+/** Ack a delivery so the server hard-deletes it, and remember its id so a
+ *  redelivered copy (the ack itself can fail on a flaky network) is simply acked
+ *  again instead of re-processed - by then the ratchet has moved on, and
+ *  re-processing would misreport it as undecryptable. */
+async function ackDelivered(messageId: string): Promise<void> {
+  await db.received.put({ message_id: messageId, at: now() });
+  await api.ackMessages([messageId], token());
+}
+
+/** Drop processed-id records older than any possible redelivery. */
+export async function pruneReceived(): Promise<void> {
+  await db.received.where("at").below(now() - RECEIVED_RETENTION_SECS).delete();
+}
+
+/** True if the crypto engine works: seal a byte to ourselves and open it. Asked
+ *  before discarding a message that failed to decrypt, so a broken worker/WASM
+ *  can never be mistaken for "this message can't be decrypted" - that case
+ *  throws instead, leaving the message queued for a retry. */
+async function cryptoEngineHealthy(crypto: MessageCryptoApi, me: IdentityBundle): Promise<boolean> {
+  try {
+    const probe = await crypto.sealedSenderEncrypt(
+      new Uint8Array([1]),
+      await myCert(crypto, me),
+      me.identity.x25519_pub,
+    );
+    await crypto.sealedSenderDecrypt(probe, me.identity.x25519_priv, now());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Record that a message from a known, verified contact couldn't be decrypted
+ *  (shown in the conversation, like Signal). Never for unverified senders - a
+ *  forged certificate must not be able to plant notices in someone else's
+ *  conversation - and consecutive failures collapse into one notice. */
+async function noteUndecryptable(peerId: string, messageId: string, anchor?: number): Promise<void> {
+  const rows = await db.messages.where("session_id").equals(peerId).sortBy("created_at");
+  if (rows[rows.length - 1]?.status === UNDECRYPTABLE) return;
+  await messages().add({
+    msg_id: messageId,
+    session_id: peerId,
+    content: "",
+    timestamp: now(),
+    server_anchor: anchor,
+    created_at: Date.now(),
+    status: UNDECRYPTABLE,
+    direction: "in",
+    kind: "text",
+  });
+  emitMessage({ peerId });
+}
+
 export interface WSMessage {
   message_id: string;
   content: string; // base64 sealed blob
@@ -387,6 +448,12 @@ export async function receiveMessage(
   crypto: MessageCryptoApi = workerMessageCrypto,
   verifyTime?: VerifyEd25519,
 ): Promise<void> {
+  // Already finished with this delivery (our earlier ack didn't land): ack again.
+  if (await db.received.get(ws.message_id)) {
+    await api.ackMessages([ws.message_id], token());
+    return;
+  }
+
   // Time anchor first (docs 9.6): verify the signed delivery timestamp against
   // the pinned key + local clock. Runs on EVERY frame (more drift samples); an
   // invalid/absent signature yields no anchor but never drops the message.
@@ -400,9 +467,20 @@ export async function receiveMessage(
   // and must not show as "unverified" just because we were away for a day.
   // No valid signed anchor → the local clock, as before.
   const certCheckTime = time.anchor ?? now();
-  const opened = await crypto.sealedSenderDecrypt(blob, me.identity.x25519_priv, certCheckTime);
+  let opened: SealedOpened;
+  let env: ReturnType<typeof decodeEnvelope>;
+  try {
+    opened = await crypto.sealedSenderDecrypt(blob, me.identity.x25519_priv, certCheckTime);
+    env = decodeEnvelope(opened.plaintext);
+  } catch (e) {
+    // Not sealed to us, tampered, or malformed: no key we hold will ever open it.
+    // Ack it so it isn't redelivered on every reconnect for its whole TTL -
+    // unless the crypto engine itself is failing, in which case keep it queued.
+    if (!(await cryptoEngineHealthy(crypto, me))) throw e;
+    await ackDelivered(ws.message_id);
+    return;
+  }
   const senderId = opened.senderId;
-  const env = decodeEnvelope(opened.plaintext);
 
   // Pin the cert's signing key to any identity key we already hold for this
   // sender (docs 8.2 key-change detection on receive). A mismatch means the
@@ -418,7 +496,7 @@ export async function receiveMessage(
   // me.userId is only producible with our own identity key.
   if (env.deviceSync) {
     if (senderId !== me.userId || !opened.senderVerified) {
-      await api.ackMessages([ws.message_id], token()); // forged/garbage - drop
+      await ackDelivered(ws.message_id); // forged/garbage - drop
       return;
     }
     if (toHex(env.deviceSync.toDevice) !== (await myDeviceId())) {
@@ -433,7 +511,7 @@ export async function receiveMessage(
     } catch {
       // Unlinked origin or undecryptable - ack anyway so it can't redeliver forever.
     }
-    await api.ackMessages([ws.message_id], token());
+    await ackDelivered(ws.message_id);
     return;
   }
 
@@ -442,7 +520,7 @@ export async function receiveMessage(
   // so the server deletes it (no redelivery). Messages sent while blocked are simply
   // not delivered (WhatsApp-style).
   if (await isBlocked(senderId)) {
-    await api.ackMessages([ws.message_id], token());
+    await ackDelivered(ws.message_id);
     return;
   }
 
@@ -463,7 +541,7 @@ export async function receiveMessage(
       opened.senderX25519Pub.length === 32 &&
       toHex(opened.senderX25519Pub) === toHex(env.pqxdh.alice_ik_pub);
     if (!bound) {
-      await api.ackMessages([ws.message_id], token());
+      await ackDelivered(ws.message_id);
       return;
     }
   }
@@ -492,7 +570,7 @@ export async function receiveMessage(
       // decrypted (no session to open it). Leaving it un-acked made the server
       // redeliver it on every reconnect for its full 30-day TTL. Ack-and-drop
       // (mirrors the glare path below) so it can't wedge the queue (PVX-13).
-      await api.ackMessages([ws.message_id], token());
+      await ackDelivered(ws.message_id);
       return;
     }
     let dec;
@@ -504,10 +582,15 @@ export async function receiveMessage(
       // decrypted with it - drop it (acked, no redelivery loop). They re-send once
       // they adopt our handshake.
       if (env.pqxdh) {
-        await api.ackMessages([ws.message_id], token());
+        await ackDelivered(ws.message_id);
         return;
       }
-      throw e;
+      // Can never decrypt on this session. Ack it (tell the user, if it's a
+      // verified contact) - unless the crypto engine itself is failing.
+      if (!(await cryptoEngineHealthy(crypto, me))) throw e;
+      if (verified) await noteUndecryptable(senderId, ws.message_id, time.anchor);
+      await ackDelivered(ws.message_id);
+      return;
     }
     await saveRatchetState(senderId, dec.newState);
     plaintextBytes = dec.plaintext;
@@ -517,20 +600,31 @@ export async function receiveMessage(
       pq.opk_used && pq.opk_id
         ? me.opks.find((o) => o.id === pq.opk_id)?.priv ?? new Uint8Array(0)
         : new Uint8Array(0);
-    const shared = await crypto.pqxdhRespond(
-      {
-        alice_ik_pub: pq.alice_ik_pub,
-        alice_ek_pub: pq.alice_ek_pub,
-        kyber_ciphertext: pq.kyber_ciphertext,
-        opk_used: pq.opk_used,
-      },
-      me.identity.x25519_priv,
-      me.spk.priv,
-      opkPriv,
-      me.identity.kyber1024_priv,
-    );
-    const bobState = await crypto.ratchetInitBob(shared, me.spk.priv, me.spk.pub);
-    const dec = await crypto.ratchetDecrypt(bobState, env.ciphertext, env.header);
+    let dec: RatchetDecrypted;
+    try {
+      const shared = await crypto.pqxdhRespond(
+        {
+          alice_ik_pub: pq.alice_ik_pub,
+          alice_ek_pub: pq.alice_ek_pub,
+          kyber_ciphertext: pq.kyber_ciphertext,
+          opk_used: pq.opk_used,
+        },
+        me.identity.x25519_priv,
+        me.spk.priv,
+        opkPriv,
+        me.identity.kyber1024_priv,
+      );
+      const bobState = await crypto.ratchetInitBob(shared, me.spk.priv, me.spk.pub);
+      dec = await crypto.ratchetDecrypt(bobState, env.ciphertext, env.header);
+    } catch (e) {
+      // The handshake can't complete (a prekey we no longer hold, or an
+      // impersonation attempt that copied someone's public key). Nothing was
+      // changed; ack it, telling the user only if it's an existing contact.
+      if (!(await cryptoEngineHealthy(crypto, me))) throw e;
+      if (priorStatus) await noteUndecryptable(senderId, ws.message_id, time.anchor);
+      await ackDelivered(ws.message_id);
+      return;
+    }
     await createInboundSession(senderId, dec.newState);
     // Store the reply target (Alice's X25519 IK) + the cert's authentic identity
     // key (px_id is bound to it), unless it conflicts with one we already hold.
@@ -543,7 +637,16 @@ export async function receiveMessage(
     plaintextBytes = dec.plaintext;
   }
 
-  const content = decodeContent(plaintextBytes);
+  // From here the ratchet has stepped: a redelivered copy can never decrypt again,
+  // so any failure below must still end in an ack.
+  let content: ReturnType<typeof decodeContent>;
+  try {
+    content = decodeContent(plaintextBytes);
+  } catch {
+    await noteUndecryptable(senderId, ws.message_id, time.anchor);
+    await ackDelivered(ws.message_id);
+    return;
+  }
 
   // Contact REQUEST: the sender wants to add us (they're now pending_inbound, set
   // by the session logic above). GLARE: if we had ALREADY requested them
@@ -552,7 +655,7 @@ export async function receiveMessage(
     if (priorStatus === "pending_outbound") {
       await acceptContactRequest(senderId, crypto); // → accepted + send contact_accept
     }
-    await api.ackMessages([ws.message_id], token());
+    await ackDelivered(ws.message_id);
     emitContactsChanged();
     return;
   }
@@ -560,7 +663,7 @@ export async function receiveMessage(
   // Contact ACCEPT: a peer we requested has accepted us → pending_outbound → accepted.
   if (content.contactAccept) {
     if (priorStatus === "pending_outbound") await acceptContact(senderId);
-    await api.ackMessages([ws.message_id], token());
+    await ackDelivered(ws.message_id);
     emitContactsChanged();
     return;
   }
@@ -570,7 +673,7 @@ export async function receiveMessage(
   // messages we sent to exactly this peer. No chat row, no timestamps kept.
   if (content.receipt) {
     await applyIncomingReceipt(senderId, content.receipt.tokenId, content.receipt.type);
-    await api.ackMessages([ws.message_id], token());
+    await ackDelivered(ws.message_id);
     return;
   }
 
@@ -578,7 +681,14 @@ export async function receiveMessage(
   let kind: "text" | "file";
   let sentAt: number;
   if (content.file) {
-    const meta: FileMeta = await materializeIncoming(content.file, me.identity.x25519_priv);
+    let meta: FileMeta;
+    try {
+      meta = await materializeIncoming(content.file, me.identity.x25519_priv);
+    } catch {
+      await noteUndecryptable(senderId, ws.message_id, time.anchor);
+      await ackDelivered(ws.message_id);
+      return;
+    }
     stored = JSON.stringify(meta);
     kind = "file";
     sentAt = content.file.sentAt;
@@ -587,7 +697,10 @@ export async function receiveMessage(
     kind = "text";
     sentAt = content.text.sentAt;
   } else {
-    throw new Error("unsupported message content");
+    // A content type this build doesn't know (e.g. from a newer app version):
+    // nothing to show. Ack so it isn't redelivered forever.
+    await ackDelivered(ws.message_id);
+    return;
   }
 
   // Receipt request (docs 4.10): keep the sender's token so the read receipt can
@@ -613,6 +726,6 @@ export async function receiveMessage(
   await messages().add(row);
   void backupMessage(row); // best-effort history backup (no-op unless enabled)
   if (rr?.requestDelivery) await queueDeliveryReceipt(senderId, rr.tokenId);
-  await api.ackMessages([ws.message_id], token());
+  await ackDelivered(ws.message_id);
   emitMessage({ peerId: senderId });
 }

@@ -3,7 +3,7 @@
 // ["privex", <ticket>]. Inbound messages flow to receiveMessage; server pings are
 // answered with pong; drops reconnect with exponential backoff (cap 300s).
 import * as api from "../api/client";
-import { receiveMessage } from "./messaging";
+import { pruneReceived, receiveMessage } from "./messaging";
 import { flushOutbox } from "./outbox";
 
 const MAX_BACKOFF = 300_000;
@@ -55,6 +55,7 @@ function wsUrl(): string {
 export async function connectWebSocket(sessionToken: string): Promise<void> {
   token = sessionToken;
   stopped = false;
+  void pruneReceived().catch(() => {}); // housekeeping; never blocks connecting
   await open(++gen);
 }
 
@@ -176,8 +177,10 @@ async function handleFrame(data: string): Promise<void> {
             server_ts_sig: frame.server_ts_sig,
           });
         } catch {
-          // Never log message contents. Undecryptable frames are left un-acked so
-          // the server may redeliver after the session is established.
+          // Never log message contents. receiveMessage acks everything it can
+          // never decrypt; a throw means a transient local failure (crypto engine,
+          // storage, network), so the frame stays un-acked and is retried on the
+          // next delivery.
         }
       }
       break;
