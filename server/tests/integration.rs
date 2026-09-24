@@ -1213,6 +1213,41 @@ async fn server_end_to_end() {
         .unwrap();
     assert_eq!(dup["stored"], 1, "duplicate opk_id must not be counted");
 
+    // Account recovery REPLACES the whole inventory: the old prekeys' private
+    // halves died with the lost device, so none of them may be served again -
+    // even though the recovered device reuses the same ids.
+    let fresh: Vec<String> = (0..5).map(|_| rand_hex(32)).collect();
+    let fresh_opks: Vec<serde_json::Value> = fresh
+        .iter()
+        .enumerate()
+        .map(|(i, p)| serde_json::json!({ "opk_id": i as i32 + 1, "opk_x25519_pub": p }))
+        .collect();
+    let replaced: serde_json::Value = http
+        .post(format!("{base}/keys/prekeys/replenish"))
+        .header("X-Privex-Auth", &bob_token)
+        .json(&serde_json::json!({ "opks": fresh_opks, "replace": true }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replaced["stored"], 5);
+    assert_eq!(
+        count_opks(bob.user_id.clone()).await,
+        5,
+        "replace must drop every old prekey"
+    );
+    let after_replace: serde_json::Value = fetch_bundle(&state.redis, &http, &base, &bob.user_id)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        fresh.contains(&after_replace["opk"].as_str().unwrap().to_string()),
+        "only a replacement prekey may be served"
+    );
+
     // Concurrent fetches must not return the same OPK. Pre-solve both PoWs so the
     // two POSTs actually race (exercises the FOR UPDATE SKIP LOCKED OPK consume).
     let body_a = serde_json::json!({ "pow": test_pow_proof(&state.redis).await });

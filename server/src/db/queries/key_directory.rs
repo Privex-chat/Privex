@@ -114,6 +114,40 @@ pub async fn insert_one_time_prekey(
     Ok(result.rows_affected())
 }
 
+/// Atomically REPLACE a user's whole one-time-prekey inventory (used by account
+/// recovery). The previous prekeys' private halves died with the lost device, so
+/// any left behind would still be served to peers, whose first message the
+/// recovered device could then never decrypt. Returns the number stored.
+pub async fn replace_one_time_prekeys(
+    pool: &PgPool,
+    user_id: &str,
+    opks: &[(i32, Vec<u8>)],
+) -> sqlx::Result<u64> {
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        r#"DELETE FROM one_time_prekeys WHERE user_id = $1"#,
+        user_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    let mut stored = 0;
+    for (opk_id, opk_x25519_pub) in opks {
+        stored += sqlx::query!(
+            r#"INSERT INTO one_time_prekeys (user_id, opk_id, opk_x25519_pub)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, opk_id) DO NOTHING"#,
+            user_id,
+            opk_id,
+            opk_x25519_pub,
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    }
+    tx.commit().await?;
+    Ok(stored)
+}
+
 /// Serve exactly one prekey and delete it (single-use). None if exhausted.
 /// Uses FOR UPDATE SKIP LOCKED so concurrent fetches claim DIFFERENT prekeys
 /// (never the same one).

@@ -251,6 +251,10 @@ pub struct OpkItem {
 #[derive(Deserialize)]
 pub struct ReplenishReq {
     opks: Vec<OpkItem>,
+    /// Replace the WHOLE inventory instead of adding to it (account recovery:
+    /// the old prekeys' private halves are gone). Absent = add (legacy clients).
+    #[serde(default)]
+    replace: bool,
 }
 
 #[derive(Serialize)]
@@ -272,19 +276,33 @@ pub async fn replenish(
         return Err(ApiError::bad_request());
     }
     crate::routes::rate_limit(&st, "replenish", &user_id, 20, 60).await?;
-    let mut stored = 0i64;
+    // Validate the whole batch before touching the DB.
+    let mut opks = Vec::with_capacity(body.opks.len());
     for item in &body.opks {
         let pk = hexd(&item.opk_x25519_pub)?;
         if pk.len() != X25519_PUB {
             return Err(ApiError::bad_request());
         }
+        opks.push((item.opk_id, pk));
+    }
+    let stored = if body.replace {
+        kd::replace_one_time_prekeys(&st.db, &user_id, &opks)
+            .await
+            .map_err(|_| ApiError::internal())?
+    } else {
         // rows_affected is 0 for a duplicate opk_id → stored reflects only the
         // OPKs actually added.
-        stored += kd::insert_one_time_prekey(&st.db, &user_id, item.opk_id, &pk)
-            .await
-            .map_err(|_| ApiError::internal())? as i64;
-    }
-    Ok(Json(ReplenishResp { stored }))
+        let mut stored = 0u64;
+        for (opk_id, pk) in &opks {
+            stored += kd::insert_one_time_prekey(&st.db, &user_id, *opk_id, pk)
+                .await
+                .map_err(|_| ApiError::internal())?;
+        }
+        stored
+    };
+    Ok(Json(ReplenishResp {
+        stored: stored as i64,
+    }))
 }
 
 // --- POST /keys/spk/rotate (auth) ---
