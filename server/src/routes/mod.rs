@@ -54,48 +54,61 @@ fn log_suspicious_pow_solve(suspicion: u32, solve_time_ms: u64, min_expected: u6
     }
 }
 
-/// Consume + verify a single-use PoW solution. Returns 400 on any failure (unknown
-/// / used / expired challenge, wrong length, bad math). A valid-but-impossibly-fast
-/// solve is ACCEPTED but bumps aggregate suspicion (raising difficulty for everyone)
-/// - never rejected, since fast hardware is legitimate. No IP/user/identity is read
-/// or logged. This is the only privacy-preserving gate for the public,
-/// target-revealing endpoints (key fetch, KT proof, OPAQUE login init).
+/// How long a verify may wait for a memory-hard evaluation slot before giving up
+/// with 429. Issuance is uncapped (stateless tickets), so this bound - not an
+/// issuance limit - is what keeps a burst of pre-filter-passing solutions from
+/// queueing without limit. Legit load never waits anywhere near this long.
+const POW_VERIFY_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Verify a single-use PoW solution against a signed ticket (pow_ticket.rs).
+/// Returns 400 on any failure (forged / expired / replayed ticket, bad math). A
+/// valid-but-impossibly-fast solve is ACCEPTED but bumps aggregate suspicion
+/// (raising difficulty for everyone) - never rejected, since fast hardware is
+/// legitimate. No IP/user/identity is read or logged. This is the only
+/// privacy-preserving gate for the public, target-revealing endpoints (key
+/// fetch, KT proof, OPAQUE login init, share fetch, rendezvous post).
 ///
-/// The scheme is whatever was BOUND to the challenge at issue time: legacy
-/// SHA-only, or the Argon2id hybrid (docs 8.5.1). The server's own Argon2id
-/// verification work is bounded by the /auth/pow_challenge issuance cap (a
-/// verify requires consuming a real challenge) and by the cheap SHA pre-filter
-/// inside hybrid_valid (garbage dies before the memory-hard evaluation).
+/// Order matters - each step only runs if the cheaper one before it passed:
+///   1. ticket MAC + expiry (no I/O)
+///   2. SHA-256 pre-filter (one hash). Garbage stops here WITHOUT consuming the
+///      ticket: it leaves no Redis state and costs the server one hash the
+///      attacker could compute locally, so it's neither an oracle nor a work loop.
+///   3. mark the ticket spent (Redis SET NX) - anything reaching real
+///      verification work consumes its ticket, valid or not (docs 8.5).
+///   4. Argon2id layer (hybrid tickets), off the async threads, bounded by the
+///      concurrency semaphore.
 pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiError> {
-    // Validate PoW proof structure BEFORE touching Redis
-    if !validate::validate_pow_challenge_id(&pow.challenge_id) {
+    let now_ms = pow_difficulty::unix_ts_ms();
+    let sol = validate::validate_solution_hash(&pow.solution_hash)?;
+    let ticket = crate::pow_ticket::open(&st.config.pow_ticket_key, &pow.challenge_id)
+        .ok_or_else(ApiError::bad_request)?;
+    let now = crate::now_unix();
+    if now >= ticket.expires_at {
         return Err(ApiError::bad_request());
     }
-    let sol = validate::validate_solution_hash(&pow.solution_hash)?;
+    if !crate::powcheck::sha_prefilter_ok(&ticket.challenge, pow.nonce, ticket.difficulty) {
+        return Err(ApiError::bad_request());
+    }
+    let first_use =
+        crate::rds::spend_pow_ticket(&st.redis, &ticket.id, ticket.expires_at - now + 1)
+            .await
+            .map_err(|_| ApiError::internal())?;
+    if !first_use {
+        return Err(ApiError::bad_request()); // replay
+    }
 
-    let cid = sqlx::types::Uuid::parse_str(&pow.challenge_id).map_err(|_| ApiError::bad_request())?;
-    let now_ms = pow_difficulty::unix_ts_ms();
-    let consumed = crate::rds::take_pow_challenge(&st.redis, &cid.to_string())
-        .await
-        .map_err(|_| ApiError::internal())?
-        .ok_or_else(ApiError::bad_request)?; // unknown / used / expired
-
-    let (valid, min_expected) = match consumed.argon {
+    let (valid, min_expected) = match ticket.argon {
         Some(argon) => {
             // The Argon2id evaluation is tens of ms of sync CPU + a ~32 MiB
-            // allocation - run it off the async worker threads. Bound how many
-            // run at once: the challenge-issuance cap limits the RATE, but an
-            // attacker can hoard valid challenges (10-min TTL) and burst their
-            // solutions, so a concurrency permit is what actually caps peak
-            // memory. The permit is held across the blocking eval.
-            let _permit = st
-                .pow_verify_sem
-                .acquire()
+            // allocation - run it off the async worker threads, and cap how many
+            // run at once (peak memory). Waiting for a slot is bounded too.
+            let _permit = tokio::time::timeout(POW_VERIFY_WAIT, st.pow_verify_sem.acquire())
                 .await
+                .map_err(|_| ApiError::rate_limited())?
                 .map_err(|_| ApiError::internal())?;
-            let challenge = consumed.challenge_data.clone();
+            let challenge = ticket.challenge;
             let nonce = pow.nonce;
-            let sha_difficulty = consumed.difficulty;
+            let sha_difficulty = ticket.difficulty;
             let sol_owned = sol.clone();
             let valid = tokio::task::spawn_blocking(move || {
                 crate::powcheck::hybrid_valid(&challenge, nonce, sha_difficulty, &argon, &sol_owned)
@@ -104,22 +117,24 @@ pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiE
             .map_err(|_| ApiError::internal())?;
             (
                 valid,
-                pow_difficulty::minimum_hybrid_solve_ms(consumed.difficulty, argon.difficulty),
+                pow_difficulty::minimum_hybrid_solve_ms(ticket.difficulty, argon.difficulty),
             )
         }
         None => (
-            crate::powcheck::pow_valid(&consumed.challenge_data, pow.nonce, consumed.difficulty, &sol),
-            pow_difficulty::minimum_solve_ms(consumed.difficulty),
+            crate::powcheck::pow_valid(&ticket.challenge, pow.nonce, ticket.difficulty, &sol),
+            pow_difficulty::minimum_solve_ms(ticket.difficulty),
         ),
     };
     if !valid {
         return Err(ApiError::bad_request());
     }
 
-    let solve_time_ms = now_ms.saturating_sub(consumed.issued_at_ms);
+    let solve_time_ms = now_ms.saturating_sub(ticket.issued_at_ms);
     if solve_time_ms < min_expected {
-        let suspicion = pow_difficulty::increment_suspicion(&st.redis).await.unwrap_or(0);
-        log_suspicious_pow_solve(suspicion, solve_time_ms, min_expected, consumed.difficulty);
+        let suspicion = pow_difficulty::increment_suspicion(&st.redis)
+            .await
+            .unwrap_or(0);
+        log_suspicious_pow_solve(suspicion, solve_time_ms, min_expected, ticket.difficulty);
     }
     Ok(())
 }
