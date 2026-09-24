@@ -6,7 +6,13 @@
 import * as api from "../api/client";
 import { cryptoCall } from "../workers/crypto-client";
 import { useAuth } from "../store/auth";
-import { loadBundle } from "../onboarding/store";
+import { loadBundle, saveBundle } from "../onboarding/store";
+import {
+  OPK_LOW_WATER,
+  replenishOpks,
+  rotateSpkIfDue,
+  type PrekeyCryptoApi,
+} from "./prekeys";
 import type { IdentityBundle } from "../crypto/onboarding-crypto";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { db } from "../db";
@@ -137,6 +143,34 @@ async function myCert(crypto: MessageCryptoApi, me: IdentityBundle): Promise<Uin
   );
   certCache = { cert, expiresAt: t + CERT_VALID_SECONDS };
   return cert;
+}
+
+export const workerPrekeyCrypto: PrekeyCryptoApi = {
+  generateOpks: (start, count) => cryptoCall("generate_opks", [start, count]),
+  generateSignedSpk: (ed, dil) => cryptoCall("generate_signed_spk", [ed, dil]),
+};
+
+let upkeepRunning = false;
+/** Prekey upkeep (services/prekeys.ts): rotate the signed prekey when due and top
+ *  up one-time prekeys. `serverLow` = the server reported its one-time supply is
+ *  low (WS prekey_low). Runs on the cached identity so the in-memory copy stays
+ *  current. Best-effort: never throws; one run at a time. */
+export async function prekeyUpkeep(
+  serverLow = false,
+  pc: PrekeyCryptoApi = workerPrekeyCrypto,
+): Promise<void> {
+  if (upkeepRunning) return;
+  upkeepRunning = true;
+  try {
+    const me = await myBundle();
+    const tok = token();
+    await rotateSpkIfDue(me, pc, tok, now()).catch(() => {});
+    await replenishOpks(me, pc, tok, serverLow).catch(() => {});
+  } catch {
+    // not authenticated / identity not loaded - retried on the next trigger
+  } finally {
+    upkeepRunning = false;
+  }
 }
 
 /** Reset cached identity/cert (call on sign-out). */
@@ -613,32 +647,48 @@ export async function receiveMessage(
       pq.opk_used && pq.opk_id
         ? me.opks.find((o) => o.id === pq.opk_id)?.priv ?? new Uint8Array(0)
         : new Uint8Array(0);
-    let dec: RatchetDecrypted;
-    try {
-      const shared = await crypto.pqxdhRespond(
-        {
-          alice_ik_pub: pq.alice_ik_pub,
-          alice_ek_pub: pq.alice_ek_pub,
-          kyber_ciphertext: pq.kyber_ciphertext,
-          opk_used: pq.opk_used,
-        },
-        me.identity.x25519_priv,
-        me.spk.priv,
-        opkPriv,
-        me.identity.kyber1024_priv,
-      );
-      const bobState = await crypto.ratchetInitBob(shared, me.spk.priv, me.spk.pub);
-      dec = await crypto.ratchetDecrypt(bobState, env.ciphertext, env.header);
-    } catch (e) {
+    // The handshake targets our current signed prekey - or, if it was sent before
+    // a rotation, one of the previous ones (the init doesn't say which): try each.
+    let dec: RatchetDecrypted | undefined;
+    let lastErr: unknown;
+    for (const spk of [me.spk, ...(me.prevSpks ?? [])]) {
+      try {
+        const shared = await crypto.pqxdhRespond(
+          {
+            alice_ik_pub: pq.alice_ik_pub,
+            alice_ek_pub: pq.alice_ek_pub,
+            kyber_ciphertext: pq.kyber_ciphertext,
+            opk_used: pq.opk_used,
+          },
+          me.identity.x25519_priv,
+          spk.priv,
+          opkPriv,
+          me.identity.kyber1024_priv,
+        );
+        const bobState = await crypto.ratchetInitBob(shared, spk.priv, spk.pub);
+        dec = await crypto.ratchetDecrypt(bobState, env.ciphertext, env.header);
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!dec) {
       // The handshake can't complete (a prekey we no longer hold, or an
       // impersonation attempt that copied someone's public key). Nothing was
       // changed; ack it, telling the user only if it's an existing contact.
-      if (!(await cryptoEngineHealthy(crypto, me))) throw e;
+      if (!(await cryptoEngineHealthy(crypto, me))) throw lastErr;
       if (priorStatus) await noteUndecryptable(senderId, ws.message_id, time.anchor);
       await ackDelivered(ws.message_id);
       return;
     }
     await createInboundSession(senderId, dec.newState);
+    // One-time prekeys are ONE-time: forget the private half now that it's used
+    // (docs 4.3), and top up if that leaves us low.
+    if (pq.opk_used && me.opks.some((o) => o.id === pq.opk_id)) {
+      me.opks = me.opks.filter((o) => o.id !== pq.opk_id);
+      await saveBundle(me);
+      if (me.opks.length < OPK_LOW_WATER) void prekeyUpkeep();
+    }
     // Store the reply target (Alice's X25519 IK) + the cert's authentic identity
     // key (px_id is bound to it), unless it conflicts with one we already hold.
     await upsertInboundContact(

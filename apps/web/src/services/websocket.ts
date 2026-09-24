@@ -3,7 +3,7 @@
 // ["privex", <ticket>]. Inbound messages flow to receiveMessage; server pings are
 // answered with pong; drops reconnect with exponential backoff (cap 300s).
 import * as api from "../api/client";
-import { pruneReceived, receiveMessage } from "./messaging";
+import { prekeyUpkeep, pruneReceived, receiveMessage } from "./messaging";
 import { flushOutbox } from "./outbox";
 
 const MAX_BACKOFF = 300_000;
@@ -56,6 +56,7 @@ export async function connectWebSocket(sessionToken: string): Promise<void> {
   token = sessionToken;
   stopped = false;
   void pruneReceived().catch(() => {}); // housekeeping; never blocks connecting
+  void prekeyUpkeep(); // rotate the signed prekey when due, top up one-time prekeys
   await open(++gen);
 }
 
@@ -187,11 +188,10 @@ async function handleFrame(data: string): Promise<void> {
     case "ping":
       send({ type: "pong" });
       break;
-    // ponytail: prekey_low replenish needs new OPK privs persisted into the
-    // identity bundle (so future inbound sessions can use them). The 50 OPKs from
-    // onboarding cover the checkpoint; on drain the server falls back to no-OPK
-    // 3-DH (already supported). Wire full replenish when sustained load needs it.
+    // The server's one-time prekey supply is low (docs 11): top it up. The new
+    // private halves are persisted before the public halves are uploaded.
     case "prekey_low":
+      void prekeyUpkeep(true);
       break;
     // key_change_alert is advisory; clients detect changes by re-verifying KT on
     // fetch (isKeyChanged). No server-trusted action taken here.

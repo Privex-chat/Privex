@@ -46,6 +46,9 @@ function serialize(b: IdentityBundle, includeMnemonic: boolean): string {
     spk: { pub: toHex(b.spk.pub), priv: toHex(b.spk.priv) },
     spkSig: { ed: toHex(b.spkSig.ed), dil: toHex(b.spkSig.dil) },
     opks: b.opks.map((o) => ({ id: o.id, pub: toHex(o.pub), priv: toHex(o.priv) })),
+    prevSpks: (b.prevSpks ?? []).map((k) => ({ pub: toHex(k.pub), priv: toHex(k.priv) })),
+    spkRotateAfter: b.spkRotateAfter,
+    spkPending: b.spkPending,
   });
 }
 
@@ -67,6 +70,9 @@ interface SerBundle {
   spk: { pub: string; priv: string };
   spkSig: { ed: string; dil: string };
   opks: { id: number; pub: string; priv: string }[];
+  prevSpks?: { pub: string; priv: string }[];
+  spkRotateAfter?: number;
+  spkPending?: boolean;
 }
 
 function deserialize(json: string): IdentityBundle {
@@ -89,6 +95,9 @@ function deserialize(json: string): IdentityBundle {
     spk: { pub: fromHex(s.spk.pub), priv: fromHex(s.spk.priv) },
     spkSig: { ed: fromHex(s.spkSig.ed), dil: fromHex(s.spkSig.dil) },
     opks: s.opks.map((o) => ({ id: o.id, pub: fromHex(o.pub), priv: fromHex(o.priv) })),
+    prevSpks: (s.prevSpks ?? []).map((k) => ({ pub: fromHex(k.pub), priv: fromHex(k.priv) })),
+    spkRotateAfter: s.spkRotateAfter,
+    spkPending: s.spkPending,
   };
 }
 
@@ -133,6 +142,12 @@ export async function loadBundle(key?: CryptoKey): Promise<IdentityBundle | unde
 export async function finalizeIdentity(b: IdentityBundle, key?: CryptoKey): Promise<void> {
   await writeBundle(b, true, await masterKey(key));
   await saveProgress("done", b.userId);
+}
+
+/** Re-persist an already-finalized identity after a key change (prekey upkeep),
+ *  leaving onboarding progress untouched. */
+export async function saveBundle(b: IdentityBundle, key?: CryptoKey): Promise<void> {
+  await writeBundle(b, true, await masterKey(key));
 }
 
 /** Wipe onboarding state (e.g. user restarts an incomplete onboarding). */
