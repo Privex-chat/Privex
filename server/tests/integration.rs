@@ -29,8 +29,9 @@ use sqlx::Row;
 use privex_server::auth::sig::{challenge_signing_input, challenge_signing_input_v1};
 use privex_server::config::Config;
 use privex_server::crypto::{kt_log as ktree, pow_difficulty};
+use privex_server::state::AppState;
 use privex_server::store::MemoryStore;
-use privex_server::{app, build_state_with_store, now_unix, powcheck, rds};
+use privex_server::{app, build_state_with_store, now_unix, pow_ticket, powcheck};
 
 fn to32(hexstr: &str) -> [u8; 32] {
     hex::decode(hexstr).unwrap().try_into().unwrap()
@@ -278,6 +279,20 @@ async fn set_current_registration_pressure(pool: &RedisPool, count: u32) {
         .unwrap();
 }
 
+/// True if the given PoW ticket has a spent marker in Redis. Checks ONE ticket's
+/// key (not a global count), so it's deterministic even with the other tests
+/// spending tickets in parallel.
+async fn ticket_spent(state: &AppState, ticket: &str) -> bool {
+    let t = pow_ticket::open(&state.config.pow_ticket_key, ticket).expect("valid ticket");
+    let mut conn = state.redis.get().await.unwrap();
+    let n: i64 = redis::cmd("EXISTS")
+        .arg(format!("pow:spent:{}", hex::encode(t.id)))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    n == 1
+}
+
 async fn redis_get_i64(pool: &RedisPool, key: &str) -> Option<i64> {
     let mut conn = pool.get().await.unwrap();
     redis::cmd("GET")
@@ -394,25 +409,22 @@ async fn expect_ping(ws: &mut Ws) -> bool {
 }
 
 /// Build a `{ challenge_id, nonce, solution_hash }` PoW proof for the PoW-gated
-/// public fetches. Stores its own low-difficulty challenge directly in Redis,
+/// public fetches. Mints its own low-difficulty ticket with the server's key,
 /// issued in the past so it's never flagged too-fast - fast to solve and it does
 /// NOT touch `reg:challenge_rate`, so the difficulty assertions elsewhere in this
 /// test stay deterministic. Still exercises the real server-side `verify_pow`.
-async fn test_pow_proof(redis: &RedisPool) -> serde_json::Value {
+fn test_pow_proof(state: &AppState) -> serde_json::Value {
     let mut challenge = [0u8; 32];
     getrandom::getrandom(&mut challenge).unwrap();
-    let challenge_id = random_uuid_string();
     let difficulty = 8u32;
-    rds::store_pow_challenge(
-        redis,
-        &challenge_id,
-        &challenge,
+    let challenge_id = pow_ticket::mint(
+        &state.config.pow_ticket_key,
+        challenge,
         difficulty,
-        None, // legacy SHA-only challenge — keeps the pre-hybrid verify path covered
+        None, // legacy SHA-only ticket — keeps the pre-hybrid verify path covered
         pow_difficulty::unix_ts_ms().saturating_sub(10_000),
-        30 * 60,
+        now_unix() + 30 * 60,
     )
-    .await
     .unwrap();
     let (nonce, sol) = powcheck::pow_solve(&challenge, difficulty);
     serde_json::json!({
@@ -424,12 +436,12 @@ async fn test_pow_proof(redis: &RedisPool) -> serde_json::Value {
 
 /// PoW-gated key-bundle fetch (replaces the old unauthenticated GET /keys/{id}).
 async fn fetch_bundle(
-    redis: &RedisPool,
+    state: &AppState,
     http: &reqwest::Client,
     base: &str,
     user_id: &str,
 ) -> reqwest::Response {
-    let body = serde_json::json!({ "pow": test_pow_proof(redis).await });
+    let body = serde_json::json!({ "pow": test_pow_proof(state) });
     http.post(format!("{base}/keys/{user_id}"))
         .json(&body)
         .send()
@@ -542,9 +554,10 @@ async fn server_end_to_end() {
         .unwrap();
     assert_eq!(r.status(), 400, "replayed PoW must be rejected");
 
-    // 4b. An invalid PoW attempt consumes its challenge too. This prevents a
-    // client from reusing one challenge to make the server repeatedly verify
-    // guesses.
+    // 4b. An attempt that reaches real verification consumes its ticket, valid
+    // or not (docs 8.5) - so one ticket can't make the server repeatedly run the
+    // memory-hard check. Here the nonce passes the SHA pre-filter but the
+    // submitted solution_hash is wrong: rejected AND consumed.
     let invalid_pow: serde_json::Value = http
         .post(format!("{base}/auth/pow_challenge"))
         .send()
@@ -555,7 +568,13 @@ async fn server_end_to_end() {
         .unwrap();
     let invalid_challenge_id = invalid_pow["challenge_id"].as_str().unwrap().to_string();
     let invalid_id = new_identity();
-    let invalid_body = register_body(&invalid_id, &invalid_challenge_id, 0, &"00".repeat(32));
+    let (valid_nonce_after_invalid, valid_sol_after_invalid) = solve_issued_pow(&invalid_pow);
+    let invalid_body = register_body(
+        &invalid_id,
+        &invalid_challenge_id,
+        valid_nonce_after_invalid,
+        &"00".repeat(32),
+    );
     let r = http
         .post(format!("{base}/keys/register"))
         .json(&invalid_body)
@@ -563,7 +582,6 @@ async fn server_end_to_end() {
         .await
         .unwrap();
     assert_eq!(r.status(), 400, "invalid PoW must be rejected");
-    let (valid_nonce_after_invalid, valid_sol_after_invalid) = solve_issued_pow(&invalid_pow);
     let retry_after_invalid = register_body(
         &invalid_id,
         &invalid_challenge_id,
@@ -579,8 +597,84 @@ async fn server_end_to_end() {
     assert_eq!(
         r.status(),
         400,
-        "invalid PoW attempt must consume the challenge"
+        "an attempt that reached verification must consume the ticket"
     );
+
+    // 4b-garbage. A nonce that fails the cheap SHA pre-filter is rejected
+    // WITHOUT consuming the ticket: it leaves no Redis state (the spent set can't
+    // be flooded with free tickets) and cost the server one hash. The same
+    // ticket then still works with a real solution.
+    let garbage_pow: serde_json::Value = http
+        .post(format!("{base}/auth/pow_challenge"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let garbage_challenge_id = garbage_pow["challenge_id"].as_str().unwrap().to_string();
+    let (good_nonce, good_sol) = solve_issued_pow(&garbage_pow);
+    let garbage_challenge = hex::decode(garbage_pow["challenge"].as_str().unwrap()).unwrap();
+    let garbage_difficulty = garbage_pow["difficulty"].as_u64().unwrap() as u32;
+    let garbage_nonce = (0u64..)
+        .find(|n| !powcheck::sha_prefilter_ok(&garbage_challenge, *n, garbage_difficulty))
+        .unwrap();
+    let garbage_id = new_identity();
+    let r = http
+        .post(format!("{base}/keys/register"))
+        .json(&register_body(
+            &garbage_id,
+            &garbage_challenge_id,
+            garbage_nonce,
+            &"00".repeat(32),
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 400, "garbage PoW must be rejected");
+    assert!(
+        !ticket_spent(&state, &garbage_challenge_id).await,
+        "garbage must not write to the spent set"
+    );
+    let r = http
+        .post(format!("{base}/keys/register"))
+        .json(&register_body(
+            &garbage_id,
+            &garbage_challenge_id,
+            good_nonce,
+            &good_sol,
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        r.status(),
+        200,
+        "a ticket rejected at the pre-filter is still usable"
+    );
+    assert!(
+        ticket_spent(&state, &garbage_challenge_id).await,
+        "now it is spent"
+    );
+
+    // 4b-uncapped. Issuance is uncapped (stateless tickets): well past the old
+    // 60/min global cap, challenges keep coming and none is stored.
+    for _ in 0..80 {
+        let r = http
+            .post(format!("{base}/auth/pow_challenge"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200, "PoW issuance must not be capped");
+        let issued: serde_json::Value = r.json().await.unwrap();
+        assert!(
+            !ticket_spent(&state, issued["challenge_id"].as_str().unwrap()).await,
+            "issuing a challenge must store nothing"
+        );
+    }
+    // Those 80 requests fed the aggregate pressure counter; reset it so the
+    // difficulty assertions below stay deterministic.
+    clear_pow_pressure(&state.redis).await;
 
     // 4c. Dynamic Redis pressure: 20 recent registrations raises the next
     // challenge to final difficulty 25 without any IP/user/device key. Under the
@@ -613,17 +707,14 @@ async fn server_end_to_end() {
     getrandom::getrandom(&mut fast_challenge).unwrap();
     let fast_difficulty = 22;
     let (fast_nonce, fast_sol) = powcheck::pow_solve(&fast_challenge, fast_difficulty);
-    let fast_challenge_id = random_uuid_string();
-    rds::store_pow_challenge(
-        &state.redis,
-        &fast_challenge_id,
-        &fast_challenge,
+    let fast_challenge_id = pow_ticket::mint(
+        &state.config.pow_ticket_key,
+        fast_challenge,
         fast_difficulty,
-        None, // legacy SHA-only challenge (fast-solve suspicion path)
+        None, // legacy SHA-only ticket (fast-solve suspicion path)
         pow_difficulty::unix_ts_ms() + 60_000,
-        30 * 60,
+        now_unix() + 30 * 60,
     )
-    .await
     .unwrap();
     let fast_id = new_identity();
     let fast_body = register_body(
@@ -1144,7 +1235,7 @@ async fn server_end_to_end() {
     );
 
     // Fetch Bob's bundle: full fields + one OPK + verifiable KT proof.
-    let b1: serde_json::Value = fetch_bundle(&state.redis, &http, &base, &bob.user_id)
+    let b1: serde_json::Value = fetch_bundle(&state, &http, &base, &bob.user_id)
         .await
         .json()
         .await
@@ -1169,7 +1260,7 @@ async fn server_end_to_end() {
     );
 
     // Two fetches consume two DIFFERENT OPKs (Bob registered with 2).
-    let b2: serde_json::Value = fetch_bundle(&state.redis, &http, &base, &bob.user_id)
+    let b2: serde_json::Value = fetch_bundle(&state, &http, &base, &bob.user_id)
         .await
         .json()
         .await
@@ -1250,8 +1341,8 @@ async fn server_end_to_end() {
 
     // Concurrent fetches must not return the same OPK. Pre-solve both PoWs so the
     // two POSTs actually race (exercises the FOR UPDATE SKIP LOCKED OPK consume).
-    let body_a = serde_json::json!({ "pow": test_pow_proof(&state.redis).await });
-    let body_b = serde_json::json!({ "pow": test_pow_proof(&state.redis).await });
+    let body_a = serde_json::json!({ "pow": test_pow_proof(&state) });
+    let body_b = serde_json::json!({ "pow": test_pow_proof(&state) });
     let (ca, cb) = tokio::join!(
         http.post(format!("{base}/keys/{}", bob.user_id)).json(&body_a).send(),
         http.post(format!("{base}/keys/{}", bob.user_id)).json(&body_b).send(),
@@ -1287,7 +1378,7 @@ async fn server_end_to_end() {
     assert_eq!(kt_entries, 2, "register + spk_rotate entries");
 
     // After rotate, the bundle still verifies (new SPK in the leaf).
-    let b3: serde_json::Value = fetch_bundle(&state.redis, &http, &base, &bob.user_id)
+    let b3: serde_json::Value = fetch_bundle(&state, &http, &base, &bob.user_id)
         .await
         .json()
         .await
@@ -1397,7 +1488,7 @@ async fn server_end_to_end() {
     // Login with the CORRECT password → 200 + a 24h token.
     let login_start =
         ClientLogin::<PrivexCipherSuite>::start(&mut OsRng, password.as_bytes()).unwrap();
-    let init_pow = test_pow_proof(&state.redis).await;
+    let init_pow = test_pow_proof(&state);
     let li: serde_json::Value = http
         .post(format!("{base}/recovery/opaque/init"))
         .json(&serde_json::json!({ "user_id": bob.user_id, "credential_request": hex::encode(login_start.message.serialize()), "pow": init_pow }))
@@ -1463,7 +1554,7 @@ async fn server_end_to_end() {
     // client-side and never produces a finalization; the server rejects any
     // finalization that doesn't match its login state.)
     let ls2 = ClientLogin::<PrivexCipherSuite>::start(&mut OsRng, password.as_bytes()).unwrap();
-    let init_pow2 = test_pow_proof(&state.redis).await;
+    let init_pow2 = test_pow_proof(&state);
     let li2: serde_json::Value = http
         .post(format!("{base}/recovery/opaque/init"))
         .json(&serde_json::json!({ "user_id": bob.user_id, "credential_request": hex::encode(ls2.message.serialize()), "pow": init_pow2 }))
@@ -1499,7 +1590,7 @@ async fn server_end_to_end() {
     // recovery attempts before they can mint a token.
     let pending_start =
         ClientLogin::<PrivexCipherSuite>::start(&mut OsRng, password.as_bytes()).unwrap();
-    let pending_pow = test_pow_proof(&state.redis).await;
+    let pending_pow = test_pow_proof(&state);
     let pending_init: serde_json::Value = http
         .post(format!("{base}/recovery/opaque/init"))
         .json(&serde_json::json!({ "user_id": bob.user_id, "credential_request": hex::encode(pending_start.message.serialize()), "pow": pending_pow }))
@@ -1562,7 +1653,7 @@ async fn server_end_to_end() {
 
     let disabled_start =
         ClientLogin::<PrivexCipherSuite>::start(&mut OsRng, password.as_bytes()).unwrap();
-    let disabled_pow = test_pow_proof(&state.redis).await;
+    let disabled_pow = test_pow_proof(&state);
     let disabled_init: serde_json::Value = http
         .post(format!("{base}/recovery/opaque/init"))
         .json(&serde_json::json!({ "user_id": bob.user_id, "credential_request": hex::encode(disabled_start.message.serialize()), "pow": disabled_pow }))
@@ -1685,7 +1776,7 @@ async fn server_end_to_end() {
         .post(format!("{base}/recovery/shares/get"))
         .json(&serde_json::json!({
             "user_id": id.user_id,
-            "pow": test_pow_proof(&state.redis).await,
+            "pow": test_pow_proof(&state),
         }))
         .send()
         .await
@@ -1727,7 +1818,7 @@ async fn server_end_to_end() {
     let ghost_px = format!("px_{}", rand_hex(16));
     let dummies1: serde_json::Value = http
         .post(format!("{base}/recovery/shares/get"))
-        .json(&serde_json::json!({ "user_id": ghost_px, "pow": test_pow_proof(&state.redis).await }))
+        .json(&serde_json::json!({ "user_id": ghost_px, "pow": test_pow_proof(&state) }))
         .send()
         .await
         .unwrap()
@@ -1745,7 +1836,7 @@ async fn server_end_to_end() {
     }
     let dummies2: serde_json::Value = http
         .post(format!("{base}/recovery/shares/get"))
-        .json(&serde_json::json!({ "user_id": ghost_px, "pow": test_pow_proof(&state.redis).await }))
+        .json(&serde_json::json!({ "user_id": ghost_px, "pow": test_pow_proof(&state) }))
         .send()
         .await
         .unwrap()
@@ -1761,7 +1852,7 @@ async fn server_end_to_end() {
     let rid = rand_hex(16); // 32 hex chars = 16-byte recovery_id
     let posted: serde_json::Value = http
         .post(format!("{base}/recovery/rendezvous/{rid}"))
-        .json(&serde_json::json!({ "blob": "cc".repeat(60), "pow": test_pow_proof(&state.redis).await }))
+        .json(&serde_json::json!({ "blob": "cc".repeat(60), "pow": test_pow_proof(&state) }))
         .send()
         .await
         .unwrap()
@@ -1793,7 +1884,7 @@ async fn server_end_to_end() {
     );
     assert_eq!(
         http.post(format!("{base}/recovery/rendezvous/not-a-valid-id"))
-            .json(&serde_json::json!({ "blob": "aa", "pow": test_pow_proof(&state.redis).await }))
+            .json(&serde_json::json!({ "blob": "aa", "pow": test_pow_proof(&state) }))
             .send()
             .await
             .unwrap()

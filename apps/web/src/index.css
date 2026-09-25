@@ -193,3 +193,12 @@
     color-scheme: var(--color-scheme);
   }
 }
+
+/* ScreenRecordGuard watermark drift. Kept here, not in an inline <style>, because
+   the CSP (style-src 'self') blocks inline style elements. */
+@keyframes privex-watermark-shift {
+  0% { background-position: 0 0; }
+  33% { background-position: 16px 10px; }
+  66% { background-position: 8px -6px; }
+  100% { background-position: 0 0; }
+}
