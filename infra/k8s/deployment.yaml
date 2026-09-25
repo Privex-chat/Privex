@@ -6,7 +6,12 @@ metadata:
   labels:
     app.kubernetes.io/name: privex-server
 spec:
-  replicas: 3
+  # ONE pod, on purpose. Live delivery state is in-process: which users are
+  # online (the WS push map) and the device-link rooms. With several pods, a
+  # message sent through pod A to a user connected to pod B would not be pushed
+  # live, and two devices on different pods could never pair. Scaling out needs a
+  # shared fan-out (e.g. Redis pub/sub) first. No HPA and no PDB until then.
+  replicas: 1
   revisionHistoryLimit: 5 # keep prior ReplicaSets so `kubectl rollout undo` works
   selector:
     matchLabels:
@@ -14,7 +19,10 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0 # never drop below `replicas` healthy pods during a roll
+      # The new pod is ready before the old one stops (no downtime). For those
+      # few seconds two pods overlap; a message sent through the new pod to a user
+      # still on the old one waits in the mailbox and arrives on reconnect.
+      maxUnavailable: 0
       maxSurge: 1
   template:
     metadata:
