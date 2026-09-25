@@ -17,6 +17,10 @@ pub struct Config {
     /// per-purpose separation inside Redis comes from the scope string that
     /// rds::keyed() folds into each HMAC.
     pub redis_ns_key: [u8; 32],
+    /// MAC key for stateless login challenges (auth/challenge.rs). Derived via
+    /// HKDF-Expand("privex-auth-challenge"); rotating SESSION_HMAC_KEY only voids
+    /// challenges in flight (90 s).
+    pub auth_challenge_key: [u8; 32],
     /// MAC key for stateless PoW challenge tickets (pow_ticket.rs). Derived via
     /// HKDF-Expand("privex-pow-ticket"); rotating SESSION_HMAC_KEY only voids
     /// tickets still in flight (10-minute lifetime).
@@ -171,6 +175,7 @@ impl Config {
             redis_url: req("REDIS_URL")?,
             token_mac_key: derive_subkey(&session_hmac_key, "privex-session-token"),
             redis_ns_key: derive_subkey(&session_hmac_key, "privex-redis-namespace"),
+            auth_challenge_key: derive_subkey(&session_hmac_key, "privex-auth-challenge"),
             pow_ticket_key: derive_subkey(&session_hmac_key, "privex-pow-ticket"),
             kt_signing_key,
             time_signing_key,
@@ -232,6 +237,7 @@ impl Config {
             redis_url,
             token_mac_key: derive_subkey(&session_hmac_key, "privex-session-token"),
             redis_ns_key: derive_subkey(&session_hmac_key, "privex-redis-namespace"),
+            auth_challenge_key: derive_subkey(&session_hmac_key, "privex-auth-challenge"),
             pow_ticket_key: derive_subkey(&session_hmac_key, "privex-pow-ticket"),
             kt_signing_key: [9u8; 32], // deterministic test KT signer
             time_signing_key: [11u8; 32], // deterministic test time signer
@@ -293,7 +299,9 @@ mod tests {
         let root = [7u8; 32];
         let a = derive_subkey(&root, "privex-session-token");
         let b = derive_subkey(&root, "privex-redis-namespace");
-        let c = derive_subkey(&root, "privex-pow-ticket");
+        let c = derive_subkey(&root, "privex-auth-challenge");
+        let d = derive_subkey(&root, "privex-pow-ticket");
+        assert!(d != a && d != b && d != c && d != root);
         assert!(c != a && c != b && c != root);
         assert_eq!(a, derive_subkey(&root, "privex-session-token"));
         assert_ne!(a, b);
