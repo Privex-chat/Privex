@@ -31,10 +31,10 @@ export async function authenticateBundle(bundle: IdentityBundle): Promise<string
   return res.session_token;
 }
 
-// The auth challenge is single-use per identity (server GETDEL) and rate-limited
-// 5/60s. Two concurrent restores (e.g. React StrictMode double-invoking the boot
-// effect in dev) would each fetch a challenge, overwrite each other's, and both
-// fail verification → a false "offline". Dedupe to a single in-flight attempt.
+// Two concurrent restores (e.g. React StrictMode double-invoking the boot effect
+// in dev) would each run a full challenge/verify round trip. Challenges are
+// stateless and independent now (the server no longer keeps one per account), so
+// that is merely redundant rather than failing - still, dedupe to one attempt.
 let inFlight: Promise<boolean> | null = null;
 
 /** Returns true if a finished identity was found and re-authenticated. A false
