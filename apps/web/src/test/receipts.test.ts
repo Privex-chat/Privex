@@ -71,8 +71,8 @@ const wasmCrypto: MessageCryptoApi = {
   ratchetEncrypt: async (s, p) => mc.ratchetEncrypt(wasm, s, p),
   ratchetDecrypt: async (s, c, h) => mc.ratchetDecrypt(wasm, s, c, h),
   ratchetInitBob: async (sh, sp, pub) => mc.ratchetInitBob(wasm, sh, sp, pub),
-  generateSenderCert: async (id, ep, eP, dp, dP, n, v) =>
-    mc.generateSenderCert(wasm, id, ep, eP, dp, dP, n, v),
+  generateSenderCert: async (id, ep, eP, dp, dP, xP, n, v) =>
+    mc.generateSenderCert(wasm, id, ep, eP, dp, dP, xP, n, v),
   sealedSenderEncrypt: async (m, c, r) => mc.sealedSenderEncrypt(wasm, m, c, r),
   sealedSenderDecrypt: async (b, k, n) => mc.sealedSenderDecrypt(wasm, b, k, n),
   pqxdhRespond: async (i, ik, sp, op, ky) => mc.pqxdhRespond(wasm, i, ik, sp, op, ky),
@@ -115,6 +115,7 @@ function sealedFirst(sender: IdentityBundle, recipient: IdentityBundle, content:
     sender.identity.ed25519_pub,
     sender.identity.dilithium3_priv,
     sender.identity.dilithium3_pub,
+    sender.identity.x25519_pub,
     BigInt(ts),
     BigInt(86_400),
   );
@@ -352,6 +353,7 @@ describe("full loop: send → peer receipt → live status update", () => {
       peer.identity.ed25519_pub,
       peer.identity.dilithium3_priv,
       peer.identity.dilithium3_pub,
+      peer.identity.x25519_pub,
       BigInt(Math.floor(Date.now() / 1000)),
       BigInt(86_400),
     );
