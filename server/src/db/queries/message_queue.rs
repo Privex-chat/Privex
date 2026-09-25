@@ -34,18 +34,44 @@ pub async fn enqueue(
     Ok(row.message_id)
 }
 
-pub async fn dequeue_for_recipient(
+/// One page of a recipient's queue queued at or before `until`, strictly after
+/// the (queued_at, message_id) cursor, oldest first. Paging keeps connect-time
+/// delivery memory at one page however large the mailbox is.
+pub async fn dequeue_page(
     pool: &PgPool,
     recipient_id: &str,
+    until: i32,
+    after: (i32, Uuid),
+    limit: i64,
 ) -> sqlx::Result<Vec<QueuedMessage>> {
     sqlx::query_as!(
         QueuedMessage,
         r#"SELECT message_id, content, queued_at
-           FROM message_queue WHERE recipient_id = $1 ORDER BY queued_at"#,
-        recipient_id
+           FROM message_queue
+           WHERE recipient_id = $1 AND queued_at <= $2
+             AND (queued_at, message_id) > ($3, $4)
+           ORDER BY queued_at, message_id
+           LIMIT $5"#,
+        recipient_id,
+        until,
+        after.0,
+        after.1,
+        limit,
     )
     .fetch_all(pool)
     .await
+}
+
+/// (message count, total bytes) currently queued for a recipient.
+pub async fn mailbox_usage(pool: &PgPool, recipient_id: &str) -> sqlx::Result<(i64, i64)> {
+    let row = sqlx::query!(
+        r#"SELECT COUNT(*) AS "count!", COALESCE(SUM(size_bytes), 0)::BIGINT AS "bytes!"
+           FROM message_queue WHERE recipient_id = $1"#,
+        recipient_id
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok((row.count, row.bytes))
 }
 
 /// Delete messages past their expiry (queued_at + 30 days). Returns the count.

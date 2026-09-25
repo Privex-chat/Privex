@@ -2145,6 +2145,97 @@ async fn pow_argon2_rollback_issues_legacy_sha_only() {
     assert_eq!(r.status(), 200, "SHA-only registration must succeed in rollback");
 }
 
+// #7: per-recipient mailbox caps (count AND bytes) refuse further sends with 429,
+// and a big backlog is streamed to a connecting client in pages - every message
+// exactly once, oldest first - instead of being loaded into memory whole.
+#[tokio::test]
+async fn mailbox_cap_and_paged_backlog() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+
+    let mut config = Config::for_test(database_url.clone(), redis_url, [7u8; 32], 8);
+    config.mailbox_max_messages = 3;
+    config.mailbox_max_bytes = 4_000;
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let (_alice, alice_token) = register_and_auth(&http, &base).await;
+    let send = |to: String, len: usize| {
+        let http = http.clone();
+        let base = base.clone();
+        let tok = alice_token.clone();
+        async move {
+            http.post(format!("{base}/messages/send"))
+                .header("X-Privex-Auth", tok)
+                .json(&serde_json::json!({
+                    "recipient_id": to,
+                    "content": base64::engine::general_purpose::STANDARD.encode(vec![7u8; len]),
+                    "ttl_seconds": 3600,
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    // Count cap: 3 fit, the 4th is refused (the sender's app retries later).
+    let (bob, _) = register_and_auth(&http, &base).await;
+    for _ in 0..3 {
+        assert_eq!(send(bob.user_id.clone(), 100).await, 200);
+    }
+    assert_eq!(send(bob.user_id.clone(), 100).await, 429, "count cap");
+
+    // Byte cap: well under the count cap, but this one would exceed 4,000 bytes.
+    let (carol, _) = register_and_auth(&http, &base).await;
+    assert_eq!(send(carol.user_id.clone(), 1_000).await, 200);
+    assert_eq!(send(carol.user_id.clone(), 3_500).await, 429, "byte cap");
+    assert_eq!(send(carol.user_id.clone(), 2_000).await, 200, "still fits");
+
+    // Paged backlog: 450 queued messages (> 2 pages of 200) arrive exactly once, in
+    // order. Inserted directly (the caps above only gate new sends).
+    let (dave, dave_token) = register_and_auth(&http, &base).await;
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let now = now_unix() as i32;
+    let mut expected = Vec::new();
+    for i in 0..450i32 {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO message_queue (recipient_id, content, queued_at, expires_at, size_bytes) \
+             VALUES ($1, $2, $3, $4, 1) RETURNING message_id",
+        )
+        .bind(&dave.user_id)
+        .bind(vec![1u8])
+        .bind(now - 1000 + i / 10) // several per second: exercises the id tie-break
+        .bind(now + 3600)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        expected.push((now - 1000 + i / 10, id));
+    }
+    expected.sort();
+
+    let ticket = ws_ticket(&http, &base, &dave_token).await;
+    let mut ws = ws_connect(addr, &ticket).await.unwrap();
+    let mut got = Vec::new();
+    for _ in 0..450 {
+        let m = read_until_message(&mut ws).await;
+        got.push((
+            m["queued_at"].as_i64().unwrap() as i32,
+            Uuid::parse_str(m["message_id"].as_str().unwrap()).unwrap(),
+        ));
+    }
+    assert_eq!(got, expected, "every queued message once, oldest first");
+}
+
 // PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
 // an otherwise-valid session token is rejected by the AuthUser extractor (500,
 // treated as transient by clients) instead of silently skipping the check.

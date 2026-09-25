@@ -112,6 +112,18 @@ pub async fn send(
         }));
     }
 
+    // Per-recipient cap (count and bytes): refuse with 429 once a mailbox is full,
+    // so no sender can grow someone's queue without bound. The sender's app parks
+    // the message and retries later (it treats 429 as transient).
+    let (queued, bytes) = message_queue::mailbox_usage(&st.db, &body.recipient_id)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    if queued >= st.config.mailbox_max_messages
+        || bytes + content.len() as i64 > st.config.mailbox_max_bytes
+    {
+        return Err(ApiError::rate_limited());
+    }
+
     let message_id = message_queue::enqueue(
         &st.db,
         &body.recipient_id,
