@@ -147,6 +147,16 @@ export interface ReceiptOutboxRow {
   not_before: number; // 0, or a future time when Receipt Privacy Delay is on
 }
 
+// Server message ids this device has finished with (processed or discarded) and
+// acked. If an ack doesn't land (flaky network), the server redelivers the
+// message; by then the ratchet has moved on, so re-processing would wrongly report
+// it as undecryptable. A hit here just re-sends the ack. Pruned after the longest
+// server-side queue TTL, after which no redelivery can come.
+export interface ReceivedRow {
+  message_id: string;
+  at: number; // unix seconds
+}
+
 export class PrivexDB extends Dexie {
   identity!: Table<IdentityRow, string>;
   sessions!: Table<SessionRow, string>;
@@ -158,6 +168,7 @@ export class PrivexDB extends Dexie {
   outbox!: Table<OutboxRow, number>;
   receipt_outbox!: Table<ReceiptOutboxRow, number>;
   linked_devices!: Table<LinkedDeviceRow, string>;
+  received!: Table<ReceivedRow, string>;
 
   constructor(name = "privex") {
     super(name);
@@ -181,6 +192,10 @@ export class PrivexDB extends Dexie {
     // v4: linked devices for cross-device sync (docs 4.11 Mode C).
     this.version(4).stores({
       linked_devices: "device_id",
+    });
+    // v5: processed server message ids (redelivery dedup - see ReceivedRow).
+    this.version(5).stores({
+      received: "message_id, at",
     });
   }
 }

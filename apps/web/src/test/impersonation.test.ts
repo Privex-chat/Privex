@@ -30,7 +30,12 @@ import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
 import { db } from "../db";
 import * as api from "../api/client";
-import { receiveMessage, resetMessaging, type MessageCryptoApi } from "../services/messaging";
+import {
+  receiveMessage,
+  resetMessaging,
+  UNDECRYPTABLE,
+  type MessageCryptoApi,
+} from "../services/messaging";
 
 beforeAll(async () => {
   await initCrypto({
@@ -173,13 +178,12 @@ describe("sender-certificate replay (impersonation)", () => {
       encodeText("hi, it's Alice", 0),
       alice.identity.x25519_pub,
     );
-    await expect(
-      receiveMessage({ message_id: "x2", content: attack.b64, queued_at: 0 }, wasmCrypto),
-    ).rejects.toThrow();
+    await receiveMessage({ message_id: "x2", content: attack.b64, queued_at: 0 }, wasmCrypto);
 
     expect(await getContact(alice.userId)).toBeUndefined();
     expect(await db.sessions.get(alice.userId)).toBeUndefined();
-    expect(await messagesOf(alice.userId)).toHaveLength(0);
+    expect(await messagesOf(alice.userId)).toHaveLength(0); // stranger: no notice either
+    expect(ackSpy).toHaveBeenCalledWith(["x2"], "test-token"); // discarded, not redelivered
     ackSpy.mockRestore();
   });
 
@@ -211,17 +215,17 @@ describe("sender-certificate replay (impersonation)", () => {
       encodeText("new number, meet me", 0),
       alice.identity.x25519_pub,
     );
-    await expect(
-      receiveMessage({ message_id: "x4", content: copied.b64, queued_at: 0 }, wasmCrypto),
-    ).rejects.toThrow();
+    await receiveMessage({ message_id: "x4", content: copied.b64, queued_at: 0 }, wasmCrypto);
 
-    // Session, stored key, status: all untouched. Only Alice's real message exists.
+    // Session, stored key, status: all untouched. No attacker content is stored;
+    // the failed copy leaves only a "couldn't be decrypted" notice.
     const after = await getContact(alice.userId);
     expect(hex((await db.sessions.get(alice.userId))!.ratchet_state_enc)).toBe(before.session);
     expect(hex(after!.ik_x25519)).toBe(hex(alice.identity.x25519_pub));
     expect(after!.status).toBe("accepted");
     const msgs = await messagesOf(alice.userId);
-    expect(msgs.map((m) => m.content)).toEqual(["hello Carol"]);
+    expect(msgs.filter((m) => m.status !== UNDECRYPTABLE).map((m) => m.content)).toEqual(["hello Carol"]);
+    expect(msgs.some((m) => m.content.includes("meet me"))).toBe(false);
 
     // And Alice's real follow-up still decrypts on the untouched session.
     const follow = sealedFollowUp(genuine.state, carol, aliceCert, encodeText("still me", 0));
