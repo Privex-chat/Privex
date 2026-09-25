@@ -36,6 +36,11 @@ pub struct Config {
     pub opaque_server_setup: Vec<u8>,
     /// PoW leading-zero-bit difficulty for registration challenges.
     pub pow_difficulty: i16,
+    /// Per-recipient queue caps (count / total bytes). A send that would exceed
+    /// either is refused with 429 - the sender's app parks it and retries - so
+    /// nobody can flood a mailbox without bound.
+    pub mailbox_max_messages: i64,
+    pub mailbox_max_bytes: i64,
     /// Argon2id hybrid Layer-2 PoW (docs 8.5.1). ON by default - the memory-hard
     /// layer is what blunts GPU/ASIC farms on every PoW-gated endpoint. The env
     /// switch (POW_ARGON2_ENABLED=false) exists ONLY as an emergency rollback
@@ -56,6 +61,13 @@ pub struct Config {
     /// (startup error otherwise); an empty list (tests only) allows all.
     pub ws_allowed_origins: Vec<String>,
 }
+
+/// 5,000 queued messages per recipient (audit decision D8)...
+pub const MAILBOX_MAX_MESSAGES: i64 = 5_000;
+/// ...or 32 MiB, whichever comes first. A message can be ~190 KB, so the count
+/// cap alone would still allow ~1 GB per mailbox; 32 MiB fits 5,000 ordinary
+/// (1-2 KB padded) messages with room to spare.
+pub const MAILBOX_MAX_BYTES: i64 = 32 * 1024 * 1024;
 
 fn req(key: &str) -> Result<String> {
     std::env::var(key).map_err(|_| anyhow!("missing required env var: {key}"))
@@ -169,6 +181,8 @@ impl Config {
             time_signing_key,
             opaque_server_setup,
             pow_difficulty,
+            mailbox_max_messages: MAILBOX_MAX_MESSAGES,
+            mailbox_max_bytes: MAILBOX_MAX_BYTES,
             ws_ping_secs,
             // Object storage is REQUIRED in production - fail fast if missing.
             r2_bucket: req("R2_BUCKET")?,
@@ -230,6 +244,8 @@ impl Config {
             time_signing_key: [11u8; 32], // deterministic test time signer
             opaque_server_setup: crate::crypto::opaque::new_setup(),
             pow_difficulty,
+            mailbox_max_messages: MAILBOX_MAX_MESSAGES,
+            mailbox_max_bytes: MAILBOX_MAX_BYTES,
             pow_argon2_enabled: true, // integration covers the hybrid path
             ws_ping_secs: 2, // fast heartbeat for tests
 

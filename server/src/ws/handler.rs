@@ -6,6 +6,7 @@
 // (Redis GETDEL) BEFORE accepting the socket. Tokens are never read from query
 // params. No connection/request logging of any kind.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +23,9 @@ use crate::error::ApiError;
 use crate::rds;
 use crate::state::AppState;
 use crate::ws::messages::{message_json, ping_json, ClientMsg};
+
+/// Queued messages fetched + sent per page when a client connects.
+const BACKLOG_PAGE: i64 = 200;
 
 pub async fn ws_route(
     ws: WebSocketUpgrade,
@@ -78,26 +82,82 @@ async fn handle_socket(socket: WebSocket, st: AppState, user_id: String) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     st.online.insert(&user_id, tx.clone());
-
-    // Deliver anything already queued (offline messages). They stay in the DB
-    // until the client ACKs.
-    if let Ok(queued) = message_queue::dequeue_for_recipient(&st.db, &user_id).await {
-        for m in queued {
-            let _ = tx.send(message_json(
-                &st.config.time_signing_key,
-                &m.message_id.to_string(),
-                base64_content(&m.content),
-                m.queued_at as i64,
-            ));
-        }
-    }
+    // Anything queued from here on is pushed live through `tx`; the backlog below
+    // covers what was queued before. (Same-second arrivals may come twice, as
+    // before; the client de-duplicates by message id.)
+    let backlog_until = crate::now_unix() as i32;
 
     let ping_secs = st.config.ws_ping_secs.max(1);
     let alive = Arc::new(AtomicBool::new(true));
 
-    // Writer: forwards outbound messages and runs the heartbeat.
+    // Writer: streams the backlog, then forwards outbound messages and runs the
+    // heartbeat.
     let writer_alive = alive.clone();
+    let backlog_st = st.clone();
+    let backlog_user = user_id.clone();
     let mut writer = tokio::spawn(async move {
+        // Offline backlog, one page at a time (a big mailbox is never loaded into
+        // memory whole), INTERLEAVED with live pushes - live first - so a long
+        // backlog doesn't hold up new messages or let them pile up in `rx`.
+        // Messages stay in the DB until the client ACKs.
+        //
+        // Liveness while the backlog streams: each write must complete within two
+        // heartbeat periods, or the peer isn't reading and we drop it. (The ping /
+        // pong check starts after the backlog: a busy client answers a ping only
+        // once it has processed every frame queued before it.)
+        let write_deadline = Duration::from_secs(ping_secs * 2);
+        let mut pending: VecDeque<message_queue::QueuedMessage> = VecDeque::new();
+        let mut cursor = Some((i32::MIN, Uuid::nil())); // None once fully read
+        loop {
+            if pending.is_empty() {
+                let Some(after) = cursor else { break };
+                let Ok(page) = message_queue::dequeue_page(
+                    &backlog_st.db,
+                    &backlog_user,
+                    backlog_until,
+                    after,
+                    BACKLOG_PAGE,
+                )
+                .await
+                else {
+                    // Can't read the mailbox: close, so the client reconnects and
+                    // retries - never silently skip its backlog.
+                    let _ = sink.send(Message::Close(None)).await;
+                    return;
+                };
+                cursor = match page.last() {
+                    Some(last) if page.len() as i64 == BACKLOG_PAGE => {
+                        Some((last.queued_at, last.message_id))
+                    }
+                    _ => None,
+                };
+                pending.extend(page);
+                if pending.is_empty() {
+                    break;
+                }
+            }
+            let frame = tokio::select! {
+                biased;
+                live = rx.recv() => match live {
+                    Some(text) => text,
+                    None => return,
+                },
+                _ = std::future::ready(()) => {
+                    let m = pending.pop_front().expect("pending is non-empty");
+                    message_json(
+                        &backlog_st.config.time_signing_key,
+                        &m.message_id.to_string(),
+                        base64_content(&m.content),
+                        m.queued_at as i64,
+                    )
+                }
+            };
+            match tokio::time::timeout(write_deadline, sink.send(Message::Text(frame))).await {
+                Ok(Ok(())) => {}
+                _ => return, // closed, or not reading
+            }
+        }
+
         let mut interval = tokio::time::interval(Duration::from_secs(ping_secs));
         interval.tick().await; // consume the immediate first tick
         loop {
