@@ -73,6 +73,19 @@ pub async fn stats(db: &PgPool, user_id: &str) -> sqlx::Result<(i64, i64)> {
     Ok((row.n, row.bytes))
 }
 
+/// Delete specific blobs of this user (the client's legacy-id cleanup). Scoped by
+/// user_id, so only the caller's own rows can match.
+pub async fn delete_ids(db: &PgPool, user_id: &str, blob_ids: &[String]) -> sqlx::Result<u64> {
+    let r = sqlx::query!(
+        "DELETE FROM history_blobs WHERE user_id = $1 AND blob_id = ANY($2)",
+        user_id,
+        blob_ids,
+    )
+    .execute(db)
+    .await?;
+    Ok(r.rows_affected())
+}
+
 /// Delete every blob for this user (turning backup off). Immediate, permanent.
 pub async fn delete_all(db: &PgPool, user_id: &str) -> sqlx::Result<u64> {
     let r = sqlx::query!("DELETE FROM history_blobs WHERE user_id = $1", user_id)

@@ -50,8 +50,8 @@ const wasmCrypto: MessageCryptoApi = {
   ratchetEncrypt: async (s, p) => mc.ratchetEncrypt(wasm, s, p),
   ratchetDecrypt: async (s, c, h) => mc.ratchetDecrypt(wasm, s, c, h),
   ratchetInitBob: async (sh, sp, pub) => mc.ratchetInitBob(wasm, sh, sp, pub),
-  generateSenderCert: async (id, ep, eP, dp, dP, n, v) =>
-    mc.generateSenderCert(wasm, id, ep, eP, dp, dP, n, v),
+  generateSenderCert: async (id, ep, eP, dp, dP, xP, n, v) =>
+    mc.generateSenderCert(wasm, id, ep, eP, dp, dP, xP, n, v),
   sealedSenderEncrypt: async (m, c, r) => mc.sealedSenderEncrypt(wasm, m, c, r),
   sealedSenderDecrypt: async (b, k, n) => mc.sealedSenderDecrypt(wasm, b, k, n),
   pqxdhRespond: async (i, ik, sp, op, ky) => mc.pqxdhRespond(wasm, i, ik, sp, op, ky),
