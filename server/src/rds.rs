@@ -223,168 +223,24 @@ pub async fn get_revoke_cutoff(
     Ok(value)
 }
 
-pub struct PowChallenge {
-    pub challenge_data: Vec<u8>,
-    pub difficulty: u32,
-    pub issued_at_ms: u64,
-    /// Argon2id Layer-2 parameters (docs 8.5.1). None = legacy SHA-only
-    /// challenge; Some = hybrid, verified with powcheck::hybrid_valid.
-    pub argon: Option<crate::powcheck::ArgonParams>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct StoredPowChallenge {
-    challenge: String,
-    difficulty: u32,
-    issued_at_ms: u64,
-    used: bool,
-    // Absent on records written before the hybrid rollout → serde default None.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    argon_m_cost_kib: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    argon_t_cost: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    argon_difficulty: Option<u32>,
-}
-
-fn pow_challenge_key(challenge_id: &str) -> String {
-    format!("pow:challenge:{challenge_id}")
-}
-
-/// Hard ceiling on the per-verify Argon2id memory a stored challenge may
-/// request. The server only ever ISSUES `ARGON_M_COST_KIB` (32 MiB); this caps
-/// the blast radius if a challenge is ever tampered (Redis compromise) so a
-/// single verify can't be coerced into a pathological allocation. 64 MiB leaves
-/// 2x headroom for a future memory-cost bump (docs 8.5.1 escalation) — raise
-/// this in lockstep if the issued cost is ever raised past it.
-const MAX_ARGON_M_COST_KIB: u32 = 64 * 1024;
-
-fn validate_argon(argon: &crate::powcheck::ArgonParams) -> anyhow::Result<()> {
-    // Argon2 spec minimum m is 8 KiB/lane.
-    if !(8..=MAX_ARGON_M_COST_KIB).contains(&argon.m_cost_kib)
-        || !(1..=8).contains(&argon.t_cost)
-        || !(1..=16).contains(&argon.difficulty)
-    {
-        anyhow::bail!("invalid argon pow params");
-    }
-    Ok(())
-}
-
-fn decode_pow_challenge(value: &str) -> anyhow::Result<Option<PowChallenge>> {
-    let stored: StoredPowChallenge = serde_json::from_str(value)?;
-    if stored.used {
-        return Ok(None);
-    }
-    if !(1..=31).contains(&stored.difficulty) {
-        anyhow::bail!("invalid pow difficulty");
-    }
-    let challenge_data = hex::decode(stored.challenge)?;
-    if challenge_data.len() != 32 {
-        anyhow::bail!("invalid pow challenge length");
-    }
-    let argon = match (stored.argon_m_cost_kib, stored.argon_t_cost, stored.argon_difficulty) {
-        (Some(m), Some(t), Some(d)) => {
-            let a = crate::powcheck::ArgonParams {
-                m_cost_kib: m,
-                t_cost: t,
-                difficulty: d,
-            };
-            validate_argon(&a)?;
-            Some(a)
-        }
-        (None, None, None) => None,
-        _ => anyhow::bail!("invalid argon pow params"),
-    };
-    Ok(Some(PowChallenge {
-        challenge_data,
-        difficulty: stored.difficulty,
-        issued_at_ms: stored.issued_at_ms,
-        argon,
-    }))
-}
-
-pub async fn store_pow_challenge(
+/// Mark a PoW ticket spent (single use, docs 8.5). True iff THIS call spent it;
+/// false = already spent (a replay). Keyed by the ticket's random id - never an
+/// identity. The TTL outlives the ticket's own expiry, so a spent ticket can't
+/// be replayed while it would still verify.
+pub async fn spend_pow_ticket(
     pool: &Pool,
-    challenge_id: &str,
-    challenge_data: &[u8],
-    difficulty: u32,
-    argon: Option<crate::powcheck::ArgonParams>,
-    issued_at_ms: u64,
+    ticket_id: &[u8; 16],
     ttl_secs: i64,
-) -> anyhow::Result<()> {
-    if challenge_data.len() != 32 {
-        anyhow::bail!("invalid pow challenge length");
-    }
-    if !(1..=31).contains(&difficulty) {
-        anyhow::bail!("invalid pow difficulty");
-    }
-    if let Some(a) = &argon {
-        validate_argon(a)?;
-    }
-    let value = serde_json::to_string(&StoredPowChallenge {
-        challenge: hex::encode(challenge_data),
-        difficulty,
-        issued_at_ms,
-        used: false,
-        argon_m_cost_kib: argon.map(|a| a.m_cost_kib),
-        argon_t_cost: argon.map(|a| a.t_cost),
-        argon_difficulty: argon.map(|a| a.difficulty),
-    })?;
-    let key = pow_challenge_key(challenge_id);
+) -> anyhow::Result<bool> {
+    let key = format!("pow:spent:{}", hex::encode(ticket_id));
     let mut conn = pool.get().await?;
-    let _: () = redis::cmd("SET")
+    let set: Option<String> = redis::cmd("SET")
         .arg(&key)
-        .arg(value)
+        .arg(1)
+        .arg("NX")
         .arg("EX")
-        .arg(ttl_secs)
+        .arg(ttl_secs.max(1))
         .query_async(&mut conn)
         .await?;
-    Ok(())
-}
-
-pub async fn take_pow_challenge(
-    pool: &Pool,
-    challenge_id: &str,
-) -> anyhow::Result<Option<PowChallenge>> {
-    let key = pow_challenge_key(challenge_id);
-    let mut conn = pool.get().await?;
-    let value: Option<String> = redis::cmd("GETDEL")
-        .arg(&key)
-        .query_async(&mut conn)
-        .await?;
-    match value {
-        Some(value) => decode_pow_challenge(&value),
-        None => Ok(None),
-    }
-}
-
-#[cfg(test)]
-mod pow_challenge_tests {
-    use super::decode_pow_challenge;
-
-    // Records written BEFORE the hybrid rollout have no argon fields and must
-    // keep decoding as legacy SHA-only challenges (rolling deploy safety).
-    #[test]
-    fn decodes_legacy_record_without_argon_fields() {
-        let legacy = r#"{"challenge":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","difficulty":22,"issued_at_ms":1,"used":false}"#;
-        let c = decode_pow_challenge(legacy).unwrap().unwrap();
-        assert_eq!(c.difficulty, 22);
-        assert!(c.argon.is_none());
-    }
-
-    #[test]
-    fn decodes_hybrid_record_and_rejects_partial_or_bogus_params() {
-        let hybrid = r#"{"challenge":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","difficulty":21,"issued_at_ms":1,"used":false,"argon_m_cost_kib":32768,"argon_t_cost":1,"argon_difficulty":1}"#;
-        let c = decode_pow_challenge(hybrid).unwrap().unwrap();
-        let a = c.argon.unwrap();
-        assert_eq!((a.m_cost_kib, a.t_cost, a.difficulty), (32768, 1, 1));
-
-        // Partial argon fields are corrupt, not legacy.
-        let partial = r#"{"challenge":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","difficulty":21,"issued_at_ms":1,"used":false,"argon_m_cost_kib":32768}"#;
-        assert!(decode_pow_challenge(partial).is_err());
-
-        // Out-of-range params are rejected at decode.
-        let bogus = r#"{"challenge":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff","difficulty":21,"issued_at_ms":1,"used":false,"argon_m_cost_kib":4,"argon_t_cost":1,"argon_difficulty":1}"#;
-        assert!(decode_pow_challenge(bogus).is_err());
-    }
+    Ok(set.is_some())
 }
