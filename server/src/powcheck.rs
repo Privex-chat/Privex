@@ -7,15 +7,16 @@
 // to meet `argon.difficulty` leading zero bits, and the submitted solution_hash
 // is h2 (not h1). The SHA layer stays as a cheap pre-filter, so garbage
 // submissions are rejected before the server spends an Argon2id evaluation.
-// Verification cost is bounded: every verify first consumes a single-use
-// challenge, and challenge issuance is globally capped (routes/auth.rs).
+// Verification cost is bounded: only solutions that pass the SHA pre-filter
+// consume a single-use ticket and reach Argon2id, and concurrent Argon2id
+// evaluations are capped (routes::verify_pow).
 
 use argon2::{Algorithm, Argon2, Params, Version};
 use sha2::{Digest, Sha256};
 
-/// Argon2id parameters bound to a challenge at ISSUE time (stored in Redis with
-/// the challenge, echoed to the client). Verification always uses the stored
-/// copy, so parameter tuning never breaks in-flight challenges.
+/// Argon2id parameters bound to a challenge at ISSUE time (signed into the PoW
+/// ticket, echoed to the client). Verification always uses the ticket's copy,
+/// so parameter tuning never breaks in-flight challenges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArgonParams {
     pub m_cost_kib: u32,
@@ -50,6 +51,12 @@ fn argon2id_32(input: &[u8], salt: &[u8], m_cost_kib: u32, t_cost: u32) -> Optio
     let mut out = [0u8; 32];
     argon.hash_password_into(input, salt, &mut out).ok()?;
     Some(out)
+}
+
+/// Cheap first gate: SHA-256(challenge || nonce) meets the leading-zero target.
+/// Run before any Redis write or memory-hard work (routes::verify_pow).
+pub fn sha_prefilter_ok(challenge: &[u8], nonce: u64, difficulty: u32) -> bool {
+    leading_zero_bits(&pow_hash(challenge, nonce)) >= difficulty
 }
 
 /// True if `nonce` solves `challenge` at `difficulty` and matches `solution_hash`.
