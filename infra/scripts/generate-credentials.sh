@@ -53,7 +53,8 @@ R2_ACCESS_KEY=privex
 R2_SECRET_KEY=${MINIO_PASS}
 
 # --- File uploads ---
-FILE_UPLOADS_ENABLED=true
+# Off until CSAM scanning ships (docs). Unset also means off.
+FILE_UPLOADS_ENABLED=false
 
 # --- TURN relay (optional Phase 1) ---
 TURN_SECRET=${TURN_SECRET}

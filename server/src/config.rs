@@ -166,10 +166,9 @@ impl Config {
             r2_region: std::env::var("R2_REGION").unwrap_or_else(|_| "auto".into()),
             r2_access_key: SecretString::from(req("R2_ACCESS_KEY")?),
             r2_secret_key: SecretString::from(req("R2_SECRET_KEY")?),
-            file_uploads_enabled: std::env::var("FILE_UPLOADS_ENABLED")
-                .ok()
-                .map(|v| v == "1" || v.to_lowercase() == "true")
-                .unwrap_or(true),
+            // OFF unless explicitly enabled: uploads stay gated pending CSAM
+            // scanning (docs), so a missing variable must never switch them on.
+            file_uploads_enabled: parse_bool_env("FILE_UPLOADS_ENABLED", false)?,
             // Secure by default; "false"/"0" is the emergency rollback only. A
             // malformed value fails fast rather than silently disabling.
             pow_argon2_enabled: parse_bool_env("POW_ARGON2_ENABLED", true)?,
