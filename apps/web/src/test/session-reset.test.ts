@@ -105,7 +105,8 @@ function orderedPair(a: number, b: number): [IdentityBundle, IdentityBundle] {
 
 async function freshMe(me: IdentityBundle) {
   resetMessaging();
-  for (const t of [db.contacts, db.sessions, db.messages, db.identity, db.settings, db.received]) await t.clear();
+  for (const t of [db.contacts, db.sessions, db.messages, db.identity, db.settings, db.received, db.handshakes])
+    await t.clear();
   await persistGeneratedIdentity(me);
   useAuth.getState().setSession("tok", me.userId);
 }
@@ -149,6 +150,34 @@ describe("a contact who started over (N3)", () => {
 
     await receiveMessage(frame("b2", handshake(alice, carol, 1, encodeText("I'm back", 0)).b64), wasmCrypto);
     expect(await contents(alice.userId)).toEqual(["hi", "I'm back"]);
+    ack.mockRestore();
+  });
+
+  it("a replayed handshake (new message id) can't rewind a working session", async () => {
+    const [carol, alice] = orderedPair(0x41, 0x42);
+    await freshMe(carol);
+    const ack = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+    const s1 = handshake(alice, carol, 0, encodeText("hi", 0));
+    await receiveMessage(frame("d1", s1.b64), wasmCrypto);
+    await acceptContact(alice.userId);
+    const f1 = wasm.ratchet_encrypt(s1.state, encodeText("second", 0));
+    await receiveMessage(
+      frame("d2", b64encode(wasm.sealed_sender_encrypt(
+        encodeEnvelope(f1.message_header, f1.ciphertext), certOf(alice), carol.identity.x25519_pub,
+      ))),
+      wasmCrypto,
+    );
+    const before = hex((await db.sessions.get(alice.userId))!.ratchet_state_enc);
+
+    // The same captured handshake, re-sent under a NEW message id.
+    await receiveMessage(frame("d1-replay", s1.b64), wasmCrypto);
+    expect(hex((await db.sessions.get(alice.userId))!.ratchet_state_enc)).toBe(before);
+    expect(await contents(alice.userId)).toEqual(["hi", "second"]);
+    expect(ack).toHaveBeenCalledWith(["d1-replay"], "tok");
+
+    // The real conversation carries on.
+    await receiveMessage(frame("d3", followUp(f1.new_session_state, alice, carol, encodeText("third", 0))), wasmCrypto);
+    expect(await contents(alice.userId)).toEqual(["hi", "second", "third"]);
     ack.mockRestore();
   });
 

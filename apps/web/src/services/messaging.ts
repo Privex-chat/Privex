@@ -616,6 +616,15 @@ export async function receiveMessage(
   }
   if (adoptHandshake) {
     const pq = env.pqxdh!; // adoptHandshake implies a handshake is present
+    // Replay guard: a handshake we already adopted (same ephemeral key) arriving
+    // again - e.g. a server re-sending a captured copy under a new message id -
+    // must not re-adopt: that would rewind our working session to its first
+    // state (breaking the chat) and re-show its first message.
+    const ek = toHex(pq.alice_ek_pub);
+    if (await db.handshakes.get(ek)) {
+      await ackDelivered(ws.message_id);
+      return;
+    }
     const opkPriv =
       pq.opk_used && pq.opk_id
         ? me.opks.find((o) => o.id === pq.opk_id)?.priv ?? new Uint8Array(0)
@@ -646,6 +655,7 @@ export async function receiveMessage(
       return;
     }
     await createInboundSession(senderId, dec.newState);
+    await db.handshakes.put({ ek, at: now() });
     // Store the reply target (Alice's X25519 IK) + the cert's authentic identity
     // key (px_id is bound to it), unless it conflicts with one we already hold.
     await upsertInboundContact(
