@@ -13,7 +13,8 @@ import { VitePWA } from "vite-plugin-pwa";
 const CSP = [
   "default-src 'none'",
   "script-src 'self' 'wasm-unsafe-eval'", // WASM, no inline JS
-  "connect-src 'self' wss://*.privex.chat",
+  // Explicit wss origin: some older Safari versions don't let 'self' cover wss:.
+  "connect-src 'self' wss://privex.chat wss://*.privex.chat",
   "img-src 'self' blob: data:",
   "style-src 'self'",
   "font-src 'self'",
