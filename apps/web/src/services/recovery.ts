@@ -58,7 +58,9 @@ export const workerRecoveryCrypto: RecoveryCryptoApi = {
 };
 
 /** Upload the recovered device's fresh signed prekey + one-time prekeys so peers
- *  can establish sessions with it again (the old ones are gone with the lost device). */
+ *  can establish sessions with it again. The one-time prekeys REPLACE the server's
+ *  whole inventory: the old ones' private halves are gone with the lost device, and
+ *  (reusing ids 1..N) a plain add would keep serving them. */
 async function provisionPrekeys(bundle: IdentityBundle, token: string): Promise<void> {
   await api.spkRotate(
     {
@@ -71,6 +73,7 @@ async function provisionPrekeys(bundle: IdentityBundle, token: string): Promise<
   await api.replenishPrekeys(
     bundle.opks.map((o) => ({ opk_id: o.id, opk_x25519_pub: toHex(o.pub) })),
     token,
+    true,
   );
 }
 

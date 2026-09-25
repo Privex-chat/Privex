@@ -168,10 +168,13 @@ pub fn sanitize_string(s: &str, max_byte_len: usize) -> Result<String, ApiError>
 /// `sanitize_string` (which allowed tabs/newlines/arbitrary UTF-8) that this
 /// key never needs (PVX-18). Parameterized in SQL either way, but hygiene.
 pub fn validate_history_blob_id(s: &str) -> Result<String, ApiError> {
+    // No ':' - older clients named contact sidecars `contact:<px_id>`, putting a
+    // readable contact list in history_blobs. Current clients send opaque HMAC ids
+    // (64 hex); refusing ':' stops a not-yet-updated app from re-uploading one.
     let ok = !s.is_empty()
         && s.len() <= MAX_HISTORY_BLOB_ID_CHARS
         && s.bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b':' || b == b'_' || b == b'-');
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
     if ok {
         Ok(s.to_string())
     } else {
@@ -355,7 +358,10 @@ mod tests {
     #[test]
     fn history_blob_id() {
         assert!(validate_history_blob_id("550e8400-e29b-41d4-a716-446655440000").is_ok());
-        assert!(validate_history_blob_id("contact:px_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6").is_ok());
+        // Opaque HMAC ids (current clients).
+        assert!(validate_history_blob_id(&"ab".repeat(32)).is_ok());
+        // Readable contact ids are refused (they leaked the contact list).
+        assert!(validate_history_blob_id("contact:px_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6").is_err());
         assert!(validate_history_blob_id("").is_err()); // empty
         assert!(validate_history_blob_id(&"a".repeat(65)).is_err()); // too long
         assert!(validate_history_blob_id("has space").is_err());

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM history_blobs WHERE user_id = $1 AND blob_id = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be011be33218b230098060de59c1392920022b72505b3399d1f6aa40ef1ac889"
+}

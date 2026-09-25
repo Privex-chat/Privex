@@ -3,7 +3,7 @@
 // ["privex", <ticket>]. Inbound messages flow to receiveMessage; server pings are
 // answered with pong; drops reconnect with exponential backoff (cap 300s).
 import * as api from "../api/client";
-import { receiveMessage } from "./messaging";
+import { prekeyUpkeep, pruneReceived, receiveMessage } from "./messaging";
 import { flushOutbox } from "./outbox";
 
 const MAX_BACKOFF = 300_000;
@@ -55,6 +55,7 @@ function wsUrl(): string {
 export async function connectWebSocket(sessionToken: string): Promise<void> {
   token = sessionToken;
   stopped = false;
+  void pruneReceived().catch(() => {}); // housekeeping; never blocks connecting
   await open(++gen);
 }
 
@@ -83,8 +84,10 @@ async function open(myGen: number): Promise<void> {
     retry = 0;
     lastFrameAt = Date.now();
     setStatus("connected");
-    // Connectivity is back → deliver anything queued while offline.
+    // Connectivity is back → deliver anything queued while offline, and run
+    // prekey upkeep (a rotation or top-up whose publish failed offline retries).
     void flushOutbox();
+    void prekeyUpkeep();
   };
   // Process frames SEQUENTIALLY. Concurrent receiveMessage calls race the shared
   // Double Ratchet state (both load the same session, last save wins) and the
@@ -176,19 +179,20 @@ async function handleFrame(data: string): Promise<void> {
             server_ts_sig: frame.server_ts_sig,
           });
         } catch {
-          // Never log message contents. Undecryptable frames are left un-acked so
-          // the server may redeliver after the session is established.
+          // Never log message contents. receiveMessage acks everything it can
+          // never decrypt; a throw means a transient local failure (crypto engine,
+          // storage, network), so the frame stays un-acked and is retried on the
+          // next delivery.
         }
       }
       break;
     case "ping":
       send({ type: "pong" });
       break;
-    // ponytail: prekey_low replenish needs new OPK privs persisted into the
-    // identity bundle (so future inbound sessions can use them). The 50 OPKs from
-    // onboarding cover the checkpoint; on drain the server falls back to no-OPK
-    // 3-DH (already supported). Wire full replenish when sustained load needs it.
+    // The server's one-time prekey supply is low (docs 11): top it up. The new
+    // private halves are persisted before the public halves are uploaded.
     case "prekey_low":
+      void prekeyUpkeep(true);
       break;
     // key_change_alert is advisory; clients detect changes by re-verifying KT on
     // fetch (isKeyChanged). No server-trusted action taken here.
