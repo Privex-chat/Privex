@@ -252,6 +252,10 @@ pub fn app(state: AppState) -> Router {
                 .delete(routes::history::delete_all)
                 .layer(DefaultBodyLimit::max(2 * 1024 * 1024)),
         )
+        .route(
+            "/history/blobs/delete",
+            post(routes::history::delete_ids).layer(DefaultBodyLimit::max(64 * 1024)),
+        )
         .route("/history/status", get(routes::history::status))
         .route(
             "/blobs/:chunk_id",
