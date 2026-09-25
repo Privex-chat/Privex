@@ -6,6 +6,7 @@
 // (Redis GETDEL) BEFORE accepting the socket. Tokens are never read from query
 // params. No connection/request logging of any kind.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -95,38 +96,65 @@ async fn handle_socket(socket: WebSocket, st: AppState, user_id: String) {
     let backlog_st = st.clone();
     let backlog_user = user_id.clone();
     let mut writer = tokio::spawn(async move {
-        // Offline backlog, one page at a time. sink.send awaits the socket, so a
-        // big mailbox streams with backpressure instead of being loaded into
-        // memory whole. Messages stay in the DB until the client ACKs.
-        let mut after = (i32::MIN, Uuid::nil());
+        // Offline backlog, one page at a time (a big mailbox is never loaded into
+        // memory whole), INTERLEAVED with live pushes - live first - so a long
+        // backlog doesn't hold up new messages or let them pile up in `rx`.
+        // Messages stay in the DB until the client ACKs.
+        //
+        // Liveness while the backlog streams: each write must complete within two
+        // heartbeat periods, or the peer isn't reading and we drop it. (The ping /
+        // pong check starts after the backlog: a busy client answers a ping only
+        // once it has processed every frame queued before it.)
+        let write_deadline = Duration::from_secs(ping_secs * 2);
+        let mut pending: VecDeque<message_queue::QueuedMessage> = VecDeque::new();
+        let mut cursor = Some((i32::MIN, Uuid::nil())); // None once fully read
         loop {
-            let Ok(page) = message_queue::dequeue_page(
-                &backlog_st.db,
-                &backlog_user,
-                backlog_until,
-                after,
-                BACKLOG_PAGE,
-            )
-            .await
-            else {
-                break;
-            };
-            for m in &page {
-                let frame = message_json(
-                    &backlog_st.config.time_signing_key,
-                    &m.message_id.to_string(),
-                    base64_content(&m.content),
-                    m.queued_at as i64,
-                );
-                if sink.send(Message::Text(frame)).await.is_err() {
+            if pending.is_empty() {
+                let Some(after) = cursor else { break };
+                let Ok(page) = message_queue::dequeue_page(
+                    &backlog_st.db,
+                    &backlog_user,
+                    backlog_until,
+                    after,
+                    BACKLOG_PAGE,
+                )
+                .await
+                else {
+                    // Can't read the mailbox: close, so the client reconnects and
+                    // retries - never silently skip its backlog.
+                    let _ = sink.send(Message::Close(None)).await;
                     return;
+                };
+                cursor = match page.last() {
+                    Some(last) if page.len() as i64 == BACKLOG_PAGE => {
+                        Some((last.queued_at, last.message_id))
+                    }
+                    _ => None,
+                };
+                pending.extend(page);
+                if pending.is_empty() {
+                    break;
                 }
             }
-            match page.last() {
-                Some(last) if page.len() as i64 == BACKLOG_PAGE => {
-                    after = (last.queued_at, last.message_id)
+            let frame = tokio::select! {
+                biased;
+                live = rx.recv() => match live {
+                    Some(text) => text,
+                    None => return,
+                },
+                _ = std::future::ready(()) => {
+                    let m = pending.pop_front().expect("pending is non-empty");
+                    message_json(
+                        &backlog_st.config.time_signing_key,
+                        &m.message_id.to_string(),
+                        base64_content(&m.content),
+                        m.queued_at as i64,
+                    )
                 }
-                _ => break,
+            };
+            match tokio::time::timeout(write_deadline, sink.send(Message::Text(frame))).await {
+                Ok(Ok(())) => {}
+                _ => return, // closed, or not reading
             }
         }
 

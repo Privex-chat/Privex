@@ -8,15 +8,43 @@ pub struct QueuedMessage {
     pub queued_at: i32,
 }
 
-pub async fn enqueue(
+/// A recipient's mailbox limits (count, and total stored bytes).
+pub struct MailboxCap {
+    pub max_messages: i64,
+    pub max_bytes: i64,
+}
+
+/// Enqueue a message unless the recipient's mailbox is full. Returns None when
+/// it is. The usage check and the insert run in one transaction behind a
+/// per-recipient lock, so concurrent sends can't all pass the check and overshoot
+/// the cap. `size_bytes` counts everything stored: content + any CSAM proof.
+pub async fn enqueue_capped(
     pool: &PgPool,
     recipient_id: &str,
     content: &[u8],
     csam_proof: Option<&[u8]>,
     queued_at: i32,
     expires_at: i32,
-    size_bytes: i32,
-) -> sqlx::Result<Uuid> {
+    cap: MailboxCap,
+) -> sqlx::Result<Option<Uuid>> {
+    let size_bytes = content.len() + csam_proof.map_or(0, <[u8]>::len);
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('mbox:' || $1)::int8)",
+        recipient_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    let usage = sqlx::query!(
+        r#"SELECT COUNT(*) AS "count!", COALESCE(SUM(size_bytes), 0)::BIGINT AS "bytes!"
+           FROM message_queue WHERE recipient_id = $1"#,
+        recipient_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if usage.count >= cap.max_messages || usage.bytes + size_bytes as i64 > cap.max_bytes {
+        return Ok(None); // full - the transaction rolls back on drop
+    }
     let row = sqlx::query!(
         r#"INSERT INTO message_queue
            (recipient_id, content, csam_proof, queued_at, expires_at, size_bytes)
@@ -27,11 +55,12 @@ pub async fn enqueue(
         csam_proof,
         queued_at,
         expires_at,
-        size_bytes,
+        size_bytes as i32,
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
-    Ok(row.message_id)
+    tx.commit().await?;
+    Ok(Some(row.message_id))
 }
 
 /// One page of a recipient's queue queued at or before `until`, strictly after
@@ -63,17 +92,6 @@ pub async fn dequeue_page(
 }
 
 /// (message count, total bytes) currently queued for a recipient.
-pub async fn mailbox_usage(pool: &PgPool, recipient_id: &str) -> sqlx::Result<(i64, i64)> {
-    let row = sqlx::query!(
-        r#"SELECT COUNT(*) AS "count!", COALESCE(SUM(size_bytes), 0)::BIGINT AS "bytes!"
-           FROM message_queue WHERE recipient_id = $1"#,
-        recipient_id
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok((row.count, row.bytes))
-}
-
 /// Delete messages past their expiry (queued_at + 30 days). Returns the count.
 pub async fn cleanup_expired(pool: &PgPool, now: i32) -> sqlx::Result<u64> {
     let result = sqlx::query!(r#"DELETE FROM message_queue WHERE expires_at < $1"#, now)
