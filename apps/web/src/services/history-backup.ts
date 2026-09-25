@@ -117,16 +117,58 @@ export async function backfillAll(onProgress?: (done: number, total: number) => 
   await uploadBatched(blobs, onProgress);
 }
 
+/** After the opaque-id re-upload, drop every server row that isn't stored under
+ *  its own record's opaque id: message rows under legacy plain ids, and contact
+ *  sidecars the server relabelled at random (migration 0014). A record whose
+ *  opaque copy is missing (e.g. a contact this device no longer has) is first
+ *  uploaded under that id, so nothing is lost; an existing copy is never
+ *  overwritten by the older one. Rows we can't decrypt are left alone. */
+async function dropLegacyIds(): Promise<void> {
+  const keys = await historyKey();
+  const tok = token();
+  const ids = new Set<string>();
+  const legacy: { blob_id: string; opaque: string; ciphertext: string }[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page = await api.listHistory(tok, after);
+    for (const w of page.blobs) {
+      ids.add(w.blob_id);
+      let rec: HistoryRecord;
+      try {
+        rec = await decryptRecord<HistoryRecord>(keys.enc, b64decode(w.ciphertext));
+      } catch {
+        continue;
+      }
+      const opaque = await historyBlobId(keys.id, recordId(rec));
+      if (opaque !== w.blob_id) legacy.push({ blob_id: w.blob_id, opaque, ciphertext: w.ciphertext });
+    }
+    if (!page.next) break;
+    after = page.next;
+  }
+  // Oldest first, so if two legacy rows hold the same record the newer one wins.
+  const missing = new Map<string, Blob>();
+  for (const l of legacy) {
+    if (!ids.has(l.opaque)) missing.set(l.opaque, { blob_id: l.opaque, ciphertext: l.ciphertext });
+  }
+  await uploadBatched([...missing.values()]);
+  const stale = legacy.map((l) => l.blob_id);
+  for (let i = 0; i < stale.length; i += MAX_COUNT) {
+    await api.deleteHistoryBlobs(stale.slice(i, i + MAX_COUNT), tok);
+  }
+}
+
 /** One-time, per device: re-upload the whole local history under opaque blob ids.
  *  Older builds named contact sidecars `contact:<px_id>` in the clear; the server
- *  deletes those rows (migration 0014), and this puts the contacts (and every
- *  message) back under ids it can't read. Best-effort: on failure the flag stays
- *  unset and it retries on the next start. No-op while backup is off. */
+ *  relabelled those rows with random ids (migration 0014). This puts every record
+ *  back under ids it can't read, then drops the legacy rows. Best-effort: on
+ *  failure the flag stays unset and it retries on the next start. No-op while
+ *  backup is off. */
 export async function migrateBackupIds(): Promise<void> {
   try {
     if (!(await isBackupEnabled())) return;
     if ((await db.settings.get(IDS_V2_FLAG))?.value === true) return;
     await backfillAll();
+    await dropLegacyIds();
     await db.settings.put({ key: IDS_V2_FLAG, value: true });
   } catch {
     // retried next start

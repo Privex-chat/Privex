@@ -148,6 +148,33 @@ pub struct DeleteResp {
     deleted: u64,
 }
 
+#[derive(Deserialize)]
+pub struct DeleteIdsReq {
+    blob_ids: Vec<String>,
+}
+
+/// Delete specific blobs - used once per device to drop rows still stored under
+/// legacy ids after they were re-uploaded under opaque ones.
+pub async fn delete_ids(
+    AuthUser(user): AuthUser,
+    State(st): State<AppState>,
+    Json(body): Json<DeleteIdsReq>,
+) -> Result<Json<DeleteResp>, ApiError> {
+    crate::routes::rate_limit(&st, "histdelids", &user, 60, 60).await?;
+    if body.blob_ids.is_empty() || body.blob_ids.len() > validate::MAX_HISTORY_BATCH {
+        return Err(ApiError::bad_request());
+    }
+    let ids = body
+        .blob_ids
+        .iter()
+        .map(|id| validate::validate_history_blob_id(id))
+        .collect::<Result<Vec<_>, _>>()?;
+    let deleted = history::delete_ids(&st.db, &user, &ids)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    Ok(Json(DeleteResp { deleted }))
+}
+
 pub async fn delete_all(
     AuthUser(user): AuthUser,
     State(st): State<AppState>,

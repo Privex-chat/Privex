@@ -28,7 +28,9 @@ import {
   resetHistoryBackup,
   restoreHistory,
 } from "../services/history-backup";
-import { deriveHistoryIdKey, historyBlobId } from "../crypto/history-crypto";
+import { deriveHistoryIdKey, deriveHistoryKey, encryptRecord, historyBlobId } from "../crypto/history-crypto";
+import type { HistoryRecord } from "../services/history-records";
+import { b64encode } from "../services/bytes";
 
 beforeAll(async () => {
   await initCrypto({
@@ -64,6 +66,11 @@ beforeEach(async () => {
     next: null,
   }));
   vi.spyOn(api, "historyStatus").mockImplementation(async () => ({ count: server.size, bytes: 0 }));
+  vi.spyOn(api, "deleteHistoryBlobs").mockImplementation(async (ids) => {
+    let n = 0;
+    for (const id of ids) if (server.delete(id)) n++;
+    return { deleted: n };
+  });
   vi.spyOn(api, "deleteHistory").mockImplementation(async () => {
     const n = server.size;
     server.clear();
@@ -153,6 +160,48 @@ describe("history backup (Option A)", () => {
 
     await migrateBackupIds(); // already done → no-op
     expect(api.uploadHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops legacy rows after the re-upload without losing or overwriting records", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x78));
+    const alice = genIdentityBundle(wasm, entropy(0x79));
+    const bob = genIdentityBundle(wasm, entropy(0x7a));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("tok", me.userId);
+    const enc = await deriveHistoryKey(me.masterSeed);
+    const idKey = await deriveHistoryIdKey(me.masterSeed);
+    const put = async (id: string, rec: HistoryRecord) =>
+      server.set(id, { ciphertext: b64encode(await encryptRecord(enc, rec)), created_at: ctr++ });
+    const contact = (px: string, name: string): HistoryRecord =>
+      ({ v: 1, type: "contact", px_id: px, name, ik_ed25519: "", ik_x25519: "" });
+
+    // What an older build left, after migration 0014 relabelled the contact rows:
+    await put("0d9433382fb34479a50d09d572e07c85", contact(alice.userId, "Alice (old)")); // stale copy
+    await put("1e9433382fb34479a50d09d572e07c85", contact(bob.userId, "Bob")); // not on this device
+    await put("550e8400-e29b-41d4-a716-446655440000", {
+      v: 1, type: "message", msg_id: "550e8400-e29b-41d4-a716-446655440000", peer_id: alice.userId,
+      direction: "in", kind: "text", content: "old hi", timestamp: 1, status: "received",
+    }); // a message under its legacy plain id
+
+    // This device knows Alice under a newer name; backup was on in the old build.
+    await upsertInboundContact(alice.userId, alice.identity.ed25519_pub, alice.identity.x25519_pub);
+    await setDisplayName(alice.userId, "Alice");
+    await db.settings.put({ key: "history_backup", value: true });
+
+    await migrateBackupIds();
+
+    // Only opaque ids remain - one per record, nothing duplicated or lost.
+    expect([...server.keys()].every((id) => /^[0-9a-f]{64}$/.test(id))).toBe(true);
+    expect(server.size).toBe(3); // Alice + Bob contacts, the message
+    expect(server.has(await historyBlobId(idKey, `contact:${bob.userId}`))).toBe(true);
+
+    // A fresh device restores the NEWER name for Alice, and keeps Bob + the message.
+    await db.contacts.clear();
+    await db.messages.clear();
+    await restoreHistory();
+    expect((await getContact(alice.userId))?.name).toBe("Alice");
+    expect((await getContact(bob.userId))?.name).toBe("Bob");
+    expect((await new EncryptedMessages(db).listBySession(alice.userId)).map((m) => m.content)).toEqual(["old hi"]);
   });
 
   it("the live hook does nothing while backup is disabled", async () => {

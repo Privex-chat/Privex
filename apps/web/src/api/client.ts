@@ -282,5 +282,8 @@ export const listHistory = (token: string, after?: string, limit = 200) =>
 export const historyStatus = (token: string) =>
   get<{ count: number; bytes: number }>("/history/status", token);
 
+export const deleteHistoryBlobs = (blob_ids: string[], token: string) =>
+  post<{ deleted: number }>("/history/blobs/delete", { blob_ids }, token);
+
 export const deleteHistory = (token: string) =>
   del<{ deleted: number }>("/history/blobs", token);
