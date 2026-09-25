@@ -1329,7 +1329,7 @@ async fn server_end_to_end() {
         5,
         "replace must drop every old prekey"
     );
-    let after_replace: serde_json::Value = fetch_bundle(&state.redis, &http, &base, &bob.user_id)
+    let after_replace: serde_json::Value = fetch_bundle(&state, &http, &base, &bob.user_id)
         .await
         .json()
         .await
