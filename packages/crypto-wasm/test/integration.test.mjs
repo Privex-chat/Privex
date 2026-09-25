@@ -169,6 +169,14 @@ for (const at of [0, 1, 40, 60, blob.length - 1]) {
 }
 assert.throws(() => sealed_sender_decrypt(blob.slice(0, 70), bob.x25519_priv, BigInt(now + 1)));
 
+// A legacy (v1-shaped) blob claiming a ~4 GiB certificate must be refused cleanly.
+// On 32-bit wasm, 60 + cert_len used to wrap and the slice then panicked - a trap
+// that can leave the whole module unusable. The engine must keep working after.
+const huge = new Uint8Array(100);
+huge.fill(0xff, 56, 60);
+assert.throws(() => sealed_sender_decrypt(huge, bob.x25519_priv, BigInt(now + 1)), /bad cert length/);
+assert.ok(eq(sealed_sender_decrypt(blob, bob.x25519_priv, BigInt(now + 1)).plaintext, message));
+
 // ===== Part 3: Recovery =====
 // Shamir 3-of-5
 const secret = new Uint8Array(32).map((_, i) => (i * 7) & 0xff);
