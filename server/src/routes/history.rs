@@ -61,7 +61,8 @@ pub async fn upload(
     let now = now_unix() as i32;
     let mut stored = 0;
     for b in &body.blobs {
-        // blob_id must be a UUID or contact-key shape - reject anything else (PVX-18).
+        // blob_id: an opaque client-chosen id (legacy UUIDs still accepted); never
+        // a readable `contact:<px_id>` - see validate_history_blob_id (PVX-18).
         let safe_id = validate::validate_history_blob_id(&b.blob_id)?;
         let ct = validate::validate_b64(&b.ciphertext, validate::MAX_HISTORY_BLOB_BYTES)?;
         history::upsert(&st.db, &user, &safe_id, &ct, now)
@@ -145,6 +146,33 @@ pub async fn status(
 #[derive(Serialize)]
 pub struct DeleteResp {
     deleted: u64,
+}
+
+#[derive(Deserialize)]
+pub struct DeleteIdsReq {
+    blob_ids: Vec<String>,
+}
+
+/// Delete specific blobs - used once per device to drop rows still stored under
+/// legacy ids after they were re-uploaded under opaque ones.
+pub async fn delete_ids(
+    AuthUser(user): AuthUser,
+    State(st): State<AppState>,
+    Json(body): Json<DeleteIdsReq>,
+) -> Result<Json<DeleteResp>, ApiError> {
+    crate::routes::rate_limit(&st, "histdelids", &user, 60, 60).await?;
+    if body.blob_ids.is_empty() || body.blob_ids.len() > validate::MAX_HISTORY_BATCH {
+        return Err(ApiError::bad_request());
+    }
+    let ids = body
+        .blob_ids
+        .iter()
+        .map(|id| validate::validate_history_blob_id(id))
+        .collect::<Result<Vec<_>, _>>()?;
+    let deleted = history::delete_ids(&st.db, &user, &ids)
+        .await
+        .map_err(|_| ApiError::internal())?;
+    Ok(Json(DeleteResp { deleted }))
 }
 
 pub async fn delete_all(

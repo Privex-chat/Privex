@@ -130,6 +130,7 @@ const cert = generate_sender_cert(
   alice.ed25519_pub,
   alice.dilithium3_priv,
   alice.dilithium3_pub,
+  alice.x25519_pub,
   BigInt(now),
   86_400n,
 );
@@ -152,6 +153,29 @@ assert.equal(sres.sender_verified, true);
 // wrong recipient cannot open (Err path)
 const mallory = generate_identity_keypairs();
 assert.throws(() => sealed_sender_decrypt(blob, mallory.x25519_priv, BigInt(now + 1)));
+
+// v2 wire: the envelope is encrypted too - the message bytes never appear.
+assert.equal(blob[0], 2, "v2 version byte");
+const msgLeaked = Array.from({ length: blob.length - message.length + 1 }).some((_, i) =>
+  message.every((b, j) => blob[i + j] === b),
+);
+assert.equal(msgLeaked, false, "envelope must not appear in the sealed blob");
+
+// Any tampering (header or ciphertext) or truncation fails to open (Err path).
+for (const at of [0, 1, 40, 60, blob.length - 1]) {
+  const t = blob.slice();
+  t[at] ^= 0x01;
+  assert.throws(() => sealed_sender_decrypt(t, bob.x25519_priv, BigInt(now + 1)), `tamper @${at}`);
+}
+assert.throws(() => sealed_sender_decrypt(blob.slice(0, 70), bob.x25519_priv, BigInt(now + 1)));
+
+// A legacy (v1-shaped) blob claiming a ~4 GiB certificate must be refused cleanly.
+// On 32-bit wasm, 60 + cert_len used to wrap and the slice then panicked - a trap
+// that can leave the whole module unusable. The engine must keep working after.
+const huge = new Uint8Array(100);
+huge.fill(0xff, 56, 60);
+assert.throws(() => sealed_sender_decrypt(huge, bob.x25519_priv, BigInt(now + 1)), /bad cert length/);
+assert.ok(eq(sealed_sender_decrypt(blob, bob.x25519_priv, BigInt(now + 1)).plaintext, message));
 
 // ===== Part 3: Recovery =====
 // Shamir 3-of-5

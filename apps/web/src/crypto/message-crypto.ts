@@ -41,6 +41,8 @@ export function ratchetInitBob(
   return w.ratchet_init_bob(sharedSecret, spkPriv, spkPub);
 }
 
+/** v2 sender certificate: also binds the sender's X25519 identity key, which is
+ *  what lets a recipient tell a genuine handshake from a replayed certificate. */
 export function generateSenderCert(
   w: WasmModule,
   senderId: string,
@@ -48,10 +50,20 @@ export function generateSenderCert(
   edPub: Uint8Array,
   dilPriv: Uint8Array,
   dilPub: Uint8Array,
+  x25519Pub: Uint8Array,
   nowUnix: number,
   validSeconds: number,
 ): Uint8Array {
-  return w.generate_sender_cert(senderId, edPriv, edPub, dilPriv, dilPub, BigInt(nowUnix), BigInt(validSeconds));
+  return w.generate_sender_cert(
+    senderId,
+    edPriv,
+    edPub,
+    dilPriv,
+    dilPub,
+    x25519Pub,
+    BigInt(nowUnix),
+    BigInt(validSeconds),
+  );
 }
 
 /** Seal the (already-ratchet-encrypted) envelope to the recipient's X25519
@@ -69,6 +81,8 @@ export interface SealedOpened {
   plaintext: Uint8Array; // the inner MessageEnvelope bytes
   senderId: string;
   senderEdPub: Uint8Array; // the cert's signing key - pin to a known contact
+  /** X25519 identity key the (v2) cert binds; empty for a legacy v1 cert. */
+  senderX25519Pub: Uint8Array;
   senderVerified: boolean;
 }
 
@@ -83,6 +97,7 @@ export function sealedSenderDecrypt(
     plaintext: r.plaintext,
     senderId: r.sender_id,
     senderEdPub: r.sender_ed_pub,
+    senderX25519Pub: r.sender_x25519_pub,
     senderVerified: r.sender_verified,
   };
 }

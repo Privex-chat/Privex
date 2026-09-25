@@ -124,8 +124,10 @@ export interface OpkUpload {
   opk_id: number;
   opk_x25519_pub: string; // hex
 }
-export const replenishPrekeys = (opks: OpkUpload[], token: string) =>
-  post<{ stored: number }>("/keys/prekeys/replenish", { opks }, token);
+/** `replace` swaps out the WHOLE server-side inventory (account recovery - the
+ *  old prekeys' private halves were lost with the old device). */
+export const replenishPrekeys = (opks: OpkUpload[], token: string, replace = false) =>
+  post<{ stored: number }>("/keys/prekeys/replenish", { opks, replace }, token);
 
 // --- messaging + WS ticket (authenticated) ---
 
@@ -279,6 +281,9 @@ export const listHistory = (token: string, after?: string, limit = 200) =>
 
 export const historyStatus = (token: string) =>
   get<{ count: number; bytes: number }>("/history/status", token);
+
+export const deleteHistoryBlobs = (blob_ids: string[], token: string) =>
+  post<{ deleted: number }>("/history/blobs/delete", { blob_ids }, token);
 
 export const deleteHistory = (token: string) =>
   del<{ deleted: number }>("/history/blobs", token);

@@ -21,6 +21,7 @@ import { useAuth } from "../store/auth";
 import { cryptoCall } from "../workers/crypto-client";
 import { lockNow, wipeKeystore } from "../crypto/keystore";
 import { loadBundle, finalizeIdentity } from "../onboarding/store";
+import { nextSpkRotation, retainSpks } from "./prekeys";
 import { toHex, type SignedSpk } from "../crypto/onboarding-crypto";
 import { disconnectWebSocket } from "./websocket";
 import { stopCoverTraffic } from "./cover-traffic";
@@ -58,9 +59,16 @@ export async function logoutEverywhere(crypto: SessionCryptoApi = workerSessionC
 
   // Persist the new SPK private key locally ONLY after the server accepted the new
   // public key (keeps device + server in sync; a future Bob answers with spk.priv).
+  // The old private half is kept briefly (prekeys.ts) so a handshake already in
+  // flight against it still opens; the server no longer hands it out.
+  const now = Math.floor(Date.now() / 1000);
+  bundle.prevSpks = retainSpks([{ ...bundle.spk, retiredAt: now }, ...(bundle.prevSpks ?? [])], now);
   bundle.spk = { pub: spk.pub, priv: spk.priv };
   bundle.spkSig = { ed: spk.sigEd, dil: spk.sigDil };
+  bundle.spkRotateAfter = nextSpkRotation(now);
+  bundle.spkPending = false;
   await finalizeIdentity(bundle); // rewrites priv_bundle_enc; keeps opks + mnemonic + progress
+  resetMessaging(); // the cached identity must pick up the new signed prekey
 
   // Revoke every token across all devices (incl. this one - we re-auth on reload).
   await api.logoutAll(token);
