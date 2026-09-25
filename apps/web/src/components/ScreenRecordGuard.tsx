@@ -13,6 +13,11 @@ export async function setScreenRecordProtectionEnabled(v: boolean): Promise<void
   await db.settings.put({ key: SETTINGS_KEY, value: v });
 }
 
+/**
+ * Show a repeating watermark with the account's `pxId` when protection is enabled.
+ * While enabled, visibility changes toggle a blurred cover when the page is hidden.
+ * Loads the saved setting on mount; renders nothing when disabled or `pxId` is empty.
+ */
 export default function ScreenRecordGuard({ pxId }: { pxId: string }) {
   const [hidden, setHidden] = useState(false);
   const enabled = useScreenRecord((s) => s.enabled);
