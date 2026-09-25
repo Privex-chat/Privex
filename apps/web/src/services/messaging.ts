@@ -151,21 +151,28 @@ export const workerPrekeyCrypto: PrekeyCryptoApi = {
 };
 
 let upkeepRunning = false;
+let serverLowPending = false;
 /** Prekey upkeep (services/prekeys.ts): rotate the signed prekey when due and top
  *  up one-time prekeys. `serverLow` = the server reported its one-time supply is
  *  low (WS prekey_low). Runs on the cached identity so the in-memory copy stays
- *  current. Best-effort: never throws; one run at a time. */
+ *  current. Best-effort: never throws; one run at a time - a server-low signal
+ *  that arrives mid-run is remembered and handled before the run ends. */
 export async function prekeyUpkeep(
   serverLow = false,
   pc: PrekeyCryptoApi = workerPrekeyCrypto,
 ): Promise<void> {
+  if (serverLow) serverLowPending = true;
   if (upkeepRunning) return;
   upkeepRunning = true;
   try {
     const me = await myBundle();
     const tok = token();
     await rotateSpkIfDue(me, pc, tok, now()).catch(() => {});
-    await replenishOpks(me, pc, tok, serverLow).catch(() => {});
+    do {
+      const low = serverLowPending;
+      serverLowPending = false;
+      await replenishOpks(me, pc, tok, low).catch(() => {});
+    } while (serverLowPending);
   } catch {
     // not authenticated / identity not loaded - retried on the next trigger
   } finally {
@@ -698,14 +705,6 @@ export async function receiveMessage(
       return;
     }
     await createInboundSession(senderId, dec.newState);
-    await db.handshakes.put({ ek, at: now() });
-    // One-time prekeys are ONE-time: forget the private half now that it's used
-    // (docs 4.3), and top up if that leaves us low.
-    if (pq.opk_used && me.opks.some((o) => o.id === pq.opk_id)) {
-      me.opks = me.opks.filter((o) => o.id !== pq.opk_id);
-      await saveBundle(me);
-      if (me.opks.length < OPK_LOW_WATER) void prekeyUpkeep();
-    }
     // Store the reply target (Alice's X25519 IK) + the cert's authentic identity
     // key (px_id is bound to it), unless it conflicts with one we already hold.
     await upsertInboundContact(
@@ -714,6 +713,17 @@ export async function receiveMessage(
       pq.alice_ik_pub,
     );
     emitContactsChanged(); // a new contact just appeared in our list
+    // Only now mark the handshake adopted: if anything above failed, the same
+    // delivery comes back and can be adopted again (its prekeys are still held).
+    await db.handshakes.put({ ek, at: now() });
+    // One-time prekeys are ONE-time: forget the private half now that it's used
+    // (docs 4.3), and top up if that leaves us low. The save is best-effort - a
+    // failure must not fail this delivery (the next successful save drops it).
+    if (pq.opk_used && me.opks.some((o) => o.id === pq.opk_id)) {
+      me.opks = me.opks.filter((o) => o.id !== pq.opk_id);
+      await saveBundle(me).catch(() => {});
+      if (me.opks.length < OPK_LOW_WATER) void prekeyUpkeep();
+    }
     plaintextBytes = dec.plaintext;
   }
 

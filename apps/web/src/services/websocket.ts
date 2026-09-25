@@ -56,7 +56,6 @@ export async function connectWebSocket(sessionToken: string): Promise<void> {
   token = sessionToken;
   stopped = false;
   void pruneReceived().catch(() => {}); // housekeeping; never blocks connecting
-  void prekeyUpkeep(); // rotate the signed prekey when due, top up one-time prekeys
   await open(++gen);
 }
 
@@ -85,8 +84,10 @@ async function open(myGen: number): Promise<void> {
     retry = 0;
     lastFrameAt = Date.now();
     setStatus("connected");
-    // Connectivity is back → deliver anything queued while offline.
+    // Connectivity is back → deliver anything queued while offline, and run
+    // prekey upkeep (a rotation or top-up whose publish failed offline retries).
     void flushOutbox();
+    void prekeyUpkeep();
   };
   // Process frames SEQUENTIALLY. Concurrent receiveMessage calls race the shared
   // Double Ratchet state (both load the same session, last save wins) and the

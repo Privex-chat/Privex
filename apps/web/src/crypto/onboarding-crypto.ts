@@ -52,13 +52,15 @@ export interface IdentityBundle {
   opks: PreKey[];
   // Prekey upkeep (services/prekeys.ts). All optional: absent on bundles saved
   // before rotation existed.
-  /** The previous signed prekeys (newest first) - kept so a handshake already in
-   *  flight against one of them still opens. */
-  prevSpks?: { pub: Uint8Array; priv: Uint8Array }[];
+  /** The previous signed prekeys (newest first) - kept for the max message TTL
+   *  after retirement, so a handshake already in flight against one still opens. */
+  prevSpks?: { pub: Uint8Array; priv: Uint8Array; retiredAt?: number }[];
   /** Unix time the current signed prekey is due for rotation. */
   spkRotateAfter?: number;
   /** A rotation was saved locally but the server hasn't confirmed it yet. */
   spkPending?: boolean;
+  /** Ids of a one-time prekey batch saved locally but not yet published. */
+  opkPending?: number[];
 }
 
 function plainIdentity(k: Wasm.IdentityKeypairs): IdentityKeys {

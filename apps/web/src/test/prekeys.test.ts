@@ -19,6 +19,7 @@ import { pqxdhInitiate } from "../crypto/contact-crypto";
 import * as mc from "../crypto/message-crypto";
 import { encodeEnvelope, encodeText } from "../services/envelope";
 import { b64encode } from "../services/bytes";
+import * as store from "../onboarding/store";
 import { loadBundle, persistGeneratedIdentity } from "../onboarding/store";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { useAuth } from "../store/auth";
@@ -32,8 +33,7 @@ import {
 } from "../services/messaging";
 import {
   OPK_BATCH,
-  OPK_MAX_LOCAL,
-  PREV_SPKS_KEPT,
+  SPK_RETAIN_SECS,
   replenishOpks,
   rotateSpkIfDue,
   type PrekeyCryptoApi,
@@ -102,7 +102,8 @@ function handshake(from: IdentityBundle, to: IdentityBundle, spkPub: Uint8Array,
 
 async function freshMe(me: IdentityBundle) {
   resetMessaging();
-  for (const t of [db.contacts, db.sessions, db.messages, db.identity, db.settings, db.received]) await t.clear();
+  for (const t of [db.contacts, db.sessions, db.messages, db.identity, db.settings, db.received, db.handshakes])
+    await t.clear();
   await persistGeneratedIdentity(me);
   useAuth.getState().setSession("tok", me.userId);
 }
@@ -142,25 +143,78 @@ describe("one-time prekeys", () => {
     expect(me.opks).toHaveLength(10 + OPK_BATCH);
   });
 
-  it("a full local supply isn't topped up unless the server says it's low; storage is capped", async () => {
+  it("a full local supply isn't topped up unless the server says it's low; unused keys are kept", async () => {
     const me = genIdentityBundle(wasm, entropy(0x45));
     await freshMe(me);
+    const start = me.opks.length;
     const upload = vi.spyOn(api, "replenishPrekeys").mockResolvedValue({ stored: OPK_BATCH });
     expect(await replenishOpks(me, prekeyCrypto, "tok", false)).toBe(false);
     expect(upload).not.toHaveBeenCalled();
 
+    // A drain (fetches that never became messages) keeps the server low. Every
+    // private half is kept until a handshake uses it - no cap that could strand a
+    // first message still queued for us.
     for (let i = 0; i < 5; i++) await replenishOpks(me, prekeyCrypto, "tok", true);
     expect(upload).toHaveBeenCalledTimes(5);
-    expect(me.opks).toHaveLength(OPK_MAX_LOCAL);
-    // The newest are kept (the server hands out the lowest ids first).
-    const ids = me.opks.map((o) => o.id);
-    expect(Math.max(...ids)).toBe(me.opks[me.opks.length - 1].id);
-    expect(ids[0]).toBe(Math.max(...ids) - OPK_MAX_LOCAL + 1);
+    expect(me.opks).toHaveLength(start + 5 * OPK_BATCH);
+    expect(me.opks[0].id).toBe(1);
+  });
+
+  it("a batch whose upload failed is re-sent as-is, not replaced", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x46));
+    await freshMe(me);
+    me.opks = me.opks.slice(0, 10);
+    const gen = vi.spyOn(prekeyCrypto, "generateOpks");
+    const upload = vi.spyOn(api, "replenishPrekeys").mockRejectedValueOnce(new Error("offline"));
+    await expect(replenishOpks(me, prekeyCrypto, "tok", false)).rejects.toThrow("offline");
+    const batch = (await loadBundle())!.opkPending!;
+    expect(batch).toHaveLength(OPK_BATCH); // survives a reload
+
+    upload.mockResolvedValue({ stored: OPK_BATCH });
+    expect(await replenishOpks(me, prekeyCrypto, "tok", false)).toBe(true);
+    expect(upload.mock.calls.at(-1)![0].map((o) => o.opk_id)).toEqual(batch); // the same keys
+    expect(gen).toHaveBeenCalledOnce(); // nothing new generated
+    expect((await loadBundle())!.opkPending).toBeUndefined();
+  });
+
+  it("a server-low signal during a running upkeep pass is not lost", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x47));
+    await freshMe(me); // full local supply: only a server-low pass tops up
+    vi.spyOn(api, "spkRotate").mockResolvedValue({ rotated: true });
+    const upload = vi.spyOn(api, "replenishPrekeys").mockResolvedValue({ stored: OPK_BATCH });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const slow: PrekeyCryptoApi = {
+      ...prekeyCrypto,
+      generateSignedSpk: async (ed, dil) => {
+        await gate; // the first pass is busy rotating...
+        return prekeyCrypto.generateSignedSpk(ed, dil);
+      },
+    };
+    const first = prekeyUpkeep(false, slow);
+    await prekeyUpkeep(true, slow); // ...when the server says it's low
+    release();
+    await first;
+    expect(upload).toHaveBeenCalledOnce();
+  });
+
+  it("a failed save while forgetting a used one-time key doesn't fail the delivery", async () => {
+    const alice = genIdentityBundle(wasm, entropy(0x48));
+    const carol = genIdentityBundle(wasm, entropy(0x49));
+    await freshMe(carol);
+    const ack = vi.spyOn(api, "ackMessages").mockResolvedValue({ deleted: 1 });
+    vi.spyOn(store, "saveBundle").mockRejectedValue(new Error("disk full"));
+    await receiveMessage(
+      { message_id: "o2", content: handshake(alice, carol, carol.spk.pub, 0), queued_at: 0 },
+      wasmCrypto,
+    );
+    expect(await new EncryptedMessages(db).listBySession(alice.userId)).toHaveLength(1);
+    expect(ack).toHaveBeenCalledWith(["o2"], "tok");
   });
 });
 
 describe("signed prekey rotation", () => {
-  it("rotates when due, keeps the previous ones, and schedules 30 ± 5 days out", async () => {
+  it("rotates when due, keeps retired keys for the max message TTL, and schedules 30 ± 5 days out", async () => {
     const me = genIdentityBundle(wasm, entropy(0x51));
     await freshMe(me);
     const first = hex(me.spk.pub);
@@ -180,12 +234,37 @@ describe("signed prekey rotation", () => {
 
     // Not due yet → nothing happens.
     expect(await rotateSpkIfDue(me, prekeyCrypto, "tok", t0 + DAY)).toBe(false);
-    // Two more rotations → only the newest PREV_SPKS_KEPT previous keys remain.
-    await rotateSpkIfDue(me, prekeyCrypto, "tok", me.spkRotateAfter!);
-    await rotateSpkIfDue(me, prekeyCrypto, "tok", me.spkRotateAfter!);
-    expect(me.prevSpks).toHaveLength(PREV_SPKS_KEPT);
-    expect(me.prevSpks!.map((k) => hex(k.pub))).not.toContain(first);
+    // Two more rotations in quick succession (as "log out everywhere" can cause):
+    // every retired key is still inside its window, so all are kept.
+    me.spkRotateAfter = undefined;
+    await rotateSpkIfDue(me, prekeyCrypto, "tok", t0 + 10);
+    me.spkRotateAfter = undefined;
+    await rotateSpkIfDue(me, prekeyCrypto, "tok", t0 + 20);
+    expect(me.prevSpks).toHaveLength(3);
+    expect(me.prevSpks!.map((k) => hex(k.pub))).toContain(first);
     expect(publish).toHaveBeenCalledTimes(3);
+
+    // Once a key's window has passed, it's forgotten (checked on every upkeep).
+    me.spkRotateAfter = t0 + 400 * DAY;
+    expect(await rotateSpkIfDue(me, prekeyCrypto, "tok", t0 + SPK_RETAIN_SECS + 15)).toBe(false);
+    expect(me.prevSpks).toHaveLength(1); // only the key retired at t0 + 20 remains
+    expect((await loadBundle())!.prevSpks).toHaveLength(1);
+  });
+
+  it("never publishes a signed prekey whose private half wasn't saved", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x55));
+    await freshMe(me);
+    const before = hex(me.spk.pub);
+    const publish = vi.spyOn(api, "spkRotate").mockResolvedValue({ rotated: true });
+    vi.spyOn(store, "saveBundle").mockRejectedValueOnce(new Error("disk full"));
+    await expect(rotateSpkIfDue(me, prekeyCrypto, "tok", nowS())).rejects.toThrow("disk full");
+    expect(publish).not.toHaveBeenCalled();
+    expect(hex(me.spk.pub)).toBe(before); // the cached identity didn't move ahead
+    expect(me.spkPending).toBeFalsy();
+
+    // The next pass rotates afresh; what it publishes is what's stored.
+    expect(await rotateSpkIfDue(me, prekeyCrypto, "tok", nowS())).toBe(true);
+    expect(publish.mock.calls[0][0].spk_x25519_pub).toBe(hex((await loadBundle())!.spk.pub));
   });
 
   it("retries publishing a rotation the server never confirmed", async () => {

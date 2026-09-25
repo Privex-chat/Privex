@@ -46,9 +46,14 @@ function serialize(b: IdentityBundle, includeMnemonic: boolean): string {
     spk: { pub: toHex(b.spk.pub), priv: toHex(b.spk.priv) },
     spkSig: { ed: toHex(b.spkSig.ed), dil: toHex(b.spkSig.dil) },
     opks: b.opks.map((o) => ({ id: o.id, pub: toHex(o.pub), priv: toHex(o.priv) })),
-    prevSpks: (b.prevSpks ?? []).map((k) => ({ pub: toHex(k.pub), priv: toHex(k.priv) })),
+    prevSpks: (b.prevSpks ?? []).map((k) => ({
+      pub: toHex(k.pub),
+      priv: toHex(k.priv),
+      retiredAt: k.retiredAt,
+    })),
     spkRotateAfter: b.spkRotateAfter,
     spkPending: b.spkPending,
+    opkPending: b.opkPending,
   });
 }
 
@@ -70,9 +75,10 @@ interface SerBundle {
   spk: { pub: string; priv: string };
   spkSig: { ed: string; dil: string };
   opks: { id: number; pub: string; priv: string }[];
-  prevSpks?: { pub: string; priv: string }[];
+  prevSpks?: { pub: string; priv: string; retiredAt?: number }[];
   spkRotateAfter?: number;
   spkPending?: boolean;
+  opkPending?: number[];
 }
 
 function deserialize(json: string): IdentityBundle {
@@ -95,9 +101,14 @@ function deserialize(json: string): IdentityBundle {
     spk: { pub: fromHex(s.spk.pub), priv: fromHex(s.spk.priv) },
     spkSig: { ed: fromHex(s.spkSig.ed), dil: fromHex(s.spkSig.dil) },
     opks: s.opks.map((o) => ({ id: o.id, pub: fromHex(o.pub), priv: fromHex(o.priv) })),
-    prevSpks: (s.prevSpks ?? []).map((k) => ({ pub: fromHex(k.pub), priv: fromHex(k.priv) })),
+    prevSpks: (s.prevSpks ?? []).map((k) => ({
+      pub: fromHex(k.pub),
+      priv: fromHex(k.priv),
+      retiredAt: k.retiredAt,
+    })),
     spkRotateAfter: s.spkRotateAfter,
     spkPending: s.spkPending,
+    opkPending: s.opkPending,
   };
 }
 
