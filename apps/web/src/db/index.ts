@@ -164,6 +164,15 @@ export interface ReceivedRow {
   at: number; // unix seconds
 }
 
+// Every PQXDH handshake we ADOPTED, by its ephemeral key (alice_ek_pub - fresh
+// random per session). Seeing one again can only be a replay, which would rewind
+// a working session to its first state. Kept for good: ~70 bytes per adopted
+// handshake (roughly one per contact + resets); no pruning needed.
+export interface HandshakeRow {
+  ek: string; // hex alice_ek_pub
+  at: number; // unix seconds
+}
+
 export class PrivexDB extends Dexie {
   identity!: Table<IdentityRow, string>;
   sessions!: Table<SessionRow, string>;
@@ -176,6 +185,7 @@ export class PrivexDB extends Dexie {
   receipt_outbox!: Table<ReceiptOutboxRow, number>;
   linked_devices!: Table<LinkedDeviceRow, string>;
   received!: Table<ReceivedRow, string>;
+  handshakes!: Table<HandshakeRow, string>;
 
   constructor(name = "privex") {
     super(name);
@@ -203,6 +213,10 @@ export class PrivexDB extends Dexie {
     // v5: processed server message ids (redelivery dedup - see ReceivedRow).
     this.version(5).stores({
       received: "message_id, at",
+    });
+    // v6: adopted handshakes (replay guard - see HandshakeRow).
+    this.version(6).stores({
+      handshakes: "ek",
     });
   }
 }

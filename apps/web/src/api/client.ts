@@ -124,8 +124,10 @@ export interface OpkUpload {
   opk_id: number;
   opk_x25519_pub: string; // hex
 }
-export const replenishPrekeys = (opks: OpkUpload[], token: string) =>
-  post<{ stored: number }>("/keys/prekeys/replenish", { opks }, token);
+/** `replace` swaps out the WHOLE server-side inventory (account recovery - the
+ *  old prekeys' private halves were lost with the old device). */
+export const replenishPrekeys = (opks: OpkUpload[], token: string, replace = false) =>
+  post<{ stored: number }>("/keys/prekeys/replenish", { opks, replace }, token);
 
 // --- messaging + WS ticket (authenticated) ---
 

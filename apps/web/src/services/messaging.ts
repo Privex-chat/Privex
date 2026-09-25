@@ -449,9 +449,16 @@ async function cryptoEngineHealthy(crypto: MessageCryptoApi, me: IdentityBundle)
 }
 
 /** Record that a message from a known, verified contact couldn't be decrypted
- *  (shown in the conversation, like Signal). Never for unverified senders - a
- *  forged certificate must not be able to plant notices in someone else's
- *  conversation - and consecutive failures collapse into one notice. */
+ *  (shown in the conversation, like Signal). Never for unverified senders (a
+ *  forged certificate can't plant one), and consecutive failures collapse into
+ *  one notice.
+ *  Known limit: a sender certificate is a reusable credential, and anyone who
+ *  has received one of Alice's messages holds a copy. They can attach it to
+ *  junk sealed to us, and that junk fails here as if Alice had sent it. So a
+ *  notice (never content) can be faked by a holder of the certificate. Kept by
+ *  decision: a genuine lost message matters more. The real fix is a sealed
+ *  sender that authenticates the sender itself (a static-key layer, as Signal
+ *  does), which makes certificates useless to anyone but their owner. */
 async function noteUndecryptable(peerId: string, messageId: string, anchor?: number): Promise<void> {
   const rows = await db.messages.where("session_id").equals(peerId).sortBy("created_at");
   if (rows[rows.length - 1]?.status === UNDECRYPTABLE) return;
@@ -643,6 +650,15 @@ export async function receiveMessage(
   }
   if (adoptHandshake) {
     const pq = env.pqxdh!; // adoptHandshake implies a handshake is present
+    // Replay guard: a handshake we already adopted (same ephemeral key) arriving
+    // again - e.g. a server re-sending a captured copy under a new message id -
+    // must not re-adopt: that would rewind our working session to its first
+    // state (breaking the chat) and re-show its first message.
+    const ek = toHex(pq.alice_ek_pub);
+    if (await db.handshakes.get(ek)) {
+      await ackDelivered(ws.message_id);
+      return;
+    }
     const opkPriv =
       pq.opk_used && pq.opk_id
         ? me.opks.find((o) => o.id === pq.opk_id)?.priv ?? new Uint8Array(0)
@@ -682,6 +698,7 @@ export async function receiveMessage(
       return;
     }
     await createInboundSession(senderId, dec.newState);
+    await db.handshakes.put({ ek, at: now() });
     // One-time prekeys are ONE-time: forget the private half now that it's used
     // (docs 4.3), and top up if that leaves us low.
     if (pq.opk_used && me.opks.some((o) => o.id === pq.opk_id)) {
