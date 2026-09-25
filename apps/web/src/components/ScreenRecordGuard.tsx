@@ -13,15 +13,11 @@ export async function setScreenRecordProtectionEnabled(v: boolean): Promise<void
   await db.settings.put({ key: SETTINGS_KEY, value: v });
 }
 
-const ANIM_STYLE = `
-@keyframes privex-watermark-shift {
-  0% { background-position: 0 0; }
-  33% { background-position: 16px 10px; }
-  66% { background-position: 8px -6px; }
-  100% { background-position: 0 0; }
-}
-`;
-
+/**
+ * Show a repeating watermark with the account's `pxId` when protection is enabled.
+ * While enabled, visibility changes toggle a blurred cover when the page is hidden.
+ * Loads the saved setting on mount; renders nothing when disabled or `pxId` is empty.
+ */
 export default function ScreenRecordGuard({ pxId }: { pxId: string }) {
   const [hidden, setHidden] = useState(false);
   const enabled = useScreenRecord((s) => s.enabled);
@@ -54,7 +50,8 @@ export default function ScreenRecordGuard({ pxId }: { pxId: string }) {
 
   return (
     <>
-      <style>{ANIM_STYLE}</style>
+      {/* @keyframes privex-watermark-shift lives in index.css: the CSP
+          (style-src 'self') blocks inline <style> elements. */}
       <div
         className="pointer-events-none fixed inset-0 z-[9998]"
         style={{
