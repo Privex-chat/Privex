@@ -1,0 +1,101 @@
+# CI: the same checks run locally before every PR - crypto-wasm unit tests,
+# server unit + integration tests (real Postgres + Redis), and the web app's
+# typecheck, vitest suite and production build. Read-only token; no secrets.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crypto-wasm:
+    name: crypto-wasm (Rust unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/crypto-wasm
+      - run: cargo test --locked
+        working-directory: packages/crypto-wasm
+
+  server:
+    name: server (unit + integration)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: privex
+          POSTGRES_PASSWORD: privex
+          POSTGRES_DB: privex
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U privex"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7.2-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # Compile the sqlx macros against the committed server/.sqlx cache.
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: postgres://privex:privex@127.0.0.1:5432/privex
+      REDIS_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # server/build.rs generates the Protobuf types with prost, which needs protoc.
+      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: server
+      - run: cargo test --locked
+        working-directory: server
+
+  web:
+    name: web (typecheck + vitest + build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/crypto-wasm
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        with:
+          tool: wasm-pack
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The web tests run against the real WASM and the generated Protobuf code;
+      # neither is committed, so build both first.
+      - run: pnpm --filter @privex/crypto-wasm build
+      - run: pnpm --filter @privex/protocol build
+      - run: pnpm --filter @privex/crypto-wasm test
+      - run: pnpm --filter @privex/protocol test
+      - run: pnpm --filter @privex/web typecheck
+      - run: pnpm --filter @privex/web test
+      - run: pnpm --filter @privex/web build
