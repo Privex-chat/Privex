@@ -11,7 +11,7 @@ import { db } from "../db";
 import { blockContact, getContact, removeContact, unblockContact } from "../data/contacts";
 import { acceptContactRequest } from "../services/messaging";
 import { onContactsChanged, onMessage } from "../services/events";
-import { sendMessage, sendFile } from "../services/messaging";
+import { sendMessage, sendFile, UNDECRYPTABLE } from "../services/messaging";
 import { queueReadReceipt } from "../services/receipts";
 import { downloadAndDecrypt, type FileMeta } from "../services/files";
 import { getClientConfig } from "../services/client-config";
@@ -426,6 +426,18 @@ export default function Chat() {
             );
           }
           const m = row.m;
+          if (m.status === UNDECRYPTABLE) {
+            // Local notice (no content): a message from this contact couldn't be
+            // decrypted and was discarded.
+            return (
+              <div key={m.msg_id} role="note" className="my-3 flex justify-center">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-elevated px-3 py-1 text-[11px] text-text-muted">
+                  <WarningTriangleIcon className="h-3.5 w-3.5" />
+                  A message couldn&rsquo;t be decrypted.
+                </span>
+              </div>
+            );
+          }
           const out = m.direction === "out";
           const meta = m.kind === "file" ? parseFileMeta(m.content) : null;
           const dl = downloads[m.msg_id];
