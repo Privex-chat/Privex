@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "message": "Security update: please reload Privex on every device you use. Until the people you talk to have reloaded too, some messages and contact requests may be delayed - nothing is lost.",
+  "message": "Security update: please reload Privex on every device you use. Until the people you talk to have reloaded too, your messages to them may arrive late. A contact request sent from a device that hasn't reloaded yet may not arrive at all: if one of yours stays on \"waiting for them to accept\", cancel it under Contacts → Requests and send it again.",
   "severity": "info",
   "dismissible": true
 }
