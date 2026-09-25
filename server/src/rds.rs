@@ -49,24 +49,30 @@ pub async fn check_rate_limit(
     Ok(count <= limit)
 }
 
-/// Store an auth challenge for a user (single-use, short TTL).
-pub async fn store_challenge(
+/// Mark a login challenge used (auth/challenge.rs). True iff THIS call used it;
+/// false = a replay. Called only after a valid signature over the challenge, so
+/// nobody but the key holder can spend one. The key is an HMAC of the challenge
+/// (never an account id); the TTL outlives the challenge's own expiry.
+pub async fn consume_auth_challenge(
     pool: &Pool,
     server_key: &[u8; 32],
-    user_id: &str,
     challenge: &[u8],
     ttl_secs: i64,
-) -> anyhow::Result<()> {
-    let key = format!("chal:{}", keyed(server_key, "chal", user_id));
+) -> anyhow::Result<bool> {
+    let key = format!(
+        "chalused:{}",
+        keyed(server_key, "chalused", &hex::encode(challenge))
+    );
     let mut conn = pool.get().await?;
-    let _: () = redis::cmd("SET")
+    let set: Option<String> = redis::cmd("SET")
         .arg(&key)
-        .arg(challenge)
+        .arg(1)
+        .arg("NX")
         .arg("EX")
-        .arg(ttl_secs)
+        .arg(ttl_secs.max(1))
         .query_async(&mut conn)
         .await?;
-    Ok(())
+    Ok(set.is_some())
 }
 
 /// Store a single-use WebSocket auth ticket → user_id (short TTL). The Redis
@@ -173,21 +179,6 @@ pub async fn take_login_state(
         }
         None => Ok(None),
     }
-}
-
-/// Atomically fetch-and-delete a user's challenge (single use → replay-proof).
-pub async fn take_challenge(
-    pool: &Pool,
-    server_key: &[u8; 32],
-    user_id: &str,
-) -> anyhow::Result<Option<Vec<u8>>> {
-    let key = format!("chal:{}", keyed(server_key, "chal", user_id));
-    let mut conn = pool.get().await?;
-    let value: Option<Vec<u8>> = redis::cmd("GETDEL")
-        .arg(&key)
-        .query_async(&mut conn)
-        .await?;
-    Ok(value)
 }
 
 /// Token revocation cutoff: every session token issued BEFORE this unix time is
