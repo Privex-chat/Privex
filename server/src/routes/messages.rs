@@ -112,17 +112,25 @@ pub async fn send(
         }));
     }
 
-    let message_id = message_queue::enqueue(
+    // Per-recipient cap (count and bytes), checked atomically with the insert:
+    // refuse with 429 once a mailbox is full, so no sender can grow someone's queue
+    // without bound. The sender's app parks the message and retries later (it
+    // treats 429 as transient).
+    let message_id = message_queue::enqueue_capped(
         &st.db,
         &body.recipient_id,
         &content,
         csam.as_deref(),
         now as i32,
         expires_at as i32,
-        content.len() as i32,
+        message_queue::MailboxCap {
+            max_messages: st.config.mailbox_max_messages,
+            max_bytes: st.config.mailbox_max_bytes,
+        },
     )
     .await
-    .map_err(|_| ApiError::internal())?;
+    .map_err(|_| ApiError::internal())?
+    .ok_or_else(ApiError::rate_limited)?;
 
     // Always enqueued (above). If the recipient is online, also push now - the
     // row stays in the DB until the recipient ACKs.

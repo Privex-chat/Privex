@@ -2421,6 +2421,246 @@ async fn history_relabel_and_delete_ids() {
     assert_eq!(bad.status(), 400, "readable ids are refused");
 }
 
+// #7: per-recipient mailbox caps (count AND bytes) refuse further sends with 429,
+// and a big backlog is streamed to a connecting client in pages - every message
+// exactly once, oldest first - instead of being loaded into memory whole.
+#[tokio::test]
+async fn mailbox_cap_and_paged_backlog() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+
+    let mut config = Config::for_test(database_url.clone(), redis_url, [7u8; 32], 8);
+    config.mailbox_max_messages = 3;
+    config.mailbox_max_bytes = 4_000;
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let (_alice, alice_token) = register_and_auth(&http, &base).await;
+    let send = |to: String, len: usize| {
+        let http = http.clone();
+        let base = base.clone();
+        let tok = alice_token.clone();
+        async move {
+            http.post(format!("{base}/messages/send"))
+                .header("X-Privex-Auth", tok)
+                .json(&serde_json::json!({
+                    "recipient_id": to,
+                    "content": base64::engine::general_purpose::STANDARD.encode(vec![7u8; len]),
+                    "ttl_seconds": 3600,
+                }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    // Count cap: 3 fit, the 4th is refused (the sender's app retries later).
+    let (bob, _) = register_and_auth(&http, &base).await;
+    for _ in 0..3 {
+        assert_eq!(send(bob.user_id.clone(), 100).await, 200);
+    }
+    assert_eq!(send(bob.user_id.clone(), 100).await, 429, "count cap");
+
+    // Byte cap: well under the count cap, but this one would exceed 4,000 bytes.
+    let (carol, _) = register_and_auth(&http, &base).await;
+    assert_eq!(send(carol.user_id.clone(), 1_000).await, 200);
+    assert_eq!(send(carol.user_id.clone(), 3_500).await, 429, "byte cap");
+    assert_eq!(send(carol.user_id.clone(), 2_000).await, 200, "still fits");
+
+    // Paged backlog: 450 queued messages (> 2 pages of 200) arrive exactly once, in
+    // order. Inserted directly (the caps above only gate new sends).
+    let (dave, dave_token) = register_and_auth(&http, &base).await;
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let now = now_unix() as i32;
+    let mut expected = Vec::new();
+    for i in 0..450i32 {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO message_queue (recipient_id, content, queued_at, expires_at, size_bytes) \
+             VALUES ($1, $2, $3, $4, 1) RETURNING message_id",
+        )
+        .bind(&dave.user_id)
+        .bind(vec![1u8])
+        .bind(now - 1000 + i / 10) // several per second: exercises the id tie-break
+        .bind(now + 3600)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        expected.push((now - 1000 + i / 10, id));
+    }
+    expected.sort();
+
+    let ticket = ws_ticket(&http, &base, &dave_token).await;
+    let mut ws = ws_connect(addr, &ticket).await.unwrap();
+    let mut got = Vec::new();
+    for _ in 0..450 {
+        let m = read_until_message(&mut ws).await;
+        got.push((
+            m["queued_at"].as_i64().unwrap() as i32,
+            Uuid::parse_str(m["message_id"].as_str().unwrap()).unwrap(),
+        ));
+    }
+    assert_eq!(got, expected, "every queued message once, oldest first");
+}
+
+// #7 review: the mailbox cap holds under concurrent sends (check + insert are one
+// locked transaction), and it counts every stored byte, CSAM proof included.
+#[tokio::test]
+async fn mailbox_cap_is_atomic_and_counts_every_byte() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let mut config = Config::for_test(database_url.clone(), redis_url, [7u8; 32], 8);
+    config.mailbox_max_messages = 5;
+    config.mailbox_max_bytes = 4_000;
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+    let (_alice, tok) = register_and_auth(&http, &base).await;
+    let send = |to: String, len: usize, proof: Option<usize>| {
+        let http = http.clone();
+        let base = base.clone();
+        let tok = tok.clone();
+        async move {
+            let b64 = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![7u8; n]);
+            let mut body =
+                serde_json::json!({ "recipient_id": to, "content": b64(len), "ttl_seconds": 3600 });
+            if let Some(n) = proof {
+                body["csam_proof"] = serde_json::json!(b64(n));
+            }
+            http.post(format!("{base}/messages/send"))
+                .header("X-Privex-Auth", tok)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    // 30 concurrent sends into a 5-message mailbox: exactly 5 get in.
+    let (bob, _) = register_and_auth(&http, &base).await;
+    let statuses =
+        futures_util::future::join_all((0..30).map(|_| send(bob.user_id.clone(), 100, None))).await;
+    assert_eq!(
+        statuses.iter().filter(|s| s.as_u16() == 200).count(),
+        5,
+        "{statuses:?}"
+    );
+    assert!(statuses
+        .iter()
+        .all(|s| s.as_u16() == 200 || s.as_u16() == 429));
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM message_queue WHERE recipient_id = $1")
+        .bind(&bob.user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 5);
+
+    // A small message with a big CSAM proof still counts its full stored size.
+    let (carol, _) = register_and_auth(&http, &base).await;
+    assert_eq!(
+        send(carol.user_id.clone(), 500, Some(3_600)).await,
+        429,
+        "proof bytes count"
+    );
+    assert_eq!(
+        send(carol.user_id.clone(), 500, Some(3_000)).await,
+        200,
+        "fits"
+    );
+}
+
+// #7 review: a big offline backlog doesn't hold up live delivery - a message sent
+// while the backlog is still streaming is interleaved, not queued behind it.
+#[tokio::test]
+async fn live_messages_interleave_with_the_backlog() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let config = Config::for_test(database_url.clone(), redis_url, [7u8; 32], 8);
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+    let (_alice, alice_tok) = register_and_auth(&http, &base).await;
+    let (dave, dave_tok) = register_and_auth(&http, &base).await;
+
+    // ~13 MB of backlog: far more than the socket buffers hold, so the server is
+    // still streaming it when the live message arrives.
+    const N: usize = 400;
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+    let now = now_unix() as i32;
+    for i in 0..N as i32 {
+        sqlx::query(
+            "INSERT INTO message_queue (recipient_id, content, queued_at, expires_at, size_bytes) \
+             VALUES ($1, $2, $3, $4, 32768)",
+        )
+        .bind(&dave.user_id)
+        .bind(vec![1u8; 32 * 1024])
+        .bind(now - 1000 + i / 10)
+        .bind(now + 3600)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let ticket = ws_ticket(&http, &base, &dave_tok).await;
+    let mut ws = ws_connect(addr, &ticket).await.unwrap();
+    let r = http
+        .post(format!("{base}/messages/send"))
+        .header("X-Privex-Auth", alice_tok)
+        .json(&serde_json::json!({
+            "recipient_id": dave.user_id,
+            "content": base64::engine::general_purpose::STANDARD.encode([9u8; 64]),
+            "ttl_seconds": 3600,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 200);
+    let live_id = r.json::<serde_json::Value>().await.unwrap()["message_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut pos = None;
+    for i in 0..=N {
+        let m = read_until_message(&mut ws).await;
+        if m["message_id"].as_str() == Some(live_id.as_str()) {
+            pos = Some(i);
+        }
+    }
+    let pos = pos.expect("the live message arrived");
+    assert!(
+        pos < N,
+        "live message waited behind the whole backlog (position {pos})"
+    );
+}
+
 // PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
 // an otherwise-valid session token is rejected by the AuthUser extractor (500,
 // treated as transient by clients) instead of silently skipping the check.
