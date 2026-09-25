@@ -14,6 +14,8 @@ async function masterKey(override?: CryptoKey): Promise<CryptoKey> {
 export interface LoadedSession {
   ratchetState: Uint8Array;
   pqxdhInit?: PqxdhInitWire; // present until the first outbound message is sent
+  /** Has this session ever decrypted a message from the peer (SessionRow.received_ok). */
+  receivedOk: boolean;
 }
 
 export async function loadSession(peerId: string, key?: CryptoKey): Promise<LoadedSession | undefined> {
@@ -21,7 +23,8 @@ export async function loadSession(peerId: string, key?: CryptoKey): Promise<Load
   if (!row) return undefined;
   const k = await masterKey(key);
   const ratchetState = fromHex(await decryptString(k, row.ratchet_state_enc));
-  if (!row.pqxdh_init_enc) return { ratchetState };
+  const receivedOk = row.received_ok ?? true; // pre-field rows are working conversations
+  if (!row.pqxdh_init_enc) return { ratchetState, receivedOk };
 
   const s = JSON.parse(await decryptString(k, row.pqxdh_init_enc)) as {
     alice_ik_pub: string;
@@ -32,6 +35,7 @@ export async function loadSession(peerId: string, key?: CryptoKey): Promise<Load
   };
   return {
     ratchetState,
+    receivedOk,
     pqxdhInit: {
       alice_ik_pub: fromHex(s.alice_ik_pub),
       alice_ek_pub: fromHex(s.alice_ek_pub),
@@ -52,6 +56,11 @@ export async function saveRatchetState(peerId: string, state: Uint8Array, key?: 
   });
 }
 
+/** Mark that a message from the peer decrypted on this session. */
+export async function markSessionReceived(peerId: string): Promise<void> {
+  await db.sessions.update(peerId, { received_ok: true });
+}
+
 /** Drop the PQXDH stash once the first message carrying it has been sent. */
 export async function clearPqxdhInit(peerId: string): Promise<void> {
   await db.sessions.update(peerId, { pqxdh_init_enc: undefined });
@@ -64,5 +73,6 @@ export async function createInboundSession(peerId: string, state: Uint8Array, ke
     peer_id: peerId,
     ratchet_state_enc: await encryptString(await masterKey(key), toHex(state)),
     created_at: Math.floor(Date.now() / 1000),
+    received_ok: true, // created BY decrypting the peer's first message
   });
 }
