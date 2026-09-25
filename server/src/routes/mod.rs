@@ -73,10 +73,13 @@ const POW_VERIFY_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 ///   2. SHA-256 pre-filter (one hash). Garbage stops here WITHOUT consuming the
 ///      ticket: it leaves no Redis state and costs the server one hash the
 ///      attacker could compute locally, so it's neither an oracle nor a work loop.
-///   3. mark the ticket spent (Redis SET NX) - anything reaching real
+///   3. (hybrid tickets) wait - boundedly - for a memory-hard evaluation slot. A
+///      refusal for overload (429) happens here, BEFORE the ticket is spent, so
+///      the client's solution isn't wasted and the same ticket can be retried.
+///   4. mark the ticket spent (Redis SET NX) - anything reaching real
 ///      verification work consumes its ticket, valid or not (docs 8.5).
-///   4. Argon2id layer (hybrid tickets), off the async threads, bounded by the
-///      concurrency semaphore.
+///   5. Argon2id layer (hybrid tickets), off the async threads, still holding
+///      the slot from step 3.
 pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiError> {
     let now_ms = pow_difficulty::unix_ts_ms();
     let sol = validate::validate_solution_hash(&pow.solution_hash)?;
@@ -89,6 +92,18 @@ pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiE
     if !crate::powcheck::sha_prefilter_ok(&ticket.challenge, pow.nonce, ticket.difficulty) {
         return Err(ApiError::bad_request());
     }
+    // The Argon2id evaluation is tens of ms of sync CPU + a ~32 MiB allocation, so
+    // only a few run at once (peak memory). Take the slot BEFORE spending the
+    // ticket: if the wait times out, the 429 leaves the ticket unspent.
+    let _permit = match ticket.argon {
+        Some(_) => Some(
+            tokio::time::timeout(POW_VERIFY_WAIT, st.pow_verify_sem.acquire())
+                .await
+                .map_err(|_| ApiError::rate_limited())?
+                .map_err(|_| ApiError::internal())?,
+        ),
+        None => None,
+    };
     let first_use =
         crate::rds::spend_pow_ticket(&st.redis, &ticket.id, ticket.expires_at - now + 1)
             .await
@@ -99,13 +114,7 @@ pub(crate) async fn verify_pow(st: &AppState, pow: &PowProof) -> Result<(), ApiE
 
     let (valid, min_expected) = match ticket.argon {
         Some(argon) => {
-            // The Argon2id evaluation is tens of ms of sync CPU + a ~32 MiB
-            // allocation - run it off the async worker threads, and cap how many
-            // run at once (peak memory). Waiting for a slot is bounded too.
-            let _permit = tokio::time::timeout(POW_VERIFY_WAIT, st.pow_verify_sem.acquire())
-                .await
-                .map_err(|_| ApiError::rate_limited())?
-                .map_err(|_| ApiError::internal())?;
+            // Off the async worker threads; the slot (`_permit`) is held throughout.
             let challenge = ticket.challenge;
             let nonce = pow.nonce;
             let sha_difficulty = ticket.difficulty;
