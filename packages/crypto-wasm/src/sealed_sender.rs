@@ -279,10 +279,12 @@ fn open_v1(blob: &[u8], ik: &StaticSecret) -> Result<(Vec<u8>, Vec<u8>), JsError
     let eph_pub = to_array::<32>(&blob[0..32], "eph_pub")?;
     let nonce = &blob[32..56];
     let cert_len = u32::from_le_bytes([blob[56], blob[57], blob[58], blob[59]]) as usize;
-    let cert_end = 60 + cert_len;
-    if cert_end > blob.len() {
-        return Err(JsError::new("sealed blob: bad cert length"));
-    }
+    // Checked: on 32-bit wasm, 60 + a near-u32::MAX length wraps, and the slice
+    // below would then panic (a trap that can leave the whole module unusable).
+    let cert_end = match 60usize.checked_add(cert_len) {
+        Some(end) if end <= blob.len() => end,
+        _ => return Err(JsError::new("sealed blob: bad cert length")),
+    };
     let enc_cert = &blob[60..cert_end];
     let message = &blob[cert_end..];
 
@@ -290,10 +292,10 @@ fn open_v1(blob: &[u8], ik: &StaticSecret) -> Result<(Vec<u8>, Vec<u8>), JsError
     let mut key = sealed_sender_key(shared.as_bytes(), V1_KEY_INFO);
     let cipher =
         XChaCha20Poly1305::new_from_slice(&key).map_err(|_| JsError::new("xchacha key"))?;
-    let cert_bytes = cipher
-        .decrypt(XNonce::from_slice(nonce), enc_cert)
-        .map_err(|_| JsError::new("open sealed cert (wrong recipient or tampered)"))?;
-    key.zeroize();
+    let cert_bytes = cipher.decrypt(XNonce::from_slice(nonce), enc_cert);
+    key.zeroize(); // on the failure path too
+    let cert_bytes =
+        cert_bytes.map_err(|_| JsError::new("open sealed cert (wrong recipient or tampered)"))?;
     Ok((cert_bytes, message.to_vec()))
 }
 
