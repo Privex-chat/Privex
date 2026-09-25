@@ -67,6 +67,7 @@ export async function addVerifiedContact(
     ratchet_state_enc: await encryptString(k, toHex(ratchetState)),
     pqxdh_init_enc: await encryptString(k, JSON.stringify(buildInitStash(bundle, pqx))),
     created_at: Math.floor(Date.now() / 1000),
+    received_ok: false, // our own initiator session: nothing received on it yet
   });
   // Notify listeners AFTER both writes so a mounted Requests/contacts view reloads
   // to show the new pending_outbound ("Sent") entry.

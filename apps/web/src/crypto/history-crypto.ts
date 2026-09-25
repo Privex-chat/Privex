@@ -24,6 +24,36 @@ export async function deriveHistoryKey(masterSeed: Uint8Array): Promise<CryptoKe
   );
 }
 
+/** Derive the non-extractable HMAC key that names backup blobs:
+ *    id_key = HKDF-SHA256(master_seed, salt="", info="privex_history_id_v1")
+ *  Separate from the encryption key (different HKDF label). */
+export async function deriveHistoryIdKey(masterSeed: Uint8Array): Promise<CryptoKey> {
+  const base = await crypto.subtle.importKey("raw", src(masterSeed), "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: src(new Uint8Array(0)),
+      info: src(new TextEncoder().encode("privex_history_id_v1")),
+    },
+    base,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+}
+
+/** The server-visible id of a backup blob: hex(HMAC(id_key, record id)). Stable
+ *  per record (re-uploads overwrite, so backfill stays idempotent), but reveals
+ *  nothing: the plain record id is a message id or `contact:<px_id>`, and a
+ *  readable contact id in the server's table is the user's contact list. */
+export async function historyBlobId(idKey: CryptoKey, recordId: string): Promise<string> {
+  const mac = new Uint8Array(
+    await crypto.subtle.sign("HMAC", idKey, src(new TextEncoder().encode(recordId))),
+  );
+  return Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** Encrypt one history record → iv||ciphertext bytes (caller base64s for the wire). */
 export function encryptRecord(key: CryptoKey, record: unknown): Promise<Uint8Array> {
   return encryptString(key, JSON.stringify(record));
