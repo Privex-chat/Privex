@@ -15,9 +15,11 @@ use crate::rds;
 use crate::routes::valid_user_id;
 use crate::state::AppState;
 use crate::validate;
-use sqlx::types::Uuid;
 
 // --- POST /auth/pow_challenge ---
+
+/// PoW ticket lifetime (seconds). Long enough for a slow mobile solve.
+pub(crate) const POW_TICKET_TTL_SECS: i64 = 10 * 60;
 
 /// Argon2id Layer-2 parameters echoed to the client (docs 8.5.1). Absent on
 /// legacy SHA-only challenges (rollback mode) - old clients ignore the field,
@@ -43,21 +45,16 @@ pub struct PowChallengeResp {
 }
 
 pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallengeResp>, ApiError> {
-    // Endpoint-wide cap: unauthenticated Redis write per call. This cap also
-    // bounds the server's own hybrid VERIFICATION cost - every verify must
-    // first consume a challenge issued here, so at most `limit` Argon2id
-    // evaluations per window can ever be forced on the server.
-    crate::routes::rate_limit(&st, "powchal", "global", 60, 60).await?;
-    let mut data = [0u8; 32];
-    getrandom::getrandom(&mut data).map_err(|_| ApiError::internal())?;
-    let mut id_raw = [0u8; 16];
-    getrandom::getrandom(&mut id_raw).map_err(|_| ApiError::internal())?;
-    id_raw[6] = (id_raw[6] & 0x0f) | 0x40;
-    id_raw[8] = (id_raw[8] & 0x3f) | 0x80;
-    let id = Uuid::from_bytes(id_raw);
+    // No issuance cap: the challenge is a signed ticket (pow_ticket.rs), so
+    // issuing stores nothing. A global cap here let one client lock EVERY user
+    // out of registration, contact adds and recovery. Floods are absorbed the
+    // way docs 8.5 intends: each call feeds the aggregate pressure counter,
+    // which raises the difficulty handed out next.
+    let mut challenge = [0u8; 32];
+    getrandom::getrandom(&mut challenge).map_err(|_| ApiError::internal())?;
 
     let now = now_unix();
-    let expires_at = now + 10 * 60;
+    let expires_at = now + POW_TICKET_TTL_SECS;
 
     record_challenge_request(&st.redis)
         .await
@@ -82,21 +79,19 @@ pub async fn pow_challenge(State(st): State<AppState>) -> Result<Json<PowChallen
         (final_difficulty, None)
     };
 
-    rds::store_pow_challenge(
-        &st.redis,
-        &id.to_string(),
-        &data,
+    let challenge_id = crate::pow_ticket::mint(
+        &st.config.pow_ticket_key,
+        challenge,
         sha_difficulty,
         argon,
         unix_ts_ms(),
-        10 * 60,
+        expires_at,
     )
-    .await
     .map_err(|_| ApiError::internal())?;
 
     Ok(Json(PowChallengeResp {
-        challenge_id: id.to_string(),
-        challenge: hex::encode(data),
+        challenge_id,
+        challenge: hex::encode(challenge),
         difficulty: sha_difficulty,
         expires_at,
         argon: argon.map(|a| PowArgonResp {
