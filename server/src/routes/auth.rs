@@ -6,7 +6,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::extract::AuthUser;
-use crate::auth::{sig, token};
+use crate::auth::{challenge, sig, token};
 use fips204::ml_dsa_65;
 use crate::crypto::pow_difficulty::{self, compute_difficulty, record_challenge_request, unix_ts_ms};
 use crate::error::ApiError;
@@ -127,26 +127,15 @@ pub async fn challenge(
     if !valid_user_id(&body.user_id) {
         return Err(ApiError::bad_request());
     }
-    // Bound the unauthenticated Redis write per target (anti-DoS / anti-grief of a
-    // legit user's in-flight challenge).
-    crate::routes::rate_limit(&st, "authchal", &body.user_id, 30, 60).await?;
-    let mut c = [0u8; 32];
-    getrandom::getrandom(&mut c).map_err(|_| ApiError::internal())?;
+    // Stateless (auth/challenge.rs): nothing is stored, so there's no per-account
+    // slot for anyone to overwrite and no per-account limit to exhaust - either
+    // let anyone who knew a px_id keep that user logged out.
     let now = now_unix();
-
-    rds::store_challenge(
-        &st.redis,
-        &st.config.redis_ns_key,
-        &body.user_id,
-        &c,
-        90,
-    )
-    .await
-    .map_err(|_| ApiError::internal())?;
-
+    let c = challenge::mint(&st.config.auth_challenge_key, &body.user_id, now)
+        .map_err(|_| ApiError::internal())?;
     Ok(Json(ChallengeResp {
         challenge: hex::encode(c),
-        expires_at: now + 90,
+        expires_at: now + challenge::TTL_SECS,
     }))
 }
 
@@ -185,33 +174,15 @@ pub async fn verify(
         return Err(ApiError::unauthorized());
     }
 
-    // Resource-abuse cap, 5 / 60s per user (docs 11 - PVX-20). Legit use is ~1
-    // verify per boot restore + one silent renewal every ~22h.
-    let allowed = rds::check_rate_limit(
-        &st.redis,
-        &st.config.redis_ns_key,
-        "authverify",
-        &body.user_id,
-        5,
-        60,
-    )
-    .await
-    .map_err(|_| ApiError::internal())?;
-    if !allowed {
-        return Err(ApiError::rate_limited());
-    }
+    // No per-account attempt limit: a forged signature is infeasible, so such a
+    // limit only ever locked the REAL user out when someone else burned it.
 
-    let stored = rds::take_challenge(&st.redis, &st.config.redis_ns_key, &body.user_id)
-        .await
-        .map_err(|_| ApiError::internal())?;
-    let stored = stored.ok_or_else(ApiError::unauthorized)?;
-
+    // The challenge must be one this server minted for this user, unexpired.
     let submitted = hex::decode(&body.challenge).map_err(|_| ApiError::unauthorized())?;
-    if submitted != stored {
+    let now = now_unix();
+    if !challenge::check(&st.config.auth_challenge_key, &body.user_id, &submitted, now) {
         return Err(ApiError::unauthorized());
     }
-
-    let now = now_unix();
     if !validate::validate_timestamp(body.timestamp, now) {
         return Err(ApiError::unauthorized());
     }
@@ -233,7 +204,7 @@ pub async fn verify(
     // so response latency cannot confirm whether a px_id exists.
     let Some(bundle) = bundle else {
         let _ = sig::dummy_verify_auth_challenge(
-            &stored,
+            &submitted,
             &body.user_id,
             body.timestamp,
             &sig_ed,
@@ -243,7 +214,7 @@ pub async fn verify(
     };
 
     if !sig::verify_auth_challenge(
-        &stored,
+        &submitted,
         &body.user_id,
         body.timestamp,
         &sig_ed,
@@ -251,6 +222,20 @@ pub async fn verify(
         &sig_dil,
         &bundle.ik_dilithium3,
     ) {
+        return Err(ApiError::unauthorized());
+    }
+
+    // Single use - marked only now, after a valid signature, so nobody but the
+    // key holder can spend a challenge (and a replayed login is refused).
+    let first_use = rds::consume_auth_challenge(
+        &st.redis,
+        &st.config.redis_ns_key,
+        &submitted,
+        challenge::TTL_SECS + 60,
+    )
+    .await
+    .map_err(|_| ApiError::internal())?;
+    if !first_use {
         return Err(ApiError::unauthorized());
     }
 
