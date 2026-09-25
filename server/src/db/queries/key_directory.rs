@@ -93,25 +93,79 @@ pub async fn list_opk_count(pool: &PgPool, user_id: &str) -> sqlx::Result<i64> {
     Ok(count.unwrap_or(0))
 }
 
-/// Insert one prekey. Returns the number of rows actually inserted (0 on a
-/// duplicate opk_id, thanks to ON CONFLICT DO NOTHING).
-pub async fn insert_one_time_prekey(
-    pool: &PgPool,
+/// Serialize every write to ONE user's prekey inventory (per-user transaction
+/// lock, released at commit/rollback; other users proceed in parallel). Under
+/// READ COMMITTED, two overlapping replacements would otherwise both commit and
+/// leave the UNION of their sets - prekeys whose private halves only one device
+/// holds - and an additive batch could land inside a replacement.
+async fn lock_user_opks(conn: &mut sqlx::PgConnection, user_id: &str) -> sqlx::Result<()> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('opk:' || $1)::int8)",
+        user_id
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// Insert prekeys; returns how many were actually added (a duplicate opk_id is
+/// skipped by ON CONFLICT DO NOTHING).
+async fn insert_opks(
+    conn: &mut sqlx::PgConnection,
     user_id: &str,
-    opk_id: i32,
-    opk_x25519_pub: &[u8],
+    opks: &[(i32, Vec<u8>)],
 ) -> sqlx::Result<u64> {
-    let result = sqlx::query!(
-        r#"INSERT INTO one_time_prekeys (user_id, opk_id, opk_x25519_pub)
+    let mut stored = 0;
+    for (opk_id, opk_x25519_pub) in opks {
+        stored += sqlx::query!(
+            r#"INSERT INTO one_time_prekeys (user_id, opk_id, opk_x25519_pub)
            VALUES ($1, $2, $3)
            ON CONFLICT (user_id, opk_id) DO NOTHING"#,
-        user_id,
-        opk_id,
-        opk_x25519_pub,
+            user_id,
+            opk_id,
+            opk_x25519_pub,
+        )
+        .execute(&mut *conn)
+        .await?
+        .rows_affected();
+    }
+    Ok(stored)
+}
+
+/// Add a batch of prekeys to a user's inventory, as one locked transaction.
+/// Returns the number actually added.
+pub async fn add_one_time_prekeys(
+    pool: &PgPool,
+    user_id: &str,
+    opks: &[(i32, Vec<u8>)],
+) -> sqlx::Result<u64> {
+    let mut tx = pool.begin().await?;
+    lock_user_opks(&mut tx, user_id).await?;
+    let stored = insert_opks(&mut tx, user_id, opks).await?;
+    tx.commit().await?;
+    Ok(stored)
+}
+
+/// Atomically REPLACE a user's whole one-time-prekey inventory (used by account
+/// recovery). The previous prekeys' private halves died with the lost device, so
+/// any left behind would still be served to peers, whose first message the
+/// recovered device could then never decrypt. Returns the number stored.
+pub async fn replace_one_time_prekeys(
+    pool: &PgPool,
+    user_id: &str,
+    opks: &[(i32, Vec<u8>)],
+) -> sqlx::Result<u64> {
+    let mut tx = pool.begin().await?;
+    lock_user_opks(&mut tx, user_id).await?;
+    sqlx::query!(
+        r#"DELETE FROM one_time_prekeys WHERE user_id = $1"#,
+        user_id
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
-    Ok(result.rows_affected())
+    let stored = insert_opks(&mut tx, user_id, opks).await?;
+    tx.commit().await?;
+    Ok(stored)
 }
 
 /// Serve exactly one prekey and delete it (single-use). None if exhausted.

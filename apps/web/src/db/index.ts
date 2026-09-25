@@ -23,6 +23,13 @@ export interface SessionRow {
   // carry so Bob can complete the handshake. Consumed + cleared in S16.
   pqxdh_init_enc?: Uint8Array;
   created_at: number;
+  // Has this session ever decrypted a message from the peer? A session that has
+  // is a working conversation, so a NEW handshake from the peer means they
+  // started over (e.g. recovered their account) and is adopted; one that hasn't
+  // is our own fresh initiator session, where the glare rule decides. Absent on
+  // rows written before this field existed → treated as true (they're working
+  // conversations). Not indexed → no schema version bump.
+  received_ok?: boolean;
 }
 
 export interface MessageRow {
@@ -147,6 +154,25 @@ export interface ReceiptOutboxRow {
   not_before: number; // 0, or a future time when Receipt Privacy Delay is on
 }
 
+// Server message ids this device has finished with (processed or discarded) and
+// acked. If an ack doesn't land (flaky network), the server redelivers the
+// message; by then the ratchet has moved on, so re-processing would wrongly report
+// it as undecryptable. A hit here just re-sends the ack. Pruned after the longest
+// server-side queue TTL, after which no redelivery can come.
+export interface ReceivedRow {
+  message_id: string;
+  at: number; // unix seconds
+}
+
+// Every PQXDH handshake we ADOPTED, by its ephemeral key (alice_ek_pub - fresh
+// random per session). Seeing one again can only be a replay, which would rewind
+// a working session to its first state. Kept for good: ~70 bytes per adopted
+// handshake (roughly one per contact + resets); no pruning needed.
+export interface HandshakeRow {
+  ek: string; // hex alice_ek_pub
+  at: number; // unix seconds
+}
+
 export class PrivexDB extends Dexie {
   identity!: Table<IdentityRow, string>;
   sessions!: Table<SessionRow, string>;
@@ -158,6 +184,8 @@ export class PrivexDB extends Dexie {
   outbox!: Table<OutboxRow, number>;
   receipt_outbox!: Table<ReceiptOutboxRow, number>;
   linked_devices!: Table<LinkedDeviceRow, string>;
+  received!: Table<ReceivedRow, string>;
+  handshakes!: Table<HandshakeRow, string>;
 
   constructor(name = "privex") {
     super(name);
@@ -181,6 +209,14 @@ export class PrivexDB extends Dexie {
     // v4: linked devices for cross-device sync (docs 4.11 Mode C).
     this.version(4).stores({
       linked_devices: "device_id",
+    });
+    // v5: processed server message ids (redelivery dedup - see ReceivedRow).
+    this.version(5).stores({
+      received: "message_id, at",
+    });
+    // v6: adopted handshakes (replay guard - see HandshakeRow).
+    this.version(6).stores({
+      handshakes: "ek",
     });
   }
 }

@@ -1304,6 +1304,41 @@ async fn server_end_to_end() {
         .unwrap();
     assert_eq!(dup["stored"], 1, "duplicate opk_id must not be counted");
 
+    // Account recovery REPLACES the whole inventory: the old prekeys' private
+    // halves died with the lost device, so none of them may be served again -
+    // even though the recovered device reuses the same ids.
+    let fresh: Vec<String> = (0..5).map(|_| rand_hex(32)).collect();
+    let fresh_opks: Vec<serde_json::Value> = fresh
+        .iter()
+        .enumerate()
+        .map(|(i, p)| serde_json::json!({ "opk_id": i as i32 + 1, "opk_x25519_pub": p }))
+        .collect();
+    let replaced: serde_json::Value = http
+        .post(format!("{base}/keys/prekeys/replenish"))
+        .header("X-Privex-Auth", &bob_token)
+        .json(&serde_json::json!({ "opks": fresh_opks, "replace": true }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replaced["stored"], 5);
+    assert_eq!(
+        count_opks(bob.user_id.clone()).await,
+        5,
+        "replace must drop every old prekey"
+    );
+    let after_replace: serde_json::Value = fetch_bundle(&state, &http, &base, &bob.user_id)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        fresh.contains(&after_replace["opk"].as_str().unwrap().to_string()),
+        "only a replacement prekey may be served"
+    );
+
     // Concurrent fetches must not return the same OPK. Pre-solve both PoWs so the
     // two POSTs actually race (exercises the FOR UPDATE SKIP LOCKED OPK consume).
     let body_a = serde_json::json!({ "pow": test_pow_proof(&state) });
@@ -2234,6 +2269,156 @@ async fn pow_argon2_rollback_issues_legacy_sha_only() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200, "SHA-only registration must succeed in rollback");
+}
+
+// N1 follow-up: overlapping prekey writes for ONE user must serialize. Two
+// concurrent replacements under READ COMMITTED could otherwise both commit and
+// leave the UNION of their sets (prekeys only one device holds privates for).
+#[tokio::test]
+async fn opk_replacements_serialize() {
+    use privex_server::db::queries::key_directory as kd;
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let config = Config::for_test(database_url, redis_url, [7u8; 32], 8);
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let db = state.db.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+    let (user, _) = register_and_auth(&http, &base).await;
+
+    let set = |from: i32| -> Vec<(i32, Vec<u8>)> {
+        (from..from + 50).map(|i| (i, vec![7u8; 32])).collect()
+    };
+    let (a, b) = (set(1_000), set(2_000));
+    let ids_of = |v: &[(i32, Vec<u8>)]| v.iter().map(|x| x.0).collect::<Vec<i32>>();
+    for round in 0..20 {
+        let (ra, rb) = tokio::join!(
+            kd::replace_one_time_prekeys(&db, &user.user_id, &a),
+            kd::replace_one_time_prekeys(&db, &user.user_id, &b),
+        );
+        ra.unwrap();
+        rb.unwrap();
+        let ids: Vec<i32> = sqlx::query_scalar(
+            "SELECT opk_id FROM one_time_prekeys WHERE user_id = $1 ORDER BY opk_id",
+        )
+        .bind(&user.user_id)
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert!(
+            ids == ids_of(&a) || ids == ids_of(&b),
+            "round {round}: a replacement left a mix of {} prekeys",
+            ids.len()
+        );
+    }
+}
+
+// #4 (D6 revised): migration 0014 RELABELS readable `contact:<px_id>` backup rows
+// with random ids and keeps their ciphertext (a user who can't re-upload first
+// keeps contact names); a user can then delete specific blobs of their OWN.
+#[tokio::test]
+async fn history_relabel_and_delete_ids() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let config = Config::for_test(database_url.clone(), redis_url, [7u8; 32], 8);
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+    let (a, a_tok) = register_and_auth(&http, &base).await;
+    let (b, b_tok) = register_and_auth(&http, &base).await;
+    let pool = sqlx::PgPool::connect(&database_url).await.unwrap();
+
+    // The migration: relabelled with a random opaque id, ciphertext kept.
+    sqlx::query(
+        "INSERT INTO history_blobs (user_id, blob_id, ciphertext, created_at) VALUES ($1, $2, $3, 1)",
+    )
+    .bind(&a.user_id)
+    .bind(format!("contact:{}", b.user_id))
+    .bind(vec![9u8; 40])
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(include_str!("../migrations/0014_history_opaque_ids.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let rows: Vec<(String, Vec<u8>)> =
+        sqlx::query_as("SELECT blob_id, ciphertext FROM history_blobs WHERE user_id = $1")
+            .bind(&a.user_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(rows.len(), 1, "relabelled, not deleted");
+    let relabelled = rows[0].0.clone();
+    assert!(relabelled.len() == 32 && relabelled.bytes().all(|c| c.is_ascii_hexdigit()));
+    assert!(!relabelled.contains(&b.user_id[3..]), "no readable contact id");
+    assert_eq!(rows[0].1, vec![9u8; 40], "ciphertext kept");
+
+    // Delete by id: only the caller's own rows, only the ids named.
+    let upload = |tok: String, id: String| {
+        let http = http.clone();
+        let base = base.clone();
+        async move {
+            let r = http
+                .post(format!("{base}/history/blobs"))
+                .header("X-Privex-Auth", tok)
+                .json(&serde_json::json!({ "blobs": [{
+                    "blob_id": id,
+                    "ciphertext": base64::engine::general_purpose::STANDARD.encode([1u8; 16]),
+                }] }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 200);
+        }
+    };
+    let (x, y) = ("aa".repeat(32), "bb".repeat(32));
+    upload(a_tok.clone(), x.clone()).await;
+    upload(a_tok.clone(), y.clone()).await;
+    upload(b_tok.clone(), x.clone()).await; // same id, another user
+    let del = |ids: Vec<String>| {
+        http.post(format!("{base}/history/blobs/delete"))
+            .header("X-Privex-Auth", a_tok.clone())
+            .json(&serde_json::json!({ "blob_ids": ids }))
+            .send()
+    };
+    let r = del(vec![relabelled, x.clone()]).await.unwrap();
+    assert_eq!(r.status(), 200);
+    let v: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(v["deleted"], 2);
+    let left = |user: String| {
+        let pool = pool.clone();
+        async move {
+            let ids: Vec<String> = sqlx::query_scalar(
+                "SELECT blob_id FROM history_blobs WHERE user_id = $1 ORDER BY blob_id",
+            )
+            .bind(user)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            ids
+        }
+    };
+    assert_eq!(left(a.user_id.clone()).await, vec![y]);
+    assert_eq!(left(b.user_id.clone()).await, vec![x], "another user's blob is untouched");
+    let bad = del(vec![format!("contact:{}", b.user_id)]).await.unwrap();
+    assert_eq!(bad.status(), 400, "readable ids are refused");
 }
 
 // #8: nobody who merely knows a px_id can keep that user logged out. Challenges
