@@ -132,10 +132,8 @@ pub fn validate_recovery_id(s: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// Validate a PoW challenge_id is a valid UUID.
-pub fn validate_pow_challenge_id(s: &str) -> bool {
-    validate_uuid(s)
-}
+// PoW challenge_ids are signed tickets now - pow_ticket::open does the strict
+// parse + MAC check, so there is no separate format validator.
 
 /// Validate the solution_hash field of a PoW proof: exactly 32 bytes (64 hex).
 pub fn validate_solution_hash(s: &str) -> Result<Vec<u8>, ApiError> {
