@@ -7,12 +7,12 @@
 // UNAUTHENTICATED (the user lost their device and only has their password) and
 // returns a GENERIC 401 on any failure.
 //
-// DEFERRED (documented): Shamir-share contact retrieval and device linking.
-// `GET /recovery/shares/{user_id}` "for a recovery contact" cannot be built
-// without storing the social graph (the recovery_shares schema intentionally has
-// no contact_id). A relationship-free design needs a share_id rendezvous flow;
-// deferred rather than weaken the privacy model. Device linking needs multi-
-// device WS fan-out (also deferred).
+// Social recovery (Shamir) is here too, built without storing the social graph
+// (recovery_shares has no contact_id): the owner stores shares sealed to contact
+// keys (shares/store); contacts fetch them anonymously, PoW-gated (shares/get);
+// each re-seals its share to the owner through a relationship-free, ephemeral
+// rendezvous bucket (rendezvous/{recovery_id}). Device linking is a separate
+// blind relay: ws/devlink.rs.
 
 use axum::extract::{Path, State};
 use axum::Json;
@@ -288,8 +288,7 @@ pub async fn opaque_login_complete(
 // --- POST /recovery/shares/store (auth) ---
 // Stores the owner's Shamir recovery shares, each already sealed to a recovery
 // contact's public key. The server never learns which contacts hold them.
-// NOTE: RETRIEVAL ("recover via contacts") stays deferred - a relationship-free
-// share rendezvous is needed (see the module header). This is setup only.
+// Retrieval is shares/get + the rendezvous below (see the module header).
 
 #[derive(Deserialize)]
 pub struct ShareItem {

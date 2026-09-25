@@ -2145,6 +2145,26 @@ async fn pow_argon2_rollback_issues_legacy_sha_only() {
     assert_eq!(r.status(), 200, "SHA-only registration must succeed in rollback");
 }
 
+// #11: the rate-limit counter and its window expiry are set together (one Lua
+// script), so a counter can never be left without an expiry: the limit bites,
+// then the window really resets.
+#[tokio::test]
+async fn rate_limit_window_resets() {
+    use privex_server::rds::check_rate_limit;
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let pool = deadpool_redis::Config::from_url(redis_url)
+        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+        .unwrap();
+    let key = [7u8; 32];
+    let who = rand_hex(16);
+    for _ in 0..2 {
+        assert!(check_rate_limit(&pool, &key, "rltest", &who, 2, 1).await.unwrap());
+    }
+    assert!(!check_rate_limit(&pool, &key, "rltest", &who, 2, 1).await.unwrap(), "limit bites");
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    assert!(check_rate_limit(&pool, &key, "rltest", &who, 2, 1).await.unwrap(), "window reset");
+}
+
 // PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
 // an otherwise-valid session token is rejected by the AuthUser extractor (500,
 // treated as transient by clients) instead of silently skipping the check.
