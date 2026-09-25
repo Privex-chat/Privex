@@ -74,8 +74,9 @@ const handlers: Record<string, (args: unknown[], emit: Emit) => unknown> = {
       a[2] as Uint8Array,
       a[3] as Uint8Array,
       a[4] as Uint8Array,
-      a[5] as number,
+      a[5] as Uint8Array,
       a[6] as number,
+      a[7] as number,
     ),
   sealed_sender_encrypt: (a) =>
     mc.sealedSenderEncrypt(wasm, a[0] as Uint8Array, a[1] as Uint8Array, a[2] as Uint8Array),

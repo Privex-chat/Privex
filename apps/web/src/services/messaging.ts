@@ -72,6 +72,7 @@ export interface MessageCryptoApi {
     edPub: Uint8Array,
     dilPriv: Uint8Array,
     dilPub: Uint8Array,
+    x25519Pub: Uint8Array,
     now: number,
     validSeconds: number,
   ): Promise<Uint8Array>;
@@ -90,8 +91,8 @@ export const workerMessageCrypto: MessageCryptoApi = {
   ratchetEncrypt: (s, p) => cryptoCall("ratchet_encrypt", [s, p]),
   ratchetDecrypt: (s, c, h) => cryptoCall("ratchet_decrypt", [s, c, h]),
   ratchetInitBob: (sh, sp, pub) => cryptoCall("ratchet_init_bob", [sh, sp, pub]),
-  generateSenderCert: (id, ep, eP, dp, dP, n, v) =>
-    cryptoCall("generate_sender_cert", [id, ep, eP, dp, dP, n, v]),
+  generateSenderCert: (id, ep, eP, dp, dP, xP, n, v) =>
+    cryptoCall("generate_sender_cert", [id, ep, eP, dp, dP, xP, n, v]),
   sealedSenderEncrypt: (m, c, r) => cryptoCall("sealed_sender_encrypt", [m, c, r]),
   sealedSenderDecrypt: (b, k, n) => cryptoCall("sealed_sender_decrypt", [b, k, n]),
   pqxdhRespond: (i, ik, sp, op, ky) => cryptoCall("pqxdh_respond", [i, ik, sp, op, ky]),
@@ -121,6 +122,7 @@ async function myCert(crypto: MessageCryptoApi, me: IdentityBundle): Promise<Uin
     me.identity.ed25519_pub,
     me.identity.dilithium3_priv,
     me.identity.dilithium3_pub,
+    me.identity.x25519_pub,
     t,
     CERT_VALID_SECONDS,
   );
@@ -392,7 +394,13 @@ export async function receiveMessage(
 
   const me = await myBundle();
   const blob = b64decode(ws.content);
-  const opened = await crypto.sealedSenderDecrypt(blob, me.identity.x25519_priv, now());
+  // Check the sender's certificate for expiry as of when the message ARRIVED at
+  // the server (the signed anchor), not when we read it: a message that waited
+  // in the queue while we were offline was sent under a then-valid certificate,
+  // and must not show as "unverified" just because we were away for a day.
+  // No valid signed anchor → the local clock, as before.
+  const certCheckTime = time.anchor ?? now();
+  const opened = await crypto.sealedSenderDecrypt(blob, me.identity.x25519_priv, certCheckTime);
   const senderId = opened.senderId;
   const env = decodeEnvelope(opened.plaintext);
 
@@ -436,6 +444,28 @@ export async function receiveMessage(
   if (await isBlocked(senderId)) {
     await api.ackMessages([ws.message_id], token());
     return;
+  }
+
+  // A PQXDH handshake may only create or replace a session when it provably
+  // comes from the certificate's identity: the cert must verify (signatures,
+  // px_id binding, expiry at arrival), match any identity key we already hold,
+  // AND bind the exact X25519 key this handshake uses (v2 cert). Certificates
+  // are reused across recipients, so without that binding anyone who ever
+  // received one could attach it to their OWN handshake and be accepted as the
+  // sender - even replacing an existing contact's session. With it, a replayed
+  // certificate forces the real sender's X25519 key, whose private half an
+  // impersonator lacks, so the handshake can't decrypt. Unbound handshakes
+  // (forged, replayed, or from an app that hasn't updated) are dropped before
+  // touching any state.
+  if (env.pqxdh) {
+    const bound =
+      verified &&
+      opened.senderX25519Pub.length === 32 &&
+      toHex(opened.senderX25519Pub) === toHex(env.pqxdh.alice_ik_pub);
+    if (!bound) {
+      await api.ackMessages([ws.message_id], token());
+      return;
+    }
   }
 
   // Capture the sender's status BEFORE session logic (the adopt-handshake branch
