@@ -22,6 +22,7 @@ pub mod db;
 pub mod error;
 pub mod kt_cache;
 pub mod metrics;
+pub mod pow_ticket;
 pub mod powcheck;
 pub mod rds;
 pub mod routes;
