@@ -2661,6 +2661,112 @@ async fn live_messages_interleave_with_the_backlog() {
     );
 }
 
+// #8: nobody who merely knows a px_id can keep that user logged out. Challenges
+// are stateless (nothing per account to overwrite) and there's no per-account
+// attempt limit to exhaust; a challenge is spent only by a VALID login.
+#[tokio::test]
+async fn login_cannot_be_blocked_by_others() {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let config = Config::for_test(database_url, redis_url, [7u8; 32], 8);
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+
+    let (victim, _) = register_and_auth(&http, &base).await;
+    let get_challenge = |user: String| {
+        let http = http.clone();
+        let base = base.clone();
+        async move {
+            let r = http
+                .post(format!("{base}/auth/challenge"))
+                .json(&serde_json::json!({ "user_id": user }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(r.status(), 200, "challenges are never refused per account");
+            let v: serde_json::Value = r.json().await.unwrap();
+            hex::decode(v["challenge"].as_str().unwrap()).unwrap()
+        }
+    };
+    let signed = |chal: &[u8]| {
+        let ts = now_unix();
+        let msg = challenge_signing_input_v1(chal, &victim.user_id, ts);
+        serde_json::json!({
+            "user_id": victim.user_id,
+            "challenge": hex::encode(chal),
+            "sig_ed": hex::encode(victim.signing.sign(&msg).to_bytes()),
+            "sig_dil": hex::encode(victim.dsk.try_sign(&msg, &[]).unwrap()),
+            "timestamp": ts,
+        })
+    };
+
+    // The victim starts logging in...
+    let mine = get_challenge(victim.user_id.clone()).await;
+
+    // ...while an attacker floods the victim's account: more challenges than the
+    // old 30/min per-account cap, and garbage logins past the old 5/min limit.
+    let mut theirs = Vec::new();
+    for _ in 0..40 {
+        theirs.push(get_challenge(victim.user_id.clone()).await);
+    }
+    for chal in theirs.iter().take(12) {
+        let r = http
+            .post(format!("{base}/auth/verify"))
+            .json(&serde_json::json!({
+                "user_id": victim.user_id,
+                "challenge": hex::encode(chal),
+                "sig_ed": rand_hex(64),
+                "sig_dil": rand_hex(ml_dsa_65::SIG_LEN),
+                "timestamp": now_unix(),
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            r.status(),
+            401,
+            "garbage logins fail - but never lock the account"
+        );
+    }
+
+    // The victim's own challenge still works (the old code had overwritten it).
+    let body = signed(&mine);
+    let ok = http
+        .post(format!("{base}/auth/verify"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), 200, "the real user can still log in");
+
+    // A replayed login is refused; so is a challenge minted for another account.
+    let replay = http
+        .post(format!("{base}/auth/verify"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), 401, "challenges are single use");
+    let (other, _) = register_and_auth(&http, &base).await;
+    let foreign = get_challenge(other.user_id.clone()).await;
+    let r = http
+        .post(format!("{base}/auth/verify"))
+        .json(&signed(&foreign))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 401, "a challenge is bound to its account");
+}
+
 // PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
 // an otherwise-valid session token is rejected by the AuthUser extractor (500,
 // treated as transient by clients) instead of silently skipping the check.
