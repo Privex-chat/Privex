@@ -285,21 +285,14 @@ pub async fn replenish(
         }
         opks.push((item.opk_id, pk));
     }
+    // Both paths are one per-user-locked transaction; `stored` counts only the
+    // OPKs actually added (a duplicate opk_id is skipped).
     let stored = if body.replace {
-        kd::replace_one_time_prekeys(&st.db, &user_id, &opks)
-            .await
-            .map_err(|_| ApiError::internal())?
+        kd::replace_one_time_prekeys(&st.db, &user_id, &opks).await
     } else {
-        // rows_affected is 0 for a duplicate opk_id → stored reflects only the
-        // OPKs actually added.
-        let mut stored = 0u64;
-        for (opk_id, pk) in &opks {
-            stored += kd::insert_one_time_prekey(&st.db, &user_id, *opk_id, pk)
-                .await
-                .map_err(|_| ApiError::internal())?;
-        }
-        stored
-    };
+        kd::add_one_time_prekeys(&st.db, &user_id, &opks).await
+    }
+    .map_err(|_| ApiError::internal())?;
     Ok(Json(ReplenishResp {
         stored: stored as i64,
     }))

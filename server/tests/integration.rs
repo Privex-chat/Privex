@@ -2271,6 +2271,56 @@ async fn pow_argon2_rollback_issues_legacy_sha_only() {
     assert_eq!(r.status(), 200, "SHA-only registration must succeed in rollback");
 }
 
+// N1 follow-up: overlapping prekey writes for ONE user must serialize. Two
+// concurrent replacements under READ COMMITTED could otherwise both commit and
+// leave the UNION of their sets (prekeys only one device holds privates for).
+#[tokio::test]
+async fn opk_replacements_serialize() {
+    use privex_server::db::queries::key_directory as kd;
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://privex:privex@localhost:5432/privex".into());
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://localhost:6379".into());
+    let config = Config::for_test(database_url, redis_url, [7u8; 32], 8);
+    let state = build_state_with_store(config, Arc::new(MemoryStore::new()))
+        .await
+        .expect("state");
+    let db = state.db.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app(state)).await.unwrap();
+    });
+    let base = format!("http://{addr}");
+    let http = reqwest::Client::new();
+    let (user, _) = register_and_auth(&http, &base).await;
+
+    let set = |from: i32| -> Vec<(i32, Vec<u8>)> {
+        (from..from + 50).map(|i| (i, vec![7u8; 32])).collect()
+    };
+    let (a, b) = (set(1_000), set(2_000));
+    let ids_of = |v: &[(i32, Vec<u8>)]| v.iter().map(|x| x.0).collect::<Vec<i32>>();
+    for round in 0..20 {
+        let (ra, rb) = tokio::join!(
+            kd::replace_one_time_prekeys(&db, &user.user_id, &a),
+            kd::replace_one_time_prekeys(&db, &user.user_id, &b),
+        );
+        ra.unwrap();
+        rb.unwrap();
+        let ids: Vec<i32> = sqlx::query_scalar(
+            "SELECT opk_id FROM one_time_prekeys WHERE user_id = $1 ORDER BY opk_id",
+        )
+        .bind(&user.user_id)
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert!(
+            ids == ids_of(&a) || ids == ids_of(&b),
+            "round {round}: a replacement left a mix of {} prekeys",
+            ids.len()
+        );
+    }
+}
+
 // PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
 // an otherwise-valid session token is rejected by the AuthUser extractor (500,
 // treated as transient by clients) instead of silently skipping the check.
