@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT message_id, content, queued_at\n           FROM message_queue WHERE recipient_id = $1 ORDER BY queued_at",
+  "query": "SELECT message_id, content, queued_at\n           FROM message_queue\n           WHERE recipient_id = $1 AND queued_at <= $2\n             AND (queued_at, message_id) > ($3, $4)\n           ORDER BY queued_at, message_id\n           LIMIT $5",
   "describe": {
     "columns": [
       {
@@ -21,7 +21,11 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int4",
+        "Int4",
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -30,5 +34,5 @@
       false
     ]
   },
-  "hash": "7807125aa1622750d14048ad1fb5979a448aa4f15f49205cede607d1a91957b8"
+  "hash": "c8259c5c828d61b6e7586a15a412adb32aa0129dad67527c7bb4b9b8daa25724"
 }
