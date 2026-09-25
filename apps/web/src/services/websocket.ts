@@ -3,7 +3,7 @@
 // ["privex", <ticket>]. Inbound messages flow to receiveMessage; server pings are
 // answered with pong; drops reconnect with exponential backoff (cap 300s).
 import * as api from "../api/client";
-import { pruneReceived, receiveMessage } from "./messaging";
+import { prekeyUpkeep, pruneReceived, receiveMessage } from "./messaging";
 import { flushOutbox } from "./outbox";
 
 const MAX_BACKOFF = 300_000;
@@ -84,8 +84,10 @@ async function open(myGen: number): Promise<void> {
     retry = 0;
     lastFrameAt = Date.now();
     setStatus("connected");
-    // Connectivity is back → deliver anything queued while offline.
+    // Connectivity is back → deliver anything queued while offline, and run
+    // prekey upkeep (a rotation or top-up whose publish failed offline retries).
     void flushOutbox();
+    void prekeyUpkeep();
   };
   // Process frames SEQUENTIALLY. Concurrent receiveMessage calls race the shared
   // Double Ratchet state (both load the same session, last save wins) and the
@@ -187,11 +189,10 @@ async function handleFrame(data: string): Promise<void> {
     case "ping":
       send({ type: "pong" });
       break;
-    // ponytail: prekey_low replenish needs new OPK privs persisted into the
-    // identity bundle (so future inbound sessions can use them). The 50 OPKs from
-    // onboarding cover the checkpoint; on drain the server falls back to no-OPK
-    // 3-DH (already supported). Wire full replenish when sustained load needs it.
+    // The server's one-time prekey supply is low (docs 11): top it up. The new
+    // private halves are persisted before the public halves are uploaded.
     case "prekey_low":
+      void prekeyUpkeep(true);
       break;
     // key_change_alert is advisory; clients detect changes by re-verifying KT on
     // fetch (isKeyChanged). No server-trusted action taken here.

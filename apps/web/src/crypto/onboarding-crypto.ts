@@ -50,6 +50,17 @@ export interface IdentityBundle {
   spk: { pub: Uint8Array; priv: Uint8Array };
   spkSig: { ed: Uint8Array; dil: Uint8Array };
   opks: PreKey[];
+  // Prekey upkeep (services/prekeys.ts). All optional: absent on bundles saved
+  // before rotation existed.
+  /** The previous signed prekeys (newest first) - kept for the max message TTL
+   *  after retirement, so a handshake already in flight against one still opens. */
+  prevSpks?: { pub: Uint8Array; priv: Uint8Array; retiredAt?: number }[];
+  /** Unix time the current signed prekey is due for rotation. */
+  spkRotateAfter?: number;
+  /** A rotation was saved locally but the server hasn't confirmed it yet. */
+  spkPending?: boolean;
+  /** Ids of a one-time prekey batch saved locally but not yet published. */
+  opkPending?: number[];
 }
 
 function plainIdentity(k: Wasm.IdentityKeypairs): IdentityKeys {
@@ -293,6 +304,17 @@ export function signHybrid(w: WasmModule, data: Uint8Array, edPriv: Uint8Array, 
 }
 
 // --- signed prekey rotation (docs 4.9 / 16E) ---
+
+/** `count` fresh one-time prekeys with consecutive ids from `startId`, as plain
+ *  (structured-cloneable) data. */
+export function generateOpks(w: WasmModule, startId: number, count: number): PreKey[] {
+  const out: PreKey[] = [];
+  for (let i = 0; i < count; i++) {
+    const kp = w.generate_x25519_prekey();
+    out.push({ id: startId + i, pub: kp.public_key, priv: kp.private_key });
+  }
+  return out;
+}
 
 export interface SignedSpk {
   pub: Uint8Array;

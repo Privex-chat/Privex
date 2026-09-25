@@ -43,6 +43,8 @@ const handlers: Record<string, (args: unknown[], emit: Emit) => unknown> = {
     ),
   // Fresh signed prekey for rotation (16E "log out everywhere"). Struct → plain.
   generate_signed_spk: (a) => oc.generateSignedSpk(wasm, a[0] as Uint8Array, a[1] as Uint8Array),
+  // One-time prekey top-up (services/prekeys.ts). Structs → plain data.
+  generate_opks: (a) => oc.generateOpks(wasm, a[0] as number, a[1] as number),
   // Synchronous solve blocks this worker (~500ms at difficulty 22, plus the
   // Argon2id evals on hybrid challenges); progress posts live to the tab.
   solve_pow: (a, emit) =>
