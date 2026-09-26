@@ -21,6 +21,10 @@ fn keyed(server_key: &[u8; 32], scope: &str, identity: &str) -> String {
 }
 
 /// Fixed-window rate limit. Returns true if the call is within the limit.
+///
+/// INCR and the window's EXPIRE run as ONE Lua script (atomic). As two separate
+/// commands, a failure between them (connection drop, timeout) left a counter
+/// with no expiry, and that identity stayed rate-limited forever.
 pub async fn check_rate_limit(
     pool: &Pool,
     server_key: &[u8; 32],
@@ -31,14 +35,17 @@ pub async fn check_rate_limit(
 ) -> anyhow::Result<bool> {
     let key = format!("rl:{}", keyed(server_key, scope, identity));
     let mut conn = pool.get().await?;
-    let count: i64 = redis::cmd("INCR").arg(&key).query_async(&mut conn).await?;
-    if count == 1 {
-        let _: () = redis::cmd("EXPIRE")
-            .arg(&key)
-            .arg(window_secs)
-            .query_async(&mut conn)
-            .await?;
-    }
+    let count: i64 = redis::cmd("EVAL")
+        .arg(
+            "local c = redis.call('INCR', KEYS[1]) \
+             if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end \
+             return c",
+        )
+        .arg(1)
+        .arg(&key)
+        .arg(window_secs)
+        .query_async(&mut conn)
+        .await?;
     Ok(count <= limit)
 }
 
