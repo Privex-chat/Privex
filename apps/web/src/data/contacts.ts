@@ -5,7 +5,7 @@
 //
 // The master key is normally the keystore's non-extractable key; tests pass one
 // explicitly (Node can't structured-clone a CryptoKey into fake-indexeddb).
-import { db } from "../db";
+import { db, type ContactStatus } from "../db";
 import { getMasterKey } from "../crypto/keystore";
 import { EncryptedContacts, encryptString, type PlainContact } from "../db/encrypted-db";
 import { toHex } from "../crypto/onboarding-crypto";
@@ -88,6 +88,19 @@ export async function upsertInboundContact(
   // Unsolicited inbound → a friend request (pending_inbound) the user must accept,
   // not an auto-trusted contact. If we already accepted them, add() keeps accepted.
   await contactsStore(key).add(senderId, ikEd25519, ikX25519, "pending_inbound");
+}
+
+/** Put back a contact from a history backup / device transfer with the status it
+ *  had. (No session comes with it - the first send starts a fresh one.) An
+ *  existing accepted or blocked contact keeps its status. */
+export async function restoreContact(
+  pxId: string,
+  ikEd25519: Uint8Array,
+  ikX25519: Uint8Array,
+  status: ContactStatus,
+  key?: CryptoKey,
+): Promise<void> {
+  await contactsStore(key).add(pxId, ikEd25519, ikX25519, status);
 }
 
 /** Accept a pending inbound friend request (opt-in): flip it to a real contact.

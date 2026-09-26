@@ -24,6 +24,7 @@ import {
   contactRecordFor,
   importRecord,
   recordId,
+  type ContactRecord,
   type HistoryRecord,
   type MsgRecord,
 } from "./history-records";
@@ -185,6 +186,7 @@ export async function backupMessage(m: {
   status: string;
   direction: "in" | "out";
   kind: "text" | "file";
+  created_at?: number;
 }): Promise<void> {
   try {
     if (!(await isBackupEnabled())) return;
@@ -199,6 +201,7 @@ export async function backupMessage(m: {
       content: m.content,
       timestamp: m.timestamp,
       status: m.status,
+      created_at: m.created_at,
     };
     const blobs: Blob[] = [await toBlob(key, rec)];
     if (!backedContacts.has(m.session_id)) {
@@ -236,15 +239,28 @@ export async function restoreHistory(onProgress?: (done: number) => void): Promi
   const tok = token();
   let after: string | undefined;
   let done = 0;
+  const legacyContacts: ContactRecord[] = [];
+  const withMessages = new Set<string>();
   for (;;) {
     const page = await api.listHistory(tok, after);
     for (const w of page.blobs) {
-      await importRecord(await decryptRecord<HistoryRecord>(key.enc, b64decode(w.ciphertext)));
+      const rec = await decryptRecord<HistoryRecord>(key.enc, b64decode(w.ciphertext));
+      if (rec.type === "contact" && rec.status === undefined) legacyContacts.push(rec);
+      else {
+        if (rec.type === "message") withMessages.add(rec.peer_id);
+        await importRecord(rec);
+      }
       done++;
       onProgress?.(done);
     }
     if (!page.next) break;
     after = page.next;
+  }
+  // Contact records from older builds carry no status. Messages only flow with
+  // accepted contacts, so anyone we have messages with was accepted; the rest go
+  // back as requests to accept.
+  for (const c of legacyContacts) {
+    await importRecord(c, withMessages.has(c.px_id) ? "accepted" : "pending_inbound");
   }
   return done;
 }

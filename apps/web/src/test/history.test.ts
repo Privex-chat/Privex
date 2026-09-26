@@ -17,7 +17,7 @@ import { persistGeneratedIdentity } from "../onboarding/store";
 import { EncryptedMessages } from "../db/encrypted-db";
 import { getContact, setDisplayName, setVerified, upsertInboundContact } from "../data/contacts";
 import { useAuth } from "../store/auth";
-import { db } from "../db";
+import { db, type ContactStatus } from "../db";
 import * as api from "../api/client";
 import {
   backfillAll,
@@ -202,6 +202,40 @@ describe("history backup (Option A)", () => {
     expect((await getContact(alice.userId))?.name).toBe("Alice");
     expect((await getContact(bob.userId))?.name).toBe("Bob");
     expect((await new EncryptedMessages(db).listBySession(alice.userId)).map((m) => m.content)).toEqual(["old hi"]);
+  });
+
+  it("restores contacts with their status and messages in their original order", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x7b));
+    const [bob, dan, eve, mal] = [0x7c, 0x7d, 0x7e, 0x7f].map((f) => genIdentityBundle(wasm, entropy(f)));
+    await persistGeneratedIdentity(me);
+    useAuth.getState().setSession("tok", me.userId);
+    const enc = await deriveHistoryKey(me.masterSeed);
+    const put = async (id: string, rec: HistoryRecord) =>
+      server.set(id, { ciphertext: b64encode(await encryptRecord(enc, rec)), created_at: ctr++ });
+    const contact = (px: string, status?: ContactStatus): HistoryRecord =>
+      ({ v: 1, type: "contact", px_id: px, name: "", ik_ed25519: "", ik_x25519: "", ...(status ? { status } : {}) });
+    const msg = (id: string, peer: string, body: string, timestamp: number, created_at?: number): HistoryRecord =>
+      ({ v: 1, type: "message", msg_id: id, peer_id: peer, direction: "in", kind: "text", content: body,
+         timestamp, status: "received", ...(created_at ? { created_at } : {}) });
+
+    // The server lists blobs in an order unrelated to the conversation.
+    await put("b3", msg("m3", bob.userId, "third", 3)); // older build: no created_at
+    await put("b1", msg("m1", bob.userId, "first", 1, 1_000));
+    await put("c1", contact(bob.userId, "accepted"));
+    await put("c2", contact(dan.userId)); // older build: no status, but we have messages
+    await put("c3", contact(eve.userId)); // older build: no status, no messages
+    await put("c4", contact(mal.userId, "blocked"));
+    await put("b2", msg("m2", bob.userId, "second", 2, 2_000));
+    await put("d1", msg("n1", dan.userId, "from dan", 5, 5_000));
+
+    await restoreHistory();
+
+    const order = (await new EncryptedMessages(db).listBySession(bob.userId)).map((m) => m.content);
+    expect(order).toEqual(["first", "second", "third"]);
+    expect((await getContact(bob.userId))?.status).toBe("accepted");
+    expect((await getContact(dan.userId))?.status).toBe("accepted");
+    expect((await getContact(eve.userId))?.status).toBe("pending_inbound");
+    expect((await getContact(mal.userId))?.status).toBe("blocked");
   });
 
   it("the live hook does nothing while backup is disabled", async () => {

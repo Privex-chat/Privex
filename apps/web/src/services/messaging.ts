@@ -58,6 +58,7 @@ import { fromHex, toHex } from "../crypto/onboarding-crypto";
 import { backupMessage } from "./history-backup";
 import { b64decode, b64encode } from "./bytes";
 import { encryptAndUpload, materializeIncoming, type FileMeta } from "./files";
+import * as handshake from "../contacts/handshake";
 import type {
   RatchetDecrypted,
   RatchetEncrypted,
@@ -223,7 +224,15 @@ async function sealAndSend(
     if (contact.status === "blocked")
       throw new Error("Unblock this contact to message them.");
   }
-  const session = await loadSession(peerId);
+  // No session with a contact we otherwise know - e.g. restored from a history
+  // backup, or accepted after an account recovery: the old session keys are gone,
+  // so start a fresh one. This message then carries the handshake, and the peer
+  // adopts it (receiveMessage).
+  let session = await loadSession(peerId);
+  if (!session) {
+    await handshake.startSession(peerId);
+    session = await loadSession(peerId);
+  }
   if (!session) throw new Error("no session - add this contact first");
 
   const ts = now();
@@ -741,9 +750,14 @@ export async function receiveMessage(
   // Contact REQUEST: the sender wants to add us (they're now pending_inbound, set
   // by the session logic above). GLARE: if we had ALREADY requested them
   // (pending_outbound before this frame), we both want it → auto-accept + notify.
+  // ALREADY a contact (they recovered their account and re-added us, so the
+  // handshake above just replaced the session): confirm right back, or their side
+  // would wait forever for an accept we would never send.
   if (content.contactHello) {
     if (priorStatus === "pending_outbound") {
       await acceptContactRequest(senderId, crypto); // → accepted + send contact_accept
+    } else if (priorStatus === "accepted" && verified) {
+      await sendContactAccept(senderId, crypto).catch(() => {});
     }
     await ackDelivered(ws.message_id);
     emitContactsChanged();
@@ -765,6 +779,13 @@ export async function receiveMessage(
     await applyIncomingReceipt(senderId, content.receipt.tokenId, content.receipt.type);
     await ackDelivered(ws.message_id);
     return;
+  }
+
+  // A real message from someone we're still waiting on can only come after they
+  // accepted us (their app won't send before that) - e.g. an older app that
+  // doesn't send contact_accept for a re-request. Treat it as the accept.
+  if ((content.file || content.text) && priorStatus === "pending_outbound" && verified) {
+    await acceptContact(senderId);
   }
 
   let stored: string;
