@@ -525,19 +525,6 @@ function AboutTab() {
           </a>
         </div>
       </Row>
-      <Row>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-text-secondary">Warrant canary</span>
-          <a
-            href="https://privex.chat/canary"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-accent-text hover:underline"
-          >
-            privex.chat/canary
-          </a>
-        </div>
-      </Row>
     </Section>
   );
 }

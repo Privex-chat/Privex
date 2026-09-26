@@ -831,7 +831,7 @@ Incorporation target: **Iceland (Privex ehf.)**
 
 ### Warrant Canary
 
-Published monthly at `/canary`. GPG-signed by Privex's public key. Lists 5 specific statements about government requests. If not updated within 45 days, assume compromise.
+**Not yet published.** Planned: published monthly at `/canary`, GPG-signed by Privex's public key, listing 5 specific statements about government requests; if not updated within 45 days, assume compromise. Until it exists, the app does not link to one.
 
 ---
 
