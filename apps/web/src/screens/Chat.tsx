@@ -87,7 +87,7 @@ export default function Chat() {
   const [downloads, setDownloads] = useState<Record<string, { done: number; total: number }>>({});
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fileUploadsEnabled, setFileUploadsEnabled] = useState(true);
+  const [fileUploadsEnabled, setFileUploadsEnabled] = useState(false); // until the server says so
   const [ttl, setTtl] = useState(DEFAULT_TTL);
   const [ttlOpen, setTtlOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
