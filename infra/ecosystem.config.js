@@ -16,8 +16,11 @@ module.exports = {
       max_restarts: 10,
       min_uptime: "10s",
       kill_timeout: 5000,
-      error_file: "logs/privex-api-error.log",
-      out_file: "logs/privex-api.log",
+      // RAM-backed (tmpfs), so server output never reaches the disk and is gone
+      // on reboot. Size-capped by pm2-logrotate (set up by deploy.sh): 10 MB per
+      // file, 2 rotated copies kept - a few tens of MB of RAM at most.
+      error_file: "/dev/shm/privex-api-error.log",
+      out_file: "/dev/shm/privex-api.log",
       merge_logs: true,
       log_date_format: "YYYY-MM-DD HH:mm:ss",
       autorestart: true,
