@@ -20,6 +20,7 @@ import {
 } from "../crypto/onboarding-crypto";
 import { cryptoCall } from "../workers/crypto-client";
 import { finalizeIdentity, loadBundle, persistGeneratedIdentity, saveProgress } from "./store";
+import { nextSpkRotation } from "../services/prekeys";
 
 export interface CryptoApi {
   genIdentity(entropy: Uint8Array): Promise<IdentityBundle>;
@@ -54,6 +55,9 @@ function randomEntropy(): Uint8Array {
  *  bundle (only reached before server registration). */
 export async function generateIdentity(crypto: CryptoApi = workerCrypto): Promise<string> {
   const bundle = await crypto.genIdentity(randomEntropy());
+  // Its signed prekey is brand new: schedule the first rotation (an unset date
+  // means "age unknown" to prekey upkeep, which would rotate it at once).
+  bundle.spkRotateAfter = nextSpkRotation(Math.floor(Date.now() / 1000));
   await persistGeneratedIdentity(bundle);
   return bundle.userId;
 }
