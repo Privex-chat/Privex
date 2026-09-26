@@ -101,12 +101,18 @@ fi
 echo "[9/9] Restarting PM2..."
 cp infra/ecosystem.config.js ecosystem.config.js
 # Cap PM2's RAM-backed logs (/dev/shm): rotate at 10 MB, keep 2 old copies.
-# Idempotent; installs the pm2-logrotate module once. Never blocks a deploy.
+# Idempotent; installs the pm2-logrotate module once. If the cap can't be put in
+# place, stop HERE - before the reload - so the running server is untouched rather
+# than restarted with logs that could grow in RAM without bound.
 if ! pm2 describe pm2-logrotate >/dev/null 2>&1; then
-  pm2 install pm2-logrotate >/dev/null 2>&1     || echo "  WARN: couldn't install pm2-logrotate - /dev/shm logs are uncapped until it is"
+  pm2 install pm2-logrotate >/dev/null 2>&1 || {
+    echo "ERROR: couldn't install pm2-logrotate (needs npm access, once)."
+    echo "       Install it by hand - pm2 install pm2-logrotate - then re-run."
+    exit 1
+  }
 fi
-pm2 set pm2-logrotate:max_size 10M >/dev/null 2>&1 || true
-pm2 set pm2-logrotate:retain 2 >/dev/null 2>&1 || true
+pm2 set pm2-logrotate:max_size 10M >/dev/null
+pm2 set pm2-logrotate:retain 2 >/dev/null
 pm2 startOrReload ecosystem.config.js --update-env
 
 echo ""
