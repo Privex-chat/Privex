@@ -18,6 +18,8 @@ import * as api from "../api/client";
 
 type Tab = "password" | "seed" | "contacts";
 
+const STATUS_TIMEOUT_MS = 10_000;
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="min-h-screen bg-surface text-text-primary flex items-center justify-center p-6">
@@ -39,10 +41,18 @@ export default function Recovery() {
   // Recovery makes this same status call every time it opens.)
   async function recovered() {
     let count = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      count = (await backupStatus()).count;
+      // Bounded: the account is already back, so a stalled request mustn't hold
+      // this screen on "Recovering…".
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("backup status timed out")), STATUS_TIMEOUT_MS);
+      });
+      count = (await Promise.race([backupStatus(), timeout])).count;
     } catch {
       // No status, nothing to offer - restore stays available in Settings.
+    } finally {
+      clearTimeout(timer);
     }
     if (count > 0) setOfferRestore(true);
     else enter();
