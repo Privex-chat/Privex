@@ -220,9 +220,11 @@ async fn handle_socket(socket: WebSocket, st: AppState, user_id: String) {
         }
     }
 
-    writer.abort();
-    // Only THIS connection: a newer one for the account must stay live.
+    // Only THIS connection: a newer one for the account must stay live. Removed
+    // BEFORE the writer stops, so no push is accepted here and then dropped
+    // unwritten - it goes to the account's next open connection instead.
     st.online.remove(&user_id, &tx);
+    writer.abort();
 }
 
 fn base64_content(bytes: &[u8]) -> String {
