@@ -1,7 +1,7 @@
-// Account recovery (docs 4.2). Restore an identity on a fresh device:
-//   A - password (OPAQUE), B - emergency contacts (deferred), C - seed phrase.
-// Message history is NOT restored (it lives only on devices).
-import { useEffect, useState } from "react";
+// Account recovery (docs 4.2 / 6). Restore an identity on a fresh device with a
+// password (OPAQUE), the seed phrase, or emergency contacts. Message history comes
+// back only from an encrypted history backup, offered once the account is back.
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   pollContactRecovery,
@@ -10,6 +10,8 @@ import {
   startContactRecovery,
   type RecoverySession,
 } from "../services/recovery";
+import { backupStatus, restoreHistory } from "../services/history-backup";
+import { parseSeedText } from "../services/seed-file";
 import { ArrowLeftIcon } from "../components/icons";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import * as api from "../api/client";
@@ -29,17 +31,42 @@ export default function Recovery() {
   const [tab, setTab] = useState<Tab>("password");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offerRestore, setOfferRestore] = useState(false);
 
-  async function run(fn: () => Promise<string>) {
+  const enter = () => nav("/", { replace: true });
+
+  // Back in: offer the encrypted history backup if there is one. (Settings →
+  // Recovery makes this same status call every time it opens.)
+  async function recovered() {
+    let count = 0;
+    try {
+      count = (await backupStatus()).count;
+    } catch {
+      // No status, nothing to offer - restore stays available in Settings.
+    }
+    if (count > 0) setOfferRestore(true);
+    else enter();
+  }
+
+  async function run(fn: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
       await fn();
-      nav("/", { replace: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Recovery failed.");
       setBusy(false);
+      return;
     }
+    await recovered();
+  }
+
+  if (offerRestore) {
+    return (
+      <Shell>
+        <RestoreBackup onDone={enter} />
+      </Shell>
+    );
   }
 
   return (
@@ -47,8 +74,8 @@ export default function Recovery() {
       <button onClick={() => nav("/onboarding")} className="inline-flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary"><ArrowLeftIcon className="h-4 w-4" /> Back</button>
       <h1 className="mt-3 text-2xl font-semibold">Recover your account</h1>
       <p className="mt-2 text-text-secondary text-sm">
-        Your identity is restored from your master key. Message history stays on your devices and
-        won&rsquo;t be recovered.
+        This brings back your Privex ID and keys. Your chats come back only if you turned on
+        encrypted chat backup.
       </p>
 
       <div className="mt-6 flex gap-2 text-sm">
@@ -71,8 +98,8 @@ export default function Recovery() {
 
       <div className="mt-5">
         {tab === "password" && <PasswordRecovery busy={busy} onRun={run} />}
-        {tab === "seed" && <SeedRecovery busy={busy} onRun={run} />}
-        {tab === "contacts" && <ContactsRecovery />}
+        {tab === "seed" && <SeedRecovery busy={busy} onRun={run} onEdit={() => setError(null)} />}
+        {tab === "contacts" && <ContactsRecovery onRecovered={() => void recovered()} />}
       </div>
 
       {error && <p className="mt-4 text-sm text-danger">{error}</p>}
@@ -80,59 +107,139 @@ export default function Recovery() {
   );
 }
 
-function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promise<string>) => void }) {
+type RunFn = (fn: () => Promise<unknown>) => void;
+
+function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: RunFn }) {
   const [pxId, setPxId] = useState("");
   const [password, setPassword] = useState("");
+  const id = pxId.trim().toLowerCase();
+  const ready = !busy && !!id && !!password;
+  // A real form with username + current-password, so a password manager can fill
+  // (and save) the ID and password together.
   return (
-    <div className="space-y-3">
+    <form
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready) onRun(() => recoverWithPassword(id, password));
+      }}
+    >
       <input
+        name="username"
         value={pxId}
         onChange={(e) => setPxId(e.target.value)}
         placeholder="px_…"
-        maxLength={35}
+        aria-label="Privex ID"
+        maxLength={40}
         spellCheck={false}
         autoCapitalize="none"
+        autoComplete="username"
         className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 font-mono text-sm outline-none focus:border-border-focus"
       />
       <input
         type="password"
+        name="password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         placeholder="Recovery password"
+        aria-label="Recovery password"
         minLength={8}
         autoComplete="current-password"
         className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 outline-none focus:border-border-focus"
       />
       <button
-        disabled={busy || !pxId.trim() || !password}
-        onClick={() => onRun(() => recoverWithPassword(pxId.trim(), password))}
+        type="submit"
+        disabled={!ready}
         className="w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-3 font-medium"
       >
         {busy ? "Recovering…" : "Recover with password"}
       </button>
-    </div>
+    </form>
   );
 }
 
-function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promise<string>) => void }) {
-  const [phrase, setPhrase] = useState("");
-  const wordCount = phrase.trim() ? phrase.trim().split(/\s+/).length : 0;
+/** bip39's errors count words from 0 and read like a stack trace. */
+function friendlySeedError(e: unknown): Error {
+  const msg = e instanceof Error ? e.message : String(e);
+  const unknown = /unknown word \(word (\d+)\)/.exec(msg);
+  if (unknown) {
+    return new Error(`Word ${Number(unknown[1]) + 1} isn't a recovery-phrase word. Check its spelling.`);
+  }
+  if (msg.includes("invalid checksum")) {
+    return new Error("These words aren't a valid recovery phrase. One may be misspelled or out of order.");
+  }
+  return e instanceof Error ? e : new Error(msg);
+}
+
+// A saved phrase file is under 1 KB; anything this big isn't one.
+const MAX_SEED_FILE = 16 * 1024;
+
+function SeedRecovery({ busy, onRun, onEdit }: { busy: boolean; onRun: RunFn; onEdit: () => void }) {
+  const [phrase, setPhraseState] = useState("");
+  const setPhrase = (v: string) => {
+    setPhraseState(v);
+    onEdit(); // the last attempt's error no longer applies
+  };
+  const [fileError, setFileError] = useState<string | null>(null);
+  // Pasting the saved file, the numbered list or the bare words all work.
+  const words = parseSeedText(phrase);
+
+  // Read on this device as plain text - never uploaded, never kept. Only the
+  // words parsed out of it are used.
+  async function openFile(file: File | undefined) {
+    setFileError(null);
+    if (!file) return;
+    if (file.size > MAX_SEED_FILE) {
+      setFileError("That file is too big to be a saved recovery phrase.");
+      return;
+    }
+    const found = parseSeedText(await file.text());
+    if (found.length !== 24) {
+      setFileError("Couldn't find 24 words in that file. You can paste or type them instead.");
+      return;
+    }
+    setPhrase(found.join(" "));
+  }
+
   return (
     <div className="space-y-3">
       <textarea
         value={phrase}
         onChange={(e) => setPhrase(e.target.value)}
-        placeholder="Enter your 24-word seed phrase, separated by spaces"
+        placeholder="Paste or type your 24 words"
+        aria-label="Seed phrase"
         rows={4}
-        maxLength={528}
+        maxLength={4096}
         spellCheck={false}
         autoCapitalize="none"
+        autoComplete="off"
         className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-sm outline-none focus:border-border-focus"
       />
-      <p className="text-xs text-text-muted">{wordCount}/24 words</p>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-text-muted">{words.length}/24 words</span>
+        <label className="cursor-pointer text-accent-text hover:underline focus-within:underline">
+          Open saved file
+          <input
+            type="file"
+            accept=".txt,text/plain"
+            className="sr-only"
+            onChange={(e) => {
+              void openFile(e.target.files?.[0]);
+              e.target.value = ""; // so picking the same file again still fires
+            }}
+          />
+        </label>
+      </div>
+      {fileError && <p className="text-xs text-danger">{fileError}</p>}
       <button
-        disabled={busy || wordCount !== 24}
-        onClick={() => onRun(() => recoverWithSeed(phrase))}
+        disabled={busy || words.length !== 24}
+        onClick={() =>
+          onRun(() =>
+            recoverWithSeed(words.join(" ")).catch((e: unknown) => {
+              throw friendlySeedError(e);
+            }),
+          )
+        }
         className="w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-3 font-medium"
       >
         {busy ? "Recovering…" : "Recover with seed phrase"}
@@ -141,8 +248,56 @@ function SeedRecovery({ busy, onRun }: { busy: boolean; onRun: (fn: () => Promis
   );
 }
 
-function ContactsRecovery() {
-  const nav = useNavigate();
+function RestoreBackup({ onDone }: { onDone: () => void }) {
+  const [restored, setRestored] = useState<number | null>(null); // null = not started
+  const [error, setError] = useState<string | null>(null);
+
+  async function restore() {
+    setError(null);
+    setRestored(0);
+    try {
+      await restoreHistory(setRestored);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Restore failed.");
+      setRestored(null);
+    }
+  }
+
+  return (
+    <>
+      <h1 className="text-2xl font-semibold">You&rsquo;re back in</h1>
+      <p className="mt-2 text-sm text-text-secondary">
+        Your encrypted chat backup is still on our servers. Restore it to this device now, or later
+        from Settings → Recovery.
+      </p>
+      <p className="mt-2 text-xs text-text-muted">
+        Backing up stays off on this device until you turn it on there.
+      </p>
+      <button
+        onClick={() => void restore()}
+        disabled={restored !== null}
+        className="mt-6 w-full rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 py-3 font-medium"
+      >
+        {restored === null ? "Restore chats" : `Restoring… ${restored}`}
+      </button>
+      <button
+        onClick={onDone}
+        disabled={restored !== null}
+        className="mt-2 w-full rounded-lg border border-border-strong py-3 text-sm text-text-secondary hover:bg-elevated disabled:opacity-40"
+      >
+        Not now
+      </button>
+      {error && <p className="mt-4 text-sm text-danger">{error}</p>}
+    </>
+  );
+}
+
+function ContactsRecovery({ onRecovered }: { onRecovered: () => void }) {
+  // Via a ref: the poll below must not restart (and drop collected shares) when
+  // the parent re-renders with a new callback.
+  const onRecoveredRef = useRef(onRecovered);
+  onRecoveredRef.current = onRecovered;
   const [session, setSession] = useState<RecoverySession | null>(null);
   const [received, setReceived] = useState(0);
   const [posted, setPosted] = useState(0); // blobs the bucket held on the last poll
@@ -180,7 +335,7 @@ function ContactsRecovery() {
         setPollError(null);
         if (userId) {
           stopped = true;
-          nav("/", { replace: true });
+          onRecoveredRef.current();
           return;
         }
       } catch (e) {
@@ -204,7 +359,7 @@ function ContactsRecovery() {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [session, nav]);
+  }, [session]);
 
   if (!session) {
     return (

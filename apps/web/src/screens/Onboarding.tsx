@@ -4,18 +4,19 @@
 // server in the clear.
 //
 // Flow: welcome → keys (forge + identicon reveal) → register (PoW) → secure
-// (recovery) → safety orientation → enter. finishOnboarding() strips the mnemonic
-// and signs in, so it runs at the end of the recovery step; the safety step is a
+// (recovery) → safety orientation → enter. finishOnboarding() signs in, so it
+// runs at the end of the recovery step; the safety step is a
 // post-signin orientation shown once (progress is already "done" on reload).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { completeRegistration, finishOnboarding, generateIdentity } from "../onboarding/flow";
 import { loadBundle, loadProgress } from "../onboarding/store";
 import { checkConfirm, pickConfirmIndices } from "../onboarding/seed-confirm";
-import { enableOpaqueRecovery, opaqueRecoveryStatus } from "../services/recovery";
+import { enableOpaqueRecovery, opaqueRecoveryStatus, PASSWORD_MANAGER_NOTE } from "../services/recovery";
 import { db } from "../db";
 import Avatar from "../components/Avatar";
 import { SEED_SAVED_KEY } from "../components/FinishSetup";
+import SeedSave from "../components/SeedSave";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { ArrowLeftIcon, CheckIcon, KeyIcon, LockIcon, ShieldCheckIcon, WarningTriangleIcon } from "../components/icons";
 
@@ -150,6 +151,7 @@ export default function Onboarding() {
   if (step === "password")
     return (
       <PasswordStep
+        userId={userId}
         error={error}
         onBack={() => {
           setError(null);
@@ -344,10 +346,12 @@ function Registering({
 
 // --- STEP 4 (sub): password recovery ---
 function PasswordStep({
+  userId,
   onSubmit,
   onBack,
   error,
 }: {
+  userId: string;
   onSubmit: (pw: string) => Promise<void>;
   onBack: () => void;
   error: string | null;
@@ -386,46 +390,56 @@ function PasswordStep({
         your password can unlock — we can&rsquo;t read it.
       </p>
 
-      <label htmlFor="onboarding-password" className="mt-6 block text-sm text-text-secondary">Password</label>
-      <input
-        id="onboarding-password"
-        type="password"
-        value={pw}
-        onChange={(e) => setPw(e.target.value)}
-        minLength={8}
-        autoComplete="new-password"
-        className="mt-1 w-full rounded-lg border border-border-strong bg-input px-3 py-2 outline-none focus:border-border-focus"
-      />
-      {pw && scorer && (
-        <div className="mt-2">
-          <div className="h-1.5 w-full overflow-hidden rounded bg-input">
-            <div className={`h-full ${colors[score]}`} style={{ width: `${(score + 1) * 20}%` }} />
-          </div>
-          <p className="mt-1 text-xs text-text-secondary">
-            {labels[score]}
-            {!strongEnough && " - needs to be Strong or better"}
-          </p>
-        </div>
-      )}
-
-      <label htmlFor="onboarding-confirm-password" className="mt-4 block text-sm text-text-secondary">Confirm password</label>
-      <input
-        id="onboarding-confirm-password"
-        type="password"
-        value={confirm}
-        onChange={(e) => setConfirm(e.target.value)}
-        autoComplete="new-password"
-        className="mt-1 w-full rounded-lg border border-border-strong bg-input px-3 py-2 outline-none focus:border-border-focus"
-      />
-      {confirm && !matches && <p className="mt-1 text-xs text-danger">Passwords don&rsquo;t match.</p>}
-
-      <button
-        disabled={busy || !strongEnough || !matches}
-        onClick={() => void submit()}
-        className="mt-8 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!busy && strongEnough && matches) void submit();
+        }}
       >
-        {busy ? "Enabling…" : "Enable password recovery"}
-      </button>
+        {/* Lets a password manager file this password under your Privex ID. */}
+        <input type="text" name="username" autoComplete="username" value={userId} readOnly hidden />
+        <label htmlFor="onboarding-password" className="mt-6 block text-sm text-text-secondary">Password</label>
+        <input
+          id="onboarding-password"
+          type="password"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          minLength={8}
+          autoComplete="new-password"
+          className="mt-1 w-full rounded-lg border border-border-strong bg-input px-3 py-2 outline-none focus:border-border-focus"
+        />
+        {pw && scorer && (
+          <div className="mt-2">
+            <div className="h-1.5 w-full overflow-hidden rounded bg-input">
+              <div className={`h-full ${colors[score]}`} style={{ width: `${(score + 1) * 20}%` }} />
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">
+              {labels[score]}
+              {!strongEnough && " - needs to be Strong or better"}
+            </p>
+          </div>
+        )}
+
+        <label htmlFor="onboarding-confirm-password" className="mt-4 block text-sm text-text-secondary">Confirm password</label>
+        <input
+          id="onboarding-confirm-password"
+          type="password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          autoComplete="new-password"
+          className="mt-1 w-full rounded-lg border border-border-strong bg-input px-3 py-2 outline-none focus:border-border-focus"
+        />
+        {confirm && !matches && <p className="mt-1 text-xs text-danger">Passwords don&rsquo;t match.</p>}
+        <p className="mt-4 text-xs text-text-muted">{PASSWORD_MANAGER_NOTE}</p>
+
+        <button
+          type="submit"
+          disabled={busy || !strongEnough || !matches}
+          className="mt-6 w-full rounded-lg bg-accent py-3 font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy ? "Enabling…" : "Enable password recovery"}
+        </button>
+      </form>
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
     </Shell>
   );
@@ -485,7 +499,7 @@ function RecoveryStep({
       void db.settings.put({ key: SEED_SAVED_KEY, value: true });
       void finish();
     } else {
-      setConfirmError("Those words don't match. Check your written copy.");
+      setConfirmError("Those words don't match. Check your saved copy.");
     }
   }
 
@@ -506,8 +520,8 @@ function RecoveryStep({
         {!revealed ? (
           <>
             <p className="mt-2 text-sm text-text-secondary">
-              24 words that <em>are</em> your account. Write them down and keep them offline — we
-              will never show them again, and never ask for them.
+              24 words that <em>are</em> your account. Keep a copy offline — on paper, or as a file
+              or printout. We&rsquo;ll never ask you for them.
             </p>
             <button
               onClick={() => setRevealed(true)}
@@ -526,12 +540,13 @@ function RecoveryStep({
                 </div>
               ))}
             </div>
+            <SeedSave words={words} />
             <p className="mt-3 text-xs text-warning">Store these somewhere safe before continuing.</p>
             <button
               onClick={startConfirm}
               className="mt-4 w-full rounded-lg bg-accent py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
             >
-              I&rsquo;ve written them down
+              I&rsquo;ve saved them
             </button>
           </>
         ) : (

@@ -5,7 +5,8 @@
 //       auth.
 // Both re-derive the SAME identity keys (same px_id) from the master seed, then
 // re-provision fresh prekeys (SPK + OPKs are ephemeral) so the recovered device can
-// receive messages again. Message history is NOT restored - it lives only on devices.
+// receive messages again. Message history comes back only from the opt-in encrypted
+// history backup (the Recovery screen offers it).
 import * as api from "../api/client";
 import { cryptoCall } from "../workers/crypto-client";
 import { useAuth } from "../store/auth";
@@ -132,6 +133,12 @@ async function requireRecoverySession(): Promise<{ bundle: IdentityBundle; token
   }
   return { bundle, token };
 }
+
+/** Shown wherever a recovery password is set (the form lets password managers save
+ *  it under the Privex ID, and that pair is everything a takeover needs). */
+export const PASSWORD_MANAGER_NOTE =
+  "If a password manager offers to save this, use one that's end-to-end encrypted: " +
+  "with your Privex ID, this password is all it takes to open your account.";
 
 export async function opaqueRecoveryStatus(): Promise<boolean> {
   const token = useAuth.getState().sessionToken;

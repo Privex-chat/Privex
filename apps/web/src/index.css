@@ -202,3 +202,34 @@
   66% { background-position: 8px -6px; }
   100% { background-position: 0 0; }
 }
+
+/* Recovery-phrase printout (SeedSave): while it's on the page, printing shows only
+   it - black on white, whatever the theme. */
+.seed-print {
+  display: none;
+}
+@media print {
+  html:has(.seed-print),
+  html:has(.seed-print) body {
+    background: #fff !important;
+  }
+  body:has(> .seed-print) > :not(.seed-print) {
+    display: none !important;
+  }
+  .seed-print {
+    display: block;
+    color: #000;
+    font: 12pt/1.5 system-ui, sans-serif;
+  }
+  .seed-print h1 {
+    font-size: 18pt;
+    font-weight: 600;
+    margin-bottom: 8pt;
+  }
+  .seed-print ol {
+    columns: 3;
+    margin-top: 16pt;
+    list-style: decimal inside;
+    font: 14pt/2 ui-monospace, monospace;
+  }
+}
