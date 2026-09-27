@@ -4,6 +4,7 @@
 // answered with pong; drops reconnect with exponential backoff (cap 300s).
 import * as api from "../api/client";
 import { prekeyUpkeep, pruneReceived, receiveMessage } from "./messaging";
+import { checkAccountKeys } from "./key-watch";
 import { flushOutbox } from "./outbox";
 
 const MAX_BACKOFF = 300_000;
@@ -73,7 +74,9 @@ async function open(myGen: number): Promise<void> {
   if (stopped || !token || myGen !== gen) return;
   let ticket: string;
   try {
-    ticket = (await api.wsTicket(token)).ticket;
+    const t = await api.wsTicket(token);
+    ticket = t.ticket;
+    void checkAccountKeys(t.account_spk); // "set up on another device?" (key-watch.ts)
   } catch {
     return scheduleReconnect(myGen);
   }

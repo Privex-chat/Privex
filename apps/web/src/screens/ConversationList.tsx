@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import ContactList from "../components/ContactList";
 import ConnectionStatus from "../components/ConnectionStatus";
 import FinishSetup from "../components/FinishSetup";
+import KeyAlert from "../components/KeyAlert";
 
 export default function ConversationList() {
   const nav = useNavigate();
@@ -49,6 +50,7 @@ export default function ConversationList() {
         </header>
 
         <div className="mt-6">
+          <KeyAlert />
           <FinishSetup />
           <ContactList />
         </div>

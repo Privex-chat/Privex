@@ -9,8 +9,11 @@ Privex's API is designed around zero-knowledge principles. The server acts as a 
 All authenticated requests use a 24-hour session token. The token is derived from a Zero-Knowledge Signed Challenge.
 
 - `POST /auth/challenge`: Returns a 32-byte cryptographic challenge with a 90-second TTL.
-- `POST /auth/verify`: Submits Ed25519 and CRYSTALS-Dilithium3 signatures over the challenge. Returns a 24-hour session token.
+- `POST /auth/verify`: Submits Ed25519 and CRYSTALS-Dilithium3 signatures over the challenge. Returns a 24-hour session token and the account's current signed prekey (`account_spk`, below).
+- `POST /auth/ws_ticket`: Returns a single-use, 60-second ticket for opening the WebSocket, and `account_spk`.
 - `POST /auth/pow_challenge`: Returns a dynamic Proof-of-Work (PoW) challenge used for rate limiting public endpoints without requiring IP addresses.
+
+`account_spk` is the account's current signed prekey with its Ed25519 and Dilithium3 signatures. Every recovery publishes a new one, so the owner's device can tell, on its own, when another device has published keys for the account, and warn the user. It is the same public data the key directory serves to anyone, it is in every such reply at the same size, and nothing about the check is sent back to the server.
 
 ## Key Management Endpoints
 

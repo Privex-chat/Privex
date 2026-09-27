@@ -38,7 +38,7 @@ export const workerSessionCrypto: SessionCryptoApi = {
 /** Log out of ALL devices: rotate the SPK (forward secrecy) then revoke every
  *  token. Order matters: spk_rotate needs the still-valid token, and logout_all
  *  revokes it. On reload this device re-authenticates (identity key unchanged) and
- *  already holds the new SPK private key persisted below, so it can keep answering
+ *  already holds the new SPK private key saved below, so it can keep answering
  *  inbound PQXDH sessions. */
 export async function logoutEverywhere(crypto: SessionCryptoApi = workerSessionCrypto): Promise<void> {
   const bundle = await loadBundle();
@@ -50,25 +50,29 @@ export async function logoutEverywhere(crypto: SessionCryptoApi = workerSessionC
     bundle.identity.dilithium3_priv,
   );
 
-  // Server first: spk_rotate OVERWRITES the stored SPK (no OPK-style id collision)
-  // and appends a KT entry. If this throws, nothing local changed - abort.
-  await api.spkRotate(
-    { spk_x25519_pub: toHex(spk.pub), spk_sig_ed: toHex(spk.sigEd), spk_sig_dil: toHex(spk.sigDil) },
-    token,
-  );
-
-  // Persist the new SPK private key locally ONLY after the server accepted the new
-  // public key (keeps device + server in sync; a future Bob answers with spk.priv).
-  // The old private half is kept briefly (prekeys.ts) so a handshake already in
-  // flight against it still opens; the server no longer hands it out.
+  // Save the new key BEFORE publishing it, like a routine rotation (prekeys.ts):
+  // the server must never hold a signed prekey this device lacks - it couldn't
+  // answer handshakes to it, and key-watch would take it for another device. If
+  // the publish fails, the key stays pending and prekey upkeep publishes it
+  // later; nothing is revoked. The old private half is kept briefly so a
+  // handshake already in flight against it still opens.
   const now = Math.floor(Date.now() / 1000);
   bundle.prevSpks = retainSpks([{ ...bundle.spk, retiredAt: now }, ...(bundle.prevSpks ?? [])], now);
   bundle.spk = { pub: spk.pub, priv: spk.priv };
   bundle.spkSig = { ed: spk.sigEd, dil: spk.sigDil };
   bundle.spkRotateAfter = nextSpkRotation(now);
-  bundle.spkPending = false;
+  bundle.spkPending = true;
   await finalizeIdentity(bundle); // rewrites priv_bundle_enc; keeps opks + mnemonic + progress
   resetMessaging(); // the cached identity must pick up the new signed prekey
+
+  // spk_rotate OVERWRITES the stored SPK and appends a KT entry.
+  await api.spkRotate(
+    { spk_x25519_pub: toHex(spk.pub), spk_sig_ed: toHex(spk.sigEd), spk_sig_dil: toHex(spk.sigDil) },
+    token,
+  );
+  bundle.spkPending = false;
+  await finalizeIdentity(bundle);
+  resetMessaging();
 
   // Revoke every token across all devices (incl. this one - we re-auth on reload).
   await api.logoutAll(token);
