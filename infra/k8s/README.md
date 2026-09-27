@@ -11,10 +11,18 @@ migrations run once as a pre-deploy Job; rollback is `kubectl rollout undo`.
 | `configmap.yaml` | Non-secret config. Sets `PRIVEX_SKIP_MIGRATIONS=1` (PVX-05). |
 | `secret.example.yaml` | **Template only.** Real `privex-secrets` comes from SOPS/Vault. Not in kustomization. |
 | `migration-job.yaml` | `privex-server migrate` — apply migrations + exit (PVX-05). |
-| `deployment.yaml` | API Deployment: probes (PVX-02), limits, `maxUnavailable:0`, read-only rootfs. |
+| `deployment.yaml` | API Deployment: **1 replica** (see below), probes (PVX-02), limits, `maxUnavailable:0`, read-only rootfs. |
 | `service.yaml` | ClusterIP (public exposure via ingress, not this Service). |
-| `pdb.yaml` | PodDisruptionBudget `minAvailable: 2`. |
-| `hpa.yaml` | CPU autoscaler 3→10. |
+
+## Why one replica
+
+The server keeps live delivery state in process memory: who is online (the
+WebSocket push map) and the device-link rooms. With several pods, a message sent
+through pod A to a user connected to pod B would not be pushed live, and two
+devices on different pods could never pair. So the Deployment runs exactly one
+pod, and there is no HPA or PodDisruptionBudget. A PDB on a single pod would
+only block node drains. Scaling out first needs a shared fan-out (e.g. Redis
+pub/sub between pods).
 
 ## Image discipline
 

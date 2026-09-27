@@ -8,15 +8,19 @@ persistence or add logs/identifiers — the Four Laws and §8.4/§8.5 still hold
 
 | Component | State | Failure today |
 |---|---|---|
-| App server | stateless | Single process (PM2) — a crash is an outage until restart. |
+| App server | in-process live state (who's online, device-link rooms) | Single process (PM2) — a crash is an outage until restart. |
 | PostgreSQL | **durable** | Single instance/volume — covered for data loss by backups (PVX-01), but no automatic failover. |
 | Redis | in-memory, no-persistence | Single instance — a restart drops all ephemeral state. |
 | MinIO / object store | durable-ish | Single instance — encrypted chunks, 7-day TTL. |
 
-## App tier — already HA via the manifests (PVX-03)
+## App tier — one pod, restarted and gated (PVX-03)
 
-`deployment.yaml` runs `replicas: 3` with `maxUnavailable: 0`, a `PodDisruptionBudget`
-(`minAvailable: 2`), and an HPA (3→10). The **readiness gate does the shedding**:
+`deployment.yaml` runs **one** replica with `maxUnavailable: 0`, and there is no PDB
+or HPA. Live delivery state (who's online, device-link rooms) lives in process
+memory, so a second pod would miss live pushes and pairings (see
+`infra/k8s/README.md`). Real app-tier HA first needs a shared fan-out, such as
+Redis pub/sub. Until then, Kubernetes restarts a crashed pod, and the
+**readiness gate does the shedding**:
 `/health/ready` returns 503 when Postgres, Redis, or the store is unreachable, so
 K8s stops routing to a pod whose dependency is down instead of serving errors
 (PVX-02). This is verified by the `readiness_returns_503_when_deps_down`
@@ -79,7 +83,7 @@ availability — not confidentiality — is the only concern here.
 ## Validation status
 
 - **Code-proven:** the readiness gate sheds a pod when a dependency is down
-  (`readiness_returns_503_when_deps_down`); app-tier rollout/PDB/HPA are defined in
+  (`readiness_returns_503_when_deps_down`); the single-pod rollout is defined in
   `infra/k8s`.
 - **Needs a cluster (deploy session):** stand up the Postgres and Redis HA
   operators, kill the primary of each, and confirm (a) automated failover, (b) the

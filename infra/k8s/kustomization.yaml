@@ -10,8 +10,6 @@ resources:
   - configmap.yaml
   - deployment.yaml
   - service.yaml
-  - pdb.yaml
-  - hpa.yaml
   - migration-job.yaml
   # Monitoring / metrics wiring (PVX-02/04).
   - monitoring/networkpolicy.yaml
