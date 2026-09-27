@@ -1,99 +1,18 @@
-// Session management (docs 4.9 / 16E). "Log out everywhere" does TWO things:
+// On-device session actions (docs 4.9): lock the app, erase this device.
 //
-//   1. Token revocation (already the working mechanism): POST /auth/logout_all sets
-//      a per-user cutoff so every session token issued on every device dies at once
-//      (auth/extract.rs rejects issued_at < cutoff). This is what actually logs
-//      other devices out.
-//
-//   2. Signed-prekey rotation (added here): rotate the SPK so a future PQXDH init
-//      can't target the OLD signed prekey - forward secrecy against a lost/seized
-//      or other device that still holds the old SPK private key. This is scoped to
-//      the explicit "log out everywhere" action; routine, replenish-driven SPK
-//      rotation stays DECOUPLED from session life (docs/KNOWN_LIMITATIONS).
-//
-// NOTE (deliberate): we do NOT tie token validity to an spk_version (the build
-// guide's Option C). That would log every device out on routine ~monthly rotation.
-// The cutoff already invalidates tokens; SPK rotation here is orthogonal forward
-// secrecy layered on top.
-import * as api from "../api/client";
+// There is deliberately no "log out everywhere". Each device holds the account's
+// keys and signs itself in with them - there's no password - so no server action
+// could remove a device that holds them without the server keeping a list of your
+// devices, which Privex doesn't. A server-side token cutoff only looked like it did
+// (every device signed straight back in), stored when you pressed it, and left
+// connected devices untouched. See docs/private/KNOWN_LIMITATIONS.md.
 import { db } from "../db";
 import { useAuth } from "../store/auth";
-import { cryptoCall } from "../workers/crypto-client";
 import { lockNow, wipeKeystore } from "../crypto/keystore";
-import { loadBundle, finalizeIdentity } from "../onboarding/store";
-import { nextSpkRotation, retainSpks } from "./prekeys";
-import { toHex, type SignedSpk } from "../crypto/onboarding-crypto";
 import { disconnectWebSocket } from "./websocket";
 import { stopCoverTraffic } from "./cover-traffic";
 import { resetMessaging } from "./messaging";
 
-export interface SessionCryptoApi {
-  generateSignedSpk(edPriv: Uint8Array, dilPriv: Uint8Array): Promise<SignedSpk>;
-}
-
-export const workerSessionCrypto: SessionCryptoApi = {
-  generateSignedSpk: (ed, dil) => cryptoCall("generate_signed_spk", [ed, dil]),
-};
-
-/** Log out of ALL devices: rotate the SPK (forward secrecy) then revoke every
- *  token. Order matters: spk_rotate needs the still-valid token, and logout_all
- *  revokes it. On reload this device re-authenticates (identity key unchanged) and
- *  already holds the new SPK private key saved below, so it can keep answering
- *  inbound PQXDH sessions. */
-export async function logoutEverywhere(crypto: SessionCryptoApi = workerSessionCrypto): Promise<void> {
-  const bundle = await loadBundle();
-  const token = useAuth.getState().sessionToken;
-  if (!bundle || !token) throw new Error("not authenticated");
-
-  const spk = await crypto.generateSignedSpk(
-    bundle.identity.ed25519_priv,
-    bundle.identity.dilithium3_priv,
-  );
-
-  // Save the new key BEFORE publishing it, like a routine rotation (prekeys.ts):
-  // the server must never hold a signed prekey this device lacks - it couldn't
-  // answer handshakes to it, and key-watch would take it for another device. If
-  // the publish fails, the key stays pending and prekey upkeep publishes it
-  // later; nothing is revoked. The old private half is kept briefly so a
-  // handshake already in flight against it still opens.
-  const now = Math.floor(Date.now() / 1000);
-  bundle.prevSpks = retainSpks([{ ...bundle.spk, retiredAt: now }, ...(bundle.prevSpks ?? [])], now);
-  bundle.spk = { pub: spk.pub, priv: spk.priv };
-  bundle.spkSig = { ed: spk.sigEd, dil: spk.sigDil };
-  bundle.spkRotateAfter = nextSpkRotation(now);
-  bundle.spkPending = true;
-  await finalizeIdentity(bundle); // rewrites priv_bundle_enc; keeps opks + mnemonic + progress
-  resetMessaging(); // the cached identity must pick up the new signed prekey
-
-  // spk_rotate OVERWRITES the stored SPK and appends a KT entry.
-  await api.spkRotate(
-    { spk_x25519_pub: toHex(spk.pub), spk_sig_ed: toHex(spk.sigEd), spk_sig_dil: toHex(spk.sigDil) },
-    token,
-  );
-  bundle.spkPending = false;
-  await finalizeIdentity(bundle);
-  resetMessaging();
-
-  // Revoke every token across all devices (incl. this one - we re-auth on reload).
-  await api.logoutAll(token);
-}
-
-/**
- * "Erase this device": a full LOCAL reset - delete every message, contact,
- * session, AND the identity key material, then sign out to a clean onboarding.
- *
- * IRREVERSIBLE: without a recovery phrase / OPAQUE password / server backup, the
- * account is gone. This is DESTRUCTIVE by design.
- *
- * SAFETY CONTRACT (do not violate): this runs ONLY from the explicit, confirmed
- * Settings action. It is NEVER wired to a 401, a boot/restore failure, a slow
- * load, or any transient/network condition - the correct response to those is to
- * RE-AUTHENTICATE from the local identity (auth-session.ts), never to delete data.
- * So a latency spike or an ambiguous auth error can never nuke local data.
- *
- * Does NOT contact the server (nothing to tell it - the data was only ever local).
- * The caller reloads afterwards so all in-memory module caches are dropped too.
- */
 /**
  * Lock the app: drop the in-memory data key AND fully tear down the live session,
  * so a locked device is INERT - no WebSocket, no cover traffic, no session token,
@@ -117,6 +36,22 @@ export function lockApp(): void {
   useAuth.getState().signOut(); // drop the session token + authenticated flag
 }
 
+/**
+ * "Erase this device": a full LOCAL reset - delete every message, contact,
+ * session, AND the identity key material, then sign out to a clean onboarding.
+ *
+ * IRREVERSIBLE: without a recovery phrase / OPAQUE password / server backup, the
+ * account is gone. This is DESTRUCTIVE by design.
+ *
+ * SAFETY CONTRACT (do not violate): this runs ONLY from the explicit, confirmed
+ * Settings action. It is NEVER wired to a 401, a boot/restore failure, a slow
+ * load, or any transient/network condition - the correct response to those is to
+ * RE-AUTHENTICATE from the local identity (auth-session.ts), never to delete data.
+ * So a latency spike or an ambiguous auth error can never nuke local data.
+ *
+ * Does NOT contact the server (nothing to tell it - the data was only ever local).
+ * The caller reloads afterwards so all in-memory module caches are dropped too.
+ */
 export async function eraseThisDevice(): Promise<void> {
   // 1. Stop anything that could re-write IndexedDB mid-wipe.
   stopCoverTraffic();

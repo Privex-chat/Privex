@@ -38,8 +38,8 @@ export default function KeyAlert() {
       {!notMe ? (
         <>
           <p className="mt-1 text-xs text-text-secondary">
-            If it was you — a new phone or browser, or &ldquo;Log out everywhere&rdquo; on another of
-            your devices — tap &ldquo;That was me&rdquo;.
+            If it was you — setting up a new phone or browser, or your other device updating its
+            keys — tap &ldquo;That was me&rdquo;.
           </p>
           <div className="mt-2 flex gap-2">
             <button onClick={() => void dismissKeyAlert(userId)} className={`${btn} bg-raised text-text-secondary hover:bg-border-strong`}>

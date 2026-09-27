@@ -389,7 +389,6 @@ opaque_records:         px_id → OPRF record + encrypted envelope (server canno
 kt_log:                 Merkle tree of all key operations (UNLOGGED, auto-repaired at startup on crash)
 recovery_shares:        px_id → encrypted Shamir shares (server cannot decrypt)
 history_blobs:          px_id → encrypted history blobs (UNLOGGED, OPT-IN ONLY)
-linked_devices:         px_id → device public keys (UNLOGGED)
 pow_challenges:         challenge_id → difficulty + expiry (UNLOGGED, 30 min TTL)
 ```
 
@@ -398,7 +397,8 @@ pow_challenges:         challenge_id → difficulty + expiry (UNLOGGED, 30 min T
 ```
 Real name, email, phone number, IP address, last seen, message content,
 file content, sender identity, social graph, call participants or duration,
-passwords or functions of passwords, private keys
+passwords or functions of passwords, private keys, a list of your devices
+(linked devices are known only to each other, in each device's own storage)
 ```
 
 ### Critical PostgreSQL Configuration
@@ -410,7 +410,6 @@ CREATE UNLOGGED TABLE message_queue (...);
 CREATE UNLOGGED TABLE blob_index (...);
 CREATE UNLOGGED TABLE kt_log (...);
 CREATE UNLOGGED TABLE history_blobs (...);
-CREATE UNLOGGED TABLE linked_devices (...);
 CREATE UNLOGGED TABLE pow_challenges (...);
 ```
 
@@ -442,10 +441,9 @@ log {
 
 ### Session Token Security
 
-Session tokens include `spk_version`. When a user rotates their Signed Pre-Key:
-- `spk_version` increments in the database
-- All existing tokens with old `spk_version` return 401 immediately
-- This implements "log out everywhere" without storing a token revocation list
+A session token is an HMAC-signed `{user_id, issued_at, expires_at, random id}`, valid for 24 hours. The app keeps it in memory only and sends it only in the `X-Privex-Auth` header. The server keeps no session list and no revocation record.
+
+There is no "log out everywhere". Each device holds the account's keys and signs itself in with them (there's no password), so no server action could remove a device that holds them without the server keeping a list of your devices, which Privex doesn't. To take Privex off a device, use "Erase this device" on it. A lost device is protected by App Lock; if App Lock wasn't on, move to a new account.
 
 ---
 

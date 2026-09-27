@@ -181,39 +181,6 @@ pub async fn take_login_state(
     }
 }
 
-/// Token revocation cutoff: every session token issued BEFORE this unix time is
-/// invalid (used by "log out everywhere"). Keyed by HMAC(user_id); TTL = token
-/// TTL, after which all older tokens have already expired.
-pub async fn set_revoke_cutoff(
-    pool: &Pool,
-    server_key: &[u8; 32],
-    user_id: &str,
-    cutoff: i64,
-    ttl_secs: i64,
-) -> anyhow::Result<()> {
-    let key = format!("rev:{}", keyed(server_key, "rev", user_id));
-    let mut conn = pool.get().await?;
-    let _: () = redis::cmd("SET")
-        .arg(&key)
-        .arg(cutoff)
-        .arg("EX")
-        .arg(ttl_secs)
-        .query_async(&mut conn)
-        .await?;
-    Ok(())
-}
-
-pub async fn get_revoke_cutoff(
-    pool: &Pool,
-    server_key: &[u8; 32],
-    user_id: &str,
-) -> anyhow::Result<Option<i64>> {
-    let key = format!("rev:{}", keyed(server_key, "rev", user_id));
-    let mut conn = pool.get().await?;
-    let value: Option<i64> = redis::cmd("GET").arg(&key).query_async(&mut conn).await?;
-    Ok(value)
-}
-
 /// Mark a PoW ticket spent (single use, docs 8.5). True iff THIS call spent it;
 /// false = already spent (a replay). Keyed by the ticket's random id - never an
 /// identity. The TTL outlives the ticket's own expiry, so a spent ticket can't

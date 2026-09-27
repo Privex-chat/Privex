@@ -234,8 +234,8 @@ describe("signed prekey rotation", () => {
 
     // Not due yet → nothing happens.
     expect(await rotateSpkIfDue(me, prekeyCrypto, "tok", t0 + DAY)).toBe(false);
-    // Two more rotations in quick succession (as "log out everywhere" can cause):
-    // every retired key is still inside its window, so all are kept.
+    // Two more rotations in quick succession: every retired key is still inside
+    // its window, so all are kept.
     me.spkRotateAfter = undefined;
     await rotateSpkIfDue(me, prekeyCrypto, "tok", t0 + 10);
     me.spkRotateAfter = undefined;

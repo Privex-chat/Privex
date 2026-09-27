@@ -46,12 +46,6 @@ pub fn mint(key: &[u8; 32], user_id: &str, now: i64) -> String {
 
 /// Returns the user_id if the token is authentic and unexpired, else None.
 pub fn verify(key: &[u8; 32], token: &str, now: i64) -> Option<String> {
-    verify_with_iat(key, token, now).map(|(user_id, _)| user_id)
-}
-
-/// Like `verify`, but also returns the token's `issued_at` so a caller can apply
-/// a revocation cutoff ("log out everywhere" invalidates tokens issued earlier).
-pub fn verify_with_iat(key: &[u8; 32], token: &str, now: i64) -> Option<(String, i64)> {
     let (p_b64, t_b64) = token.split_once('.')?;
     let pj = URL_SAFE_NO_PAD.decode(p_b64).ok()?;
     let tag = URL_SAFE_NO_PAD.decode(t_b64).ok()?;
@@ -64,7 +58,7 @@ pub fn verify_with_iat(key: &[u8; 32], token: &str, now: i64) -> Option<(String,
     if now >= payload.expires_at {
         return None;
     }
-    Some((payload.user_id, payload.issued_at))
+    Some(payload.user_id)
 }
 
 #[cfg(test)]

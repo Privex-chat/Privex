@@ -235,7 +235,7 @@ export const opaqueLoginComplete = (loginId: string, finalizationHex: string) =>
     credential_finalization: finalizationHex,
   });
 
-// --- recovery shares + key management + logout (authenticated) ---
+// --- recovery shares + key management (authenticated) ---
 
 export const storeShares = (
   shares: { share_index: number; encrypted_share: string }[],
@@ -268,9 +268,6 @@ export const spkRotate = (
   body: { spk_x25519_pub: string; spk_sig_ed: string; spk_sig_dil: string },
   token: string,
 ) => post<{ rotated: boolean }>("/keys/spk/rotate", body, token);
-
-export const logoutAll = (token: string) =>
-  post<{ revoked: boolean }>("/auth/logout_all", {}, token);
 
 // --- encrypted history backup (Option A; authenticated, opt-in) ---
 // Blobs are AES-GCM ciphertext under the client's history_key - the server can't

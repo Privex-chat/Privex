@@ -52,7 +52,7 @@ import {
   setDeviceSyncEnabled,
   type LinkedDeviceInfo,
 } from "../services/device-sync";
-import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
+import { eraseThisDevice as eraseThisDeviceSvc } from "../services/session";
 import ThemeToggle from "../components/ThemeToggle";
 import BlockedContacts from "../components/BlockedContacts";
 import SeedSave from "../components/SeedSave";
@@ -228,7 +228,7 @@ function AccountSecurityTab({ pxId }: { pxId: string }) {
           <AppLockToggle />
         </Row>
         <Row>
-          <ActiveSessions />
+          <YourDevices />
         </Row>
         <Row>
           <EraseDevice />
@@ -1399,45 +1399,17 @@ function EraseDevice() {
   );
 }
 
-function ActiveSessions() {
-  const token = useAuth((s) => s.sessionToken);
-  const [busy, setBusy] = useState(false);
-
-  async function logoutEverywhere() {
-    if (!token) return;
-    if (
-      !window.confirm(
-        "Log out of ALL devices? Every session token is revoked and your signed prekey is " +
-          "rotated (forward secrecy). You'll sign back in on this device.",
-      )
-    )
-      return;
-    setBusy(true);
-    try {
-      await logoutEverywhereSvc(); // rotate SPK + revoke all tokens
-      // Drop the (now-revoked) token; reload re-authenticates this device from the
-      // stored keys with a fresh post-cutoff token.
-      location.reload();
-    } catch {
-      setBusy(false);
-    }
-  }
-
+/** Why there's no "log out everywhere" (services/session.ts), and what to do instead. */
+function YourDevices() {
   return (
     <div>
-      <div className="text-sm text-text-secondary">Active sessions</div>
+      <div className="text-sm text-text-secondary">Your devices</div>
       <p className="text-xs text-text-muted">
-        Tokens live in memory only and can&rsquo;t be listed. &ldquo;Log out everywhere&rdquo;
-        revokes every device&rsquo;s token and rotates your signed prekey. It does NOT erase
-        this device&rsquo;s data &mdash; use &ldquo;Erase this device&rdquo; below for that.
+        Privex has no sign-in to end: each device holds your account&rsquo;s keys and signs itself
+        in with them, and our servers keep no list of your devices. To take Privex off a device,
+        use &ldquo;Erase this device&rdquo; on it. If a device is lost, App Lock keeps what&rsquo;s
+        on it locked; if App Lock wasn&rsquo;t on, move to a new account and tell your contacts.
       </p>
-      <button
-        onClick={() => void logoutEverywhere()}
-        disabled={busy}
-        className="mt-2 rounded-lg bg-danger-bg hover:bg-danger-hover disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
-      >
-        {busy ? "Logging out…" : "Log out everywhere"}
-      </button>
     </div>
   );
 }

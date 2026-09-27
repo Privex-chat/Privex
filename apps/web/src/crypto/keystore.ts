@@ -71,7 +71,7 @@ export async function hasMasterKey(): Promise<boolean> {
   return (await get<CryptoKey>(MASTER_KEY_ID)) !== undefined;
 }
 
-/** Wipe ALL key material (logout): no-lock handle, lock meta, in-memory key. */
+/** Wipe ALL key material ("Erase this device"): no-lock handle, lock meta, in-memory key. */
 export async function clearMasterKey(): Promise<void> {
   memKey = null;
   memKeyBytes = null;

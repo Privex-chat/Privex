@@ -310,35 +310,3 @@ pub async fn ws_ticket(
         account_spk: AccountSpk::from(&bundle),
     }))
 }
-
-// --- POST /auth/logout_all ---
-// "Log out everywhere": set a revocation cutoff so every session token issued
-// before now (incl. the one making this call) becomes invalid. NOTE: the guide
-// framed this as SPK rotation invalidating tokens, but this server's tokens are
-// HMAC/TTL and SPK-independent - real revocation is the correct mechanism. SPK
-// rotation (a separate /keys/spk/rotate call) is orthogonal forward secrecy.
-
-#[derive(Serialize)]
-pub struct LogoutAllResp {
-    revoked: bool,
-}
-
-pub async fn logout_all(
-    AuthUser(user_id): AuthUser,
-    State(st): State<AppState>,
-) -> Result<Json<LogoutAllResp>, ApiError> {
-    // Cheap Redis write, but bound it anyway (each call extends the rev: key TTL).
-    crate::routes::rate_limit(&st, "logoutall", &user_id, 10, 60).await?;
-    // cutoff = now+1 so EVERY token issued in this second or earlier (incl. the
-    // caller's) is revoked; a fresh login must wait until the next second.
-    rds::set_revoke_cutoff(
-        &st.redis,
-        &st.config.redis_ns_key,
-        &user_id,
-        now_unix() + 1,
-        token::TTL_SECS,
-    )
-    .await
-    .map_err(|_| ApiError::internal())?;
-    Ok(Json(LogoutAllResp { revoked: true }))
-}
