@@ -389,7 +389,6 @@ opaque_records:         px_id → OPRF record + encrypted envelope (server canno
 kt_log:                 Merkle tree of all key operations (UNLOGGED, auto-repaired at startup on crash)
 recovery_shares:        px_id → encrypted Shamir shares (server cannot decrypt)
 history_blobs:          px_id → encrypted history blobs (UNLOGGED, OPT-IN ONLY)
-linked_devices:         px_id → device public keys (UNLOGGED)
 pow_challenges:         challenge_id → difficulty + expiry (UNLOGGED, 30 min TTL)
 ```
 
@@ -398,7 +397,8 @@ pow_challenges:         challenge_id → difficulty + expiry (UNLOGGED, 30 min T
 ```
 Real name, email, phone number, IP address, last seen, message content,
 file content, sender identity, social graph, call participants or duration,
-passwords or functions of passwords, private keys
+passwords or functions of passwords, private keys, a list of your devices
+(linked devices are known only to each other, in each device's own storage)
 ```
 
 ### Critical PostgreSQL Configuration
@@ -410,7 +410,6 @@ CREATE UNLOGGED TABLE message_queue (...);
 CREATE UNLOGGED TABLE blob_index (...);
 CREATE UNLOGGED TABLE kt_log (...);
 CREATE UNLOGGED TABLE history_blobs (...);
-CREATE UNLOGGED TABLE linked_devices (...);
 CREATE UNLOGGED TABLE pow_challenges (...);
 ```
 
