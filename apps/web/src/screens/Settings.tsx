@@ -14,6 +14,7 @@ import {
   disableOpaqueRecovery,
   enableOpaqueRecovery,
   opaqueRecoveryStatus,
+  PASSWORD_MANAGER_NOTE,
   recoveryCodeSas,
   setupEmergencyContacts,
   RECOVERY_CONTACTS_KEY,
@@ -54,6 +55,7 @@ import {
 import { eraseThisDevice as eraseThisDeviceSvc, logoutEverywhere as logoutEverywhereSvc } from "../services/session";
 import ThemeToggle from "../components/ThemeToggle";
 import BlockedContacts from "../components/BlockedContacts";
+import SeedSave from "../components/SeedSave";
 import { ArrowLeftIcon, CheckIcon, XIcon } from "../components/icons";
 import { useScreenRecord } from "../store/screenRecord";
 
@@ -487,8 +489,9 @@ function GuideTab() {
             </p>
             <p>
               <strong className="text-text-primary">Seed phrase.</strong> Twenty-four words that
-              <em> are</em> your account. Write them down and keep them offline. Privex will never ask you
-              for them — anyone who does is an impostor.
+              <em> are</em> your account. Keep a copy offline — written down, or saved as a file or
+              printout kept out of cloud folders. Privex will never ask you for them — anyone who does is
+              an impostor.
             </p>
             <p>
               <strong className="text-text-primary">Emergency contacts.</strong> Split a recovery key
@@ -564,6 +567,7 @@ function OpaqueRecoveryToggle({
   enabled: boolean | null;
   onChanged: (enabled: boolean) => void;
 }) {
+  const pxId = useAuth((s) => s.userId) ?? "";
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -648,7 +652,15 @@ function OpaqueRecoveryToggle({
       </p>
       {msg && <p className="mt-1 text-xs text-success">{msg}</p>}
       {open && !enabled && (
-        <div className="mt-3 space-y-2">
+        <form
+          className="mt-3 space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy && strongEnough && matches) void enable();
+          }}
+        >
+          {/* Lets a password manager file this password under your Privex ID. */}
+          <input type="text" name="username" autoComplete="username" value={pxId} readOnly hidden />
           <input
             type="password"
             value={pw}
@@ -679,14 +691,15 @@ function OpaqueRecoveryToggle({
             className="w-full rounded-lg bg-input border border-border-strong px-3 py-2 text-sm outline-none focus:border-border-focus"
           />
           {confirm && !matches && <p className="text-xs text-danger">Passwords don&rsquo;t match.</p>}
+          <p className="text-xs text-text-muted">{PASSWORD_MANAGER_NOTE}</p>
           <button
-            onClick={() => void enable()}
+            type="submit"
             disabled={!!busy || !strongEnough || !matches}
             className="rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-40 px-3 py-1.5 text-sm font-medium"
           >
             {busy ?? "Enable"}
           </button>
-        </div>
+        </form>
       )}
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
@@ -731,6 +744,7 @@ function SeedPhraseView() {
             ))}
           </div>
           <p className="mt-2 text-xs text-warning">Store these offline. We will never ask for them.</p>
+          <SeedSave words={words} />
           <div className="mt-2 flex gap-2">
             <button
               onClick={() => copy(phraseText)}

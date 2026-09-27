@@ -2,7 +2,7 @@
 // persisted AES-GCM-encrypted under the WebCrypto master key so a closed browser
 // resumes with the SAME keys (stable px_id). Plaintext key material never lands
 // in IndexedDB. A coarse progress marker lives in the (non-sensitive) settings
-// table; the seed mnemonic is stripped from storage once onboarding completes.
+// table. The seed mnemonic stays in the encrypted bundle (see finalizeIdentity).
 import { db } from "../db";
 import { getMasterKey } from "../crypto/keystore";
 import { encryptString, decryptString } from "../db/encrypted-db";

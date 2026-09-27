@@ -287,14 +287,14 @@ Designate 2–3 trusted Privex contacts. Master key split via Shamir's Secret Sh
 
 ### Path 4: Seed Phrase (Power User Fallback)
 
-24-word BIP-39 mnemonic generated at registration. Stored nowhere by Privex. Deterministically regenerates all keypairs. Optional — user chooses to write it down.
+24-word BIP-39 mnemonic generated at registration. Stored nowhere by Privex. Deterministically regenerates all keypairs. Optional — the user keeps a copy offline: written down, or saved as a text file or printout that the app makes on the device (nothing is sent anywhere). Recovery takes the words typed, pasted, or read from that file, locally.
 
 ```
 Recovery order (try in order):
   1. OPAQUE (password) — any device, any time
   2. Linked device — requires another device still active
   3. Emergency contacts — requires 2 of 3 contacts to approve
-  4. Seed phrase — requires the 24 words written down at registration
+  4. Seed phrase — requires the 24 words saved at registration
 ```
 
 ---

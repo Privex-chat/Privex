@@ -138,7 +138,7 @@ export async function completeRegistration(
 }
 
 /** STEP 6: ensure a live session (re-auth if the in-memory token was lost to a
- *  refresh), strip the mnemonic from storage, and enter the app. */
+ *  refresh), mark onboarding done, and enter the app. */
 export async function finishOnboarding(crypto: CryptoApi = workerCrypto): Promise<void> {
   const bundle = await loadBundle();
   if (!bundle) throw new Error("no identity to finalize");
