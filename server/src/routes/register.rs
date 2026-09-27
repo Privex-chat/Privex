@@ -111,8 +111,8 @@ pub async fn register(
         spk_sig_ed,
         spk_sig_dil,
         kyber1024_pub: kyber,
-        spk_created_at: now as i32,
-        created_at: now as i32,
+        spk_created_at: crate::key_event_day(now),
+        created_at: crate::key_event_day(now),
     };
 
     match register::register_user(
@@ -121,7 +121,7 @@ pub async fn register(
             bundle: &bundle,
             opks: &opks,
             bundle_hash: &bundle_hash,
-            now: now as i32,
+            now: crate::key_event_day(now), // the KT entry's timestamp
         },
     )
     .await

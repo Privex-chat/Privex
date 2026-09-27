@@ -339,8 +339,8 @@ pub async fn spk_rotate(
         return Err(ApiError::bad_request());
     }
 
-    let now = now_unix();
-    kd::update_spk(&st.db, &user_id, &spk, &sig_ed, &sig_dil, now as i32)
+    let day = crate::key_event_day(now_unix()); // only the day is kept (lib.rs)
+    kd::update_spk(&st.db, &user_id, &spk, &sig_ed, &sig_dil, day)
         .await
         .map_err(|_| ApiError::internal())?;
 
@@ -363,7 +363,7 @@ pub async fn spk_rotate(
         &user_id,
         &new_hash,
         "spk_rotate",
-        now as i32,
+        day,
         prev.as_deref(),
     )
     .await
