@@ -240,14 +240,14 @@ export async function restoreHistory(onProgress?: (done: number) => void): Promi
   let after: string | undefined;
   let done = 0;
   const legacyContacts: ContactRecord[] = [];
-  const withMessages = new Set<string>();
+  const weMessaged = new Set<string>();
   for (;;) {
     const page = await api.listHistory(tok, after);
     for (const w of page.blobs) {
       const rec = await decryptRecord<HistoryRecord>(key.enc, b64decode(w.ciphertext));
       if (rec.type === "contact" && rec.status === undefined) legacyContacts.push(rec);
       else {
-        if (rec.type === "message") withMessages.add(rec.peer_id);
+        if (rec.type === "message" && rec.direction === "out") weMessaged.add(rec.peer_id);
         await importRecord(rec);
       }
       done++;
@@ -256,11 +256,12 @@ export async function restoreHistory(onProgress?: (done: number) => void): Promi
     if (!page.next) break;
     after = page.next;
   }
-  // Contact records from older builds carry no status. Messages only flow with
-  // accepted contacts, so anyone we have messages with was accepted; the rest go
-  // back as requests to accept.
+  // Contact records from older builds carry no status. The app only lets US send
+  // to an accepted contact, so anyone we sent a message to was accepted. The rest
+  // go back as requests to accept (an inbound message alone proves nothing - a
+  // modified app could deliver one without being accepted).
   for (const c of legacyContacts) {
-    await importRecord(c, withMessages.has(c.px_id) ? "accepted" : "pending_inbound");
+    await importRecord(c, weMessaged.has(c.px_id) ? "accepted" : "pending_inbound");
   }
   return done;
 }

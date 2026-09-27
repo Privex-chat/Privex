@@ -206,7 +206,7 @@ describe("history backup (Option A)", () => {
 
   it("restores contacts with their status and messages in their original order", async () => {
     const me = genIdentityBundle(wasm, entropy(0x7b));
-    const [bob, dan, eve, mal] = [0x7c, 0x7d, 0x7e, 0x7f].map((f) => genIdentityBundle(wasm, entropy(f)));
+    const [bob, dan, eve, mal, sam] = [0x7c, 0x7d, 0x7e, 0x7f, 0x80].map((f) => genIdentityBundle(wasm, entropy(f)));
     await persistGeneratedIdentity(me);
     useAuth.getState().setSession("tok", me.userId);
     const enc = await deriveHistoryKey(me.masterSeed);
@@ -214,26 +214,30 @@ describe("history backup (Option A)", () => {
       server.set(id, { ciphertext: b64encode(await encryptRecord(enc, rec)), created_at: ctr++ });
     const contact = (px: string, status?: ContactStatus): HistoryRecord =>
       ({ v: 1, type: "contact", px_id: px, name: "", ik_ed25519: "", ik_x25519: "", ...(status ? { status } : {}) });
-    const msg = (id: string, peer: string, body: string, timestamp: number, created_at?: number): HistoryRecord =>
-      ({ v: 1, type: "message", msg_id: id, peer_id: peer, direction: "in", kind: "text", content: body,
+    const msg = (id: string, peer: string, body: string, timestamp: number, created_at?: number,
+      direction: "in" | "out" = "in"): HistoryRecord =>
+      ({ v: 1, type: "message", msg_id: id, peer_id: peer, direction, kind: "text", content: body,
          timestamp, status: "received", ...(created_at ? { created_at } : {}) });
 
     // The server lists blobs in an order unrelated to the conversation.
     await put("b3", msg("m3", bob.userId, "third", 3)); // older build: no created_at
     await put("b1", msg("m1", bob.userId, "first", 1, 1_000));
     await put("c1", contact(bob.userId, "accepted"));
-    await put("c2", contact(dan.userId)); // older build: no status, but we have messages
+    await put("c2", contact(dan.userId)); // older build: no status, only messages FROM them
+    await put("c5", contact(sam.userId)); // older build: no status, we messaged them
     await put("c3", contact(eve.userId)); // older build: no status, no messages
     await put("c4", contact(mal.userId, "blocked"));
     await put("b2", msg("m2", bob.userId, "second", 2, 2_000));
     await put("d1", msg("n1", dan.userId, "from dan", 5, 5_000));
+    await put("s1", msg("o1", sam.userId, "to sam", 6, 6_000, "out"));
 
     await restoreHistory();
 
     const order = (await new EncryptedMessages(db).listBySession(bob.userId)).map((m) => m.content);
     expect(order).toEqual(["first", "second", "third"]);
     expect((await getContact(bob.userId))?.status).toBe("accepted");
-    expect((await getContact(dan.userId))?.status).toBe("accepted");
+    expect((await getContact(dan.userId))?.status).toBe("pending_inbound"); // inbound alone proves nothing
+    expect((await getContact(sam.userId))?.status).toBe("accepted"); // we could only send once accepted
     expect((await getContact(eve.userId))?.status).toBe("pending_inbound");
     expect((await getContact(mal.userId))?.status).toBe("blocked");
   });
