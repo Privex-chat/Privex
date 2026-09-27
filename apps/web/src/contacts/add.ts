@@ -1,36 +1,16 @@
 // Add-contact pipeline: fetch a peer's key bundle, verify it end-to-end against
-// the pinned KT key, initiate PQXDH, and persist the contact + session. The
-// crypto surface is injectable (ContactCryptoApi) so the whole flow is testable
-// in Node against the wasm directly with a mocked fetch - no SharedWorker.
-import * as api from "../api/client";
-import { KT_SIGNING_PUB_HEX } from "../config";
-import {
-  isValidPxId,
-  type PqxdhBundleInput,
-  type PqxdhInit,
-  type VerifiedBundle,
-} from "../crypto/contact-crypto";
-import { cryptoCall } from "../workers/crypto-client";
-import { addVerifiedContact, getContact, isKeyChanged } from "../data/contacts";
+// the pinned KT key, initiate PQXDH, and persist the contact + session (the
+// handshake itself lives in ./handshake, shared with the send path). The crypto
+// surface is injectable (ContactCryptoApi) so the whole flow is testable in Node
+// against the wasm directly with a mocked fetch - no SharedWorker.
+import { isValidPxId } from "../crypto/contact-crypto";
+import { getContact } from "../data/contacts";
+import { loadSession } from "../data/sessions";
 import { loadBundle } from "../onboarding/store";
 import { acceptContactRequest, sendContactHello } from "../services/messaging";
-import { solveServerPow } from "../services/pow";
+import { startSession, workerContactCrypto, type ContactCryptoApi } from "./handshake";
 
-export interface ContactCryptoApi {
-  solvePow: import("../services/pow").SolvePow;
-  verifyBundle(pinnedKtPubHex: string, resp: api.KeyBundleResp): Promise<VerifiedBundle>;
-  pqxdhInitiate(myIkX25519Priv: Uint8Array, b: PqxdhBundleInput): Promise<PqxdhInit>;
-  ratchetInitAlice(sharedSecret: Uint8Array, bobRatchetPub: Uint8Array): Promise<Uint8Array>;
-}
-
-/** Production crypto: routes to the SharedWorker. ratchet_init_alice returns
- *  plain bytes (bincode session state) → the existing passthrough handles it. */
-export const workerContactCrypto: ContactCryptoApi = {
-  solvePow: (c, d, a) => cryptoCall("solve_pow", [c, d, a]),
-  verifyBundle: (pin, resp) => cryptoCall("verify_bundle", [pin, resp]),
-  pqxdhInitiate: (priv, b) => cryptoCall("pqxdh_initiate", [priv, b]),
-  ratchetInitAlice: (ss, pub) => cryptoCall("ratchet_init_alice", [ss, pub]),
-};
+export { workerContactCrypto, type ContactCryptoApi };
 
 export interface AddedContact {
   userId: string;
@@ -58,42 +38,25 @@ export async function addContact(
   //    key + session from their request), and notifies them.
   //  - already accepted / already requested → no-op.
   //  - blocked → refuse (unblock first).
+  //  - accepted but NO session (restored from a backup, or re-added after an
+  //    account recovery) → fall through: a fresh handshake is the only way to
+  //    talk to them again. They already have us, so they confirm right back.
   const existing = await getContact(pxId);
   if (existing?.status === "pending_inbound") {
     await acceptContactRequest(pxId);
     return { userId: pxId, ik_ed25519: existing.ik_ed25519 };
   }
-  if (existing?.status === "accepted" || existing?.status === "pending_outbound") {
+  if (existing?.status === "pending_outbound") {
+    return { userId: pxId, ik_ed25519: existing.ik_ed25519 };
+  }
+  if (existing?.status === "accepted" && (await loadSession(pxId))) {
     return { userId: pxId, ik_ed25519: existing.ik_ed25519 };
   }
   if (existing?.status === "blocked") {
     throw new Error("You've blocked this contact. Unblock them first.");
   }
 
-  // Solve a PoW to fetch the bundle. This is the cost that closes account
-  // enumeration / OPK drain - the server consumes the proof single-use and the
-  // global difficulty climbs under a flood. No IP/identity is involved.
-  const pow = await solveServerPow(crypto.solvePow);
-  const resp = await api.fetchKeyBundle(pxId, pow);
-  const verified = await crypto.verifyBundle(KT_SIGNING_PUB_HEX, resp);
-
-  // If we already know this contact, refuse to overwrite a changed identity key
-  // without an explicit re-verification (docs 8.2 - do not auto-trust new keys).
-  if (await isKeyChanged(pxId, verified.ik_ed25519)) {
-    throw new Error(`${pxId}'s key has changed. Verify their identity before re-adding.`);
-  }
-
-  const pqx = await crypto.pqxdhInitiate(me.identity.x25519_priv, {
-    ik_x25519: verified.ik_x25519,
-    spk_x25519: verified.spk_x25519,
-    opk: verified.opk,
-    kyber1024_pub: verified.kyber1024_pub,
-  });
-
-  // Bootstrap the Double Ratchet: Bob's ratchet key is his signed prekey (docs 4.4).
-  const ratchetState = await crypto.ratchetInitAlice(pqx.shared_secret, verified.spk_x25519);
-
-  await addVerifiedContact(verified, pqx, ratchetState);
+  const verified = await startSession(pxId, crypto);
 
   // Announce ourselves so the peer auto-adds us back (rides Sealed Sender - no
   // server-side social graph). Best-effort: if it fails, they'll still see us on

@@ -109,6 +109,8 @@ export default defineConfig(({ mode }) => {
         "/recovery": backend,
         "/messages": backend,
         "/blobs": backend,
+        "/history": backend,
+        "/config": backend,
         "/health": backend,
         "/v1": { target: backend, ws: true },
       },

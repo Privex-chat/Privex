@@ -15,6 +15,7 @@ import { workerFileCrypto, type FileCryptoApi } from "./files";
 import { solveServerPow } from "./pow";
 import type { PlainContact } from "../db/encrypted-db";
 import { authenticateBundle } from "./auth-session";
+import { nextSpkRotation } from "./prekeys";
 import { finalizeIdentity, loadBundle, persistGeneratedIdentity } from "../onboarding/store";
 import {
   bincodeLoginServerResponse,
@@ -80,6 +81,9 @@ async function provisionPrekeys(bundle: IdentityBundle, token: string): Promise<
 /** Shared tail: persist the recovered identity, obtain a token (OPAQUE provides
  *  one; seed recovery signs a challenge), re-provision prekeys, enter the app. */
 async function completeRecovery(bundle: IdentityBundle, tokenOpt?: string): Promise<void> {
+  // provisionPrekeys publishes this bundle's signed prekey as brand new, so its
+  // first rotation is a full period away (unset = "rotate now" to prekey upkeep).
+  bundle.spkRotateAfter = nextSpkRotation(Math.floor(Date.now() / 1000));
   await persistGeneratedIdentity(bundle);
   const token = tokenOpt ?? (await authenticateBundle(bundle));
   useAuth.getState().setSession(token, bundle.userId);

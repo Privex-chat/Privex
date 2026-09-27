@@ -5,7 +5,8 @@
 import { db } from "../db";
 import { getMasterKey } from "../crypto/keystore";
 import { decryptString, EncryptedMessages } from "../db/encrypted-db";
-import { setDisplayName, setVerified, upsertInboundContact } from "../data/contacts";
+import { restoreContact, setDisplayName, setVerified } from "../data/contacts";
+import type { ContactStatus } from "../db";
 import { fromHex, toHex } from "../crypto/onboarding-crypto";
 
 export interface MsgRecord {
@@ -18,6 +19,8 @@ export interface MsgRecord {
   content: string;
   timestamp: number;
   status: string;
+  /** Local ordering key (ms). Absent in records from older builds. */
+  created_at?: number;
 }
 export interface ContactRecord {
   v: 1;
@@ -27,6 +30,8 @@ export interface ContactRecord {
   ik_ed25519: string; // hex ("" if unknown)
   ik_x25519: string; // hex ("" if unknown)
   verified?: string; // safety code, if verified
+  /** Absent in records from older builds (see restoreHistory). */
+  status?: ContactStatus;
 }
 export type HistoryRecord = MsgRecord | ContactRecord;
 
@@ -48,6 +53,7 @@ export async function contactRecordFor(pxId: string): Promise<ContactRecord | nu
     ik_ed25519: c.ik_ed25519_pub ? toHex(c.ik_ed25519_pub) : "",
     ik_x25519: c.ik_x25519_pub ? toHex(c.ik_x25519_pub) : "",
     verified: c.verified_fingerprint,
+    status: c.status ?? "accepted", // rows older than the status field are accepted
   };
 }
 
@@ -66,6 +72,7 @@ export async function collectLocalRecords(): Promise<HistoryRecord[]> {
       content: await decryptString(mk, r.content_enc),
       timestamp: r.timestamp,
       status: r.status,
+      created_at: r.created_at,
     });
   }
   for (const c of await db.contacts.toArray()) {
@@ -75,13 +82,18 @@ export async function collectLocalRecords(): Promise<HistoryRecord[]> {
   return out;
 }
 
-/** Import one record into the local DB. Idempotent (overwrite by id). */
-export async function importRecord(rec: HistoryRecord): Promise<void> {
+/** Import one record into the local DB. Idempotent (overwrite by id). A contact
+ *  record without a status (from an older build) gets `legacyStatus`. */
+export async function importRecord(
+  rec: HistoryRecord,
+  legacyStatus: ContactStatus = "pending_inbound",
+): Promise<void> {
   if (rec.type === "contact") {
-    await upsertInboundContact(
+    await restoreContact(
       rec.px_id,
       rec.ik_ed25519 ? fromHex(rec.ik_ed25519) : new Uint8Array(0),
       rec.ik_x25519 ? fromHex(rec.ik_x25519) : new Uint8Array(0),
+      rec.status ?? legacyStatus,
     );
     if (rec.name) await setDisplayName(rec.px_id, rec.name);
     if (rec.verified) await setVerified(rec.px_id, rec.verified);
@@ -91,7 +103,9 @@ export async function importRecord(rec: HistoryRecord): Promise<void> {
       session_id: rec.peer_id,
       content: rec.content,
       timestamp: rec.timestamp,
-      created_at: Date.now(),
+      // Keep the conversation's order: the original local ordering key, or the
+      // sent time for records from older builds (never the import time).
+      created_at: rec.created_at ?? rec.timestamp * 1000,
       status: rec.status,
       direction: rec.direction,
       kind: rec.kind,
