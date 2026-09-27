@@ -16,11 +16,13 @@ export interface MessageEvent {
 type WireEvent =
   | { kind: "message"; peerId: string }
   | { kind: "contacts" }
-  | { kind: "outbox" };
+  | { kind: "outbox" }
+  | { kind: "keyAlert" };
 
 const listeners = new Set<(e: MessageEvent) => void>();
 const contactListeners = new Set<() => void>();
 const outboxListeners = new Set<() => void>();
+const keyAlertListeners = new Set<() => void>();
 
 const channel: BroadcastChannel | null =
   typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("privex-ui-events") : null;
@@ -31,6 +33,7 @@ if (channel) {
     if (w.kind === "message") for (const fn of listeners) fn({ peerId: w.peerId });
     else if (w.kind === "contacts") for (const fn of contactListeners) fn();
     else if (w.kind === "outbox") for (const fn of outboxListeners) fn();
+    else if (w.kind === "keyAlert") for (const fn of keyAlertListeners) fn();
   };
 }
 
@@ -72,4 +75,15 @@ export function onOutboxChanged(fn: () => void): () => void {
 export function emitOutboxChanged(): void {
   for (const fn of outboxListeners) fn();
   broadcast({ kind: "outbox" });
+}
+
+// The "set up on another device" alert was raised or dismissed (key-watch.ts).
+export function onKeyAlertChanged(fn: () => void): () => void {
+  keyAlertListeners.add(fn);
+  return () => keyAlertListeners.delete(fn);
+}
+
+export function emitKeyAlertChanged(): void {
+  for (const fn of keyAlertListeners) fn();
+  broadcast({ kind: "keyAlert" });
 }

@@ -239,6 +239,11 @@ async fn register_and_auth(http: &reqwest::Client, base: &str) -> (Identity, Str
         .json()
         .await
         .unwrap();
+    // Sign-in carries the account's current signed prekey (docs 8.2 self-check).
+    for f in ["spk_x25519", "spk_sig_ed", "spk_sig_dil"] {
+        let registered = body[if f == "spk_x25519" { "spk_x25519_pub" } else { f }].clone();
+        assert_eq!(vr["account_spk"][f], registered, "verify reply {f}");
+    }
     let token = vr["session_token"].as_str().unwrap().to_string();
     (id, token)
 }
@@ -1355,13 +1360,15 @@ async fn server_end_to_end() {
     // SPK rotate with a valid hybrid signature → appends a KT entry.
     let mut new_spk = [0u8; 32];
     getrandom::getrandom(&mut new_spk).unwrap();
+    let new_sig_ed = hex::encode(bob.signing.sign(&new_spk).to_bytes());
+    let new_sig_dil = hex::encode(bob.dsk.try_sign(&new_spk, &[]).unwrap());
     let rot: serde_json::Value = http
         .post(format!("{base}/keys/spk/rotate"))
         .header("X-Privex-Auth", &bob_token)
         .json(&serde_json::json!({
             "spk_x25519_pub": hex::encode(new_spk),
-            "spk_sig_ed": hex::encode(bob.signing.sign(&new_spk).to_bytes()),
-            "spk_sig_dil": hex::encode(bob.dsk.try_sign(&new_spk, &[]).unwrap()),
+            "spk_sig_ed": new_sig_ed,
+            "spk_sig_dil": new_sig_dil,
         }))
         .send()
         .await
@@ -1388,6 +1395,21 @@ async fn server_end_to_end() {
         verify_kt_proof(&bob.user_id, &b3, &kt_pub),
         "rotated bundle proof must verify"
     );
+
+    // The owner's WS-ticket reply now carries the NEW signed prekey, signatures
+    // included, so a device that didn't publish it can tell (docs 8.2).
+    let tkt: serde_json::Value = http
+        .post(format!("{base}/auth/ws_ticket"))
+        .header("X-Privex-Auth", &bob_token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(tkt["account_spk"]["spk_x25519"].as_str().unwrap(), hex::encode(new_spk));
+    assert_eq!(tkt["account_spk"]["spk_sig_ed"].as_str().unwrap(), new_sig_ed);
+    assert_eq!(tkt["account_spk"]["spk_sig_dil"].as_str().unwrap(), new_sig_dil);
 
     // SPK rotate with a bad signature → generic 400.
     let bad_rot = http

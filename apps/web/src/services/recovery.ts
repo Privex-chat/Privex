@@ -86,7 +86,9 @@ async function completeRecovery(bundle: IdentityBundle, tokenOpt?: string): Prom
   // first rotation is a full period away (unset = "rotate now" to prekey upkeep).
   bundle.spkRotateAfter = nextSpkRotation(Math.floor(Date.now() / 1000));
   await persistGeneratedIdentity(bundle);
-  const token = tokenOpt ?? (await authenticateBundle(bundle));
+  // No key check here: the server still has the account's old signed prekey until
+  // provisionPrekeys below publishes ours.
+  const token = tokenOpt ?? (await authenticateBundle(bundle)).session_token;
   useAuth.getState().setSession(token, bundle.userId);
   await provisionPrekeys(bundle, token);
   await finalizeIdentity(bundle);
@@ -128,7 +130,7 @@ async function requireRecoverySession(): Promise<{ bundle: IdentityBundle; token
 
   let token = useAuth.getState().sessionToken;
   if (!token) {
-    token = await authenticateBundle(bundle);
+    token = (await authenticateBundle(bundle)).session_token;
     useAuth.getState().setSession(token, bundle.userId);
   }
   return { bundle, token };

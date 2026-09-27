@@ -132,7 +132,7 @@ export const replenishPrekeys = (opks: OpkUpload[], token: string, replace = fal
 // --- messaging + WS ticket (authenticated) ---
 
 export const wsTicket = (token: string) =>
-  post<{ ticket: string; expires_at: number }>("/auth/ws_ticket", {}, token);
+  post<{ ticket: string; expires_at: number; account_spk?: AccountSpk }>("/auth/ws_ticket", {}, token);
 
 /** Server default queue TTL (docs 4.12). Sent explicitly on EVERY send so the
  *  presence of a custom ttl_seconds never distinguishes a real message from
@@ -186,8 +186,20 @@ export interface VerifyReq {
   sig_dil: string; // hex
   timestamp: number;
 }
-export const authVerify = (req: VerifyReq) =>
-  post<{ session_token: string; expires_at: number }>("/auth/verify", req);
+/** The account's current signed prekey (hex), in sign-in and WS-ticket replies -
+ *  how this device notices another device publishing keys for the account
+ *  (services/key-watch.ts). Absent from servers that predate it. */
+export interface AccountSpk {
+  spk_x25519: string;
+  spk_sig_ed: string;
+  spk_sig_dil: string;
+}
+export interface VerifyResp {
+  session_token: string;
+  expires_at: number;
+  account_spk?: AccountSpk;
+}
+export const authVerify = (req: VerifyReq) => post<VerifyResp>("/auth/verify", req);
 
 // --- OPAQUE recovery setup (authenticated) ---
 

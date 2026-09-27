@@ -8,10 +8,12 @@ import { cryptoCall } from "../workers/crypto-client";
 import { useAuth } from "../store/auth";
 import { loadBundle, loadProgress } from "../onboarding/store";
 import { fromHex, toHex, type HybridSig, type IdentityBundle } from "../crypto/onboarding-crypto";
+import { checkAccountKeys } from "./key-watch";
 
 /** Sign a fresh auth challenge with the identity's keys → a 24h session token
- *  (docs 4.9). Used by boot-restore and by seed-phrase recovery. */
-export async function authenticateBundle(bundle: IdentityBundle): Promise<string> {
+ *  (docs 4.9), plus the account's current signed prekey. Used by boot-restore,
+ *  renewal and seed-phrase recovery. */
+export async function authenticateBundle(bundle: IdentityBundle): Promise<api.VerifyResp> {
   const chal = await api.authChallenge(bundle.userId);
   const ts = Math.floor(Date.now() / 1000);
   const sig = await cryptoCall<HybridSig>("sign_challenge", [
@@ -28,7 +30,7 @@ export async function authenticateBundle(bundle: IdentityBundle): Promise<string
     sig_dil: toHex(sig.dil),
     timestamp: ts,
   });
-  return res.session_token;
+  return res;
 }
 
 // Two concurrent restores (e.g. React StrictMode double-invoking the boot effect
@@ -55,9 +57,10 @@ async function doRestore(): Promise<boolean> {
   const bundle = await loadBundle();
   if (!bundle) return false;
 
-  const token = await authenticateBundle(bundle);
-  useAuth.getState().setSession(token, bundle.userId);
+  const res = await authenticateBundle(bundle);
+  useAuth.getState().setSession(res.session_token, bundle.userId);
   useAuth.getState().setAuthenticated(bundle.userId);
+  void checkAccountKeys(res.account_spk);
   // Renewal is started by App's boot==="ready" effect (startTokenRenewal), so it
   // stops correctly on lock/sign-out - don't schedule a detached timer here.
   return true;
@@ -133,7 +136,7 @@ async function doReauth(): Promise<boolean> {
   try {
     const bundle = await loadBundle();
     if (!bundle) return false;
-    const token = await authenticateBundle(bundle);
+    const res = await authenticateBundle(bundle);
     // Guard a stale result: the session can be torn down (lock / sign-out /
     // erase all clear `authenticated`) or switched to another identity while the
     // auth round trip is in flight. Applying `token` then would revive a dead
@@ -141,7 +144,8 @@ async function doReauth(): Promise<boolean> {
     // still authenticated AND still this identity.
     const s = useAuth.getState();
     if (!s.authenticated || s.userId !== bundle.userId) return false;
-    useAuth.getState().setSession(token, bundle.userId);
+    useAuth.getState().setSession(res.session_token, bundle.userId);
+    void checkAccountKeys(res.account_spk); // the daily renewal re-checks
     return true;
   } catch {
     // Server unreachable / transient - the caller (or the renewal backoff) retries.

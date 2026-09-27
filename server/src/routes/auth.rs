@@ -149,6 +149,30 @@ pub struct VerifyReq {
 pub struct VerifyResp {
     session_token: String,
     expires_at: i64,
+    account_spk: AccountSpk,
+}
+
+/// The account's current signed prekey, in the owner's sign-in and WS-ticket
+/// replies. Every recovery publishes a new one, so the owner's device can tell
+/// (on the device, alone) when another device published keys for its account
+/// (docs 8.2). It is the same public data the key directory already serves to
+/// anyone, it goes in EVERY such reply at the same size, and nothing about the
+/// check comes back to the server - so it adds nothing the server knows or stores.
+#[derive(Serialize)]
+pub struct AccountSpk {
+    spk_x25519: String,  // hex
+    spk_sig_ed: String,  // hex
+    spk_sig_dil: String, // hex
+}
+
+impl From<&crate::db::queries::key_directory::KeyBundle> for AccountSpk {
+    fn from(b: &crate::db::queries::key_directory::KeyBundle) -> Self {
+        Self {
+            spk_x25519: hex::encode(&b.spk_x25519),
+            spk_sig_ed: hex::encode(&b.spk_sig_ed),
+            spk_sig_dil: hex::encode(&b.spk_sig_dil),
+        }
+    }
 }
 
 pub async fn verify(
@@ -238,6 +262,7 @@ pub async fn verify(
     Ok(Json(VerifyResp {
         session_token,
         expires_at: now + token::TTL_SECS,
+        account_spk: AccountSpk::from(&bundle),
     }))
 }
 
@@ -251,6 +276,7 @@ const WS_TICKET_TTL: i64 = 60;
 pub struct WsTicketResp {
     ticket: String,
     expires_at: i64,
+    account_spk: AccountSpk,
 }
 
 pub async fn ws_ticket(
@@ -260,6 +286,10 @@ pub async fn ws_ticket(
     // Bound ticket minting per user → bounds devlink rendezvous rooms a single
     // account can open.
     crate::routes::rate_limit(&st, "wsticket", &user_id, 60, 60).await?;
+    let bundle = crate::db::queries::key_directory::get_key(&st.db, &user_id)
+        .await
+        .map_err(|_| ApiError::internal())?
+        .ok_or_else(ApiError::unauthorized)?;
     let mut raw = [0u8; 32];
     getrandom::getrandom(&mut raw).map_err(|_| ApiError::internal())?;
     let ticket = hex::encode(raw);
@@ -277,6 +307,7 @@ pub async fn ws_ticket(
     Ok(Json(WsTicketResp {
         ticket,
         expires_at: now_unix() + WS_TICKET_TTL,
+        account_spk: AccountSpk::from(&bundle),
     }))
 }
 

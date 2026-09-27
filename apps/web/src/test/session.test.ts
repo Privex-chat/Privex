@@ -70,8 +70,11 @@ describe("log out everywhere (16E)", () => {
 
     const oldSpkPriv = toHex(me.spk.priv);
     const order: string[] = [];
-    const rotateSpy = vi.spyOn(api, "spkRotate").mockImplementation(async () => {
+    let savedBeforePublish = false;
+    const rotateSpy = vi.spyOn(api, "spkRotate").mockImplementation(async (req) => {
       order.push("rotate");
+      // The device already holds the key it's publishing (never the other way round).
+      savedBeforePublish = toHex((await loadBundle())!.spk.pub) === req.spk_x25519_pub;
       return { rotated: true };
     });
     const logoutSpy = vi.spyOn(api, "logoutAll").mockImplementation(async () => {
@@ -87,6 +90,7 @@ describe("log out everywhere (16E)", () => {
 
     // SPK rotated with the still-valid token BEFORE the token is revoked.
     expect(order).toEqual(["rotate", "logout"]);
+    expect(savedBeforePublish).toBe(true);
     const rotatedArg = rotateSpy.mock.calls[0];
     expect(rotatedArg[1]).toBe("tok-1"); // authed with the pre-revocation token
 
@@ -104,6 +108,7 @@ describe("log out everywhere (16E)", () => {
     // Identity + mnemonic preserved (same account; seed-view still works).
     expect(reloaded!.userId).toBe(me.userId);
     expect(reloaded!.mnemonic).toBe(me.mnemonic);
+    expect(reloaded!.spkPending).toBe(false); // published
 
     rotateSpy.mockRestore();
     logoutSpy.mockRestore();
@@ -129,8 +134,12 @@ describe("log out everywhere (16E)", () => {
     ).rejects.toBeInstanceOf(api.ApiError);
 
     expect(logoutSpy).not.toHaveBeenCalled(); // token NOT revoked on rotate failure
-    // Local SPK untouched (rotate happens server-first, persist only on success).
-    expect(toHex((await loadBundle())!.spk.priv)).toBe(toHex(me.spk.priv));
+    // The new key was saved first and stays pending (prekey upkeep publishes it
+    // later); the old one - still the server's - is kept.
+    const after = (await loadBundle())!;
+    expect(toHex(after.spk.pub)).toBe(toHex(stub.pub));
+    expect(after.spkPending).toBe(true);
+    expect(after.prevSpks!.map((k) => toHex(k.pub))).toContain(toHex(me.spk.pub));
 
     rotateSpy.mockRestore();
     logoutSpy.mockRestore();
