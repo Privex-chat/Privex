@@ -120,7 +120,7 @@ A security tool that won't name its limits shouldn't be trusted. Privex does **n
 - **Voluntary exposure.** If you share your identity or messages, that's outside the model.
 - **Legal risk in your own jurisdiction.** Privex provides *technical* privacy, not legal immunity. It can make your data impossible to produce; it can't make an activity legal where you are.
 - **Traffic-analysis perfection.** Mixnet delays plus cover traffic narrow the correlation window dramatically but don't provably close it to zero. This is an acknowledged, industry-wide hard limit, not a solved problem.
-- **Disruption by whoever holds a session token or sits in the path.** Someone with a valid session token (tokens last up to 24 hours), the TLS-terminating proxy in front of the server, or a compromised server can make new contacts' first messages fail by swapping your one-time prekeys (unsigned by design, as in Signal's protocol), or empty your message queue by confirming its messages. They can't read anything, and the same parties could simply drop your traffic.
+- **Disruption by whoever holds a session token or sits in the path.** Someone with a valid session token (tokens last up to 24 hours), the TLS-terminating proxy in front of the server, or a compromised server can make the first message of any new chat with you fail by adding or replacing your one-time prekeys (unsigned by design, like Signal's one-time curve prekeys), or empty your message queue by confirming its messages. They can't read anything, and the proxy or server could just drop your traffic anyway.
 
 ---
 
