@@ -22,13 +22,45 @@ export function seedFileText(words: string[]): string {
   ].join("\n");
 }
 
-export function downloadSeedFile(words: string[]): void {
-  const url = URL.createObjectURL(new Blob([seedFileText(words)], { type: "text/plain;charset=utf-8" }));
+// File System Access API (desktop Chrome/Edge); not in TypeScript's DOM types yet.
+type SaveFilePicker = (opts: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<FileSystemFileHandle>;
+
+/** Save the file. Where the browser can ask where (desktop Chrome/Edge), the user
+ *  picks the place - a USB stick, say - so it doesn't just land in Downloads.
+ *  Elsewhere it's a normal download. Call from a click (the picker needs one). */
+export async function saveSeedFile(words: string[]): Promise<"saved" | "downloaded" | "cancelled"> {
+  const blob = new Blob([seedFileText(words)], { type: "text/plain;charset=utf-8" });
+  const pick = (globalThis as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  if (pick) {
+    let handle: FileSystemFileHandle | undefined;
+    try {
+      handle = await pick({
+        suggestedName: SEED_FILE_NAME,
+        types: [{ description: "Text file", accept: { "text/plain": [".txt"] } }],
+      });
+    } catch (e) {
+      if ((e as { name?: string }).name === "AbortError") return "cancelled";
+      // The picker refused (e.g. the click's activation ran out): plain download below.
+    }
+    if (handle) {
+      // A failed write throws to the caller - never quietly download instead of
+      // saving where the user chose.
+      const out = await handle.createWritable();
+      await out.write(blob);
+      await out.close();
+      return "saved";
+    }
+  }
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = SEED_FILE_NAME;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000); // some browsers read it after click()
+  return "downloaded";
 }
 
 /** The words in pasted or uploaded text. A numbered list ("1. word", "1word", in any

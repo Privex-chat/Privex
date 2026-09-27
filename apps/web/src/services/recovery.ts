@@ -134,11 +134,14 @@ async function requireRecoverySession(): Promise<{ bundle: IdentityBundle; token
   return { bundle, token };
 }
 
-/** Shown wherever a recovery password is set (the form lets password managers save
- *  it under the Privex ID, and that pair is everything a takeover needs). */
+/** Shown wherever a recovery password is set. The form lets password managers save
+ *  it under the Privex ID, and that pair is everything a takeover needs - so the
+ *  risk to name is malware reading the browser's own password store, which is
+ *  what stolen-data logs are made of. */
 export const PASSWORD_MANAGER_NOTE =
-  "If a password manager offers to save this, use one that's end-to-end encrypted: " +
-  "with your Privex ID, this password is all it takes to open your account.";
+  "Saving this in a password manager? Use a separate app with its own master password, " +
+  "not your browser's built-in one: malware steals browser-saved passwords, and with your " +
+  "Privex ID this password is all it takes to open your account.";
 
 export async function opaqueRecoveryStatus(): Promise<boolean> {
   const token = useAuth.getState().sessionToken;
