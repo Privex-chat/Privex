@@ -339,6 +339,7 @@ pub async fn spk_rotate(
         return Err(ApiError::bad_request());
     }
 
+    // The DB keeps only the day of this and the KT entry below (migration 0015).
     let now = now_unix();
     kd::update_spk(&st.db, &user_id, &spk, &sig_ed, &sig_dil, now as i32)
         .await

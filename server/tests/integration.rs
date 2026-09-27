@@ -1396,6 +1396,49 @@ async fn server_end_to_end() {
         "rotated bundle proof must verify"
     );
 
+    // Only the DAY of each key event is stored (migration 0015's triggers): the
+    // register and rotate entries, and the directory's times. The proof above
+    // verifies with it.
+    let times: Vec<i32> = sqlx::query_scalar("SELECT timestamp FROM kt_log WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert!(times.iter().all(|t| t % 86_400 == 0), "KT times are whole days: {times:?}");
+    let (created, spk_created): (i32, i32) =
+        sqlx::query_as("SELECT created_at, spk_created_at FROM key_directory WHERE user_id = $1")
+            .bind(&bob.user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!((created % 86_400, spk_created % 86_400), (0, 0), "directory times are whole days");
+
+    // The rule holds at the DB, whoever writes: exact seconds written straight to
+    // the tables (as an older server version would) are stored as the day.
+    sqlx::query("UPDATE kt_log SET timestamp = timestamp + 1234 WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_directory SET created_at = created_at + 5, spk_created_at = spk_created_at + 7 WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let swept: Vec<i32> = sqlx::query_scalar("SELECT timestamp FROM kt_log WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(swept, times, "exact KT times stored as the day");
+    let swept_kd: (i32, i32) =
+        sqlx::query_as("SELECT created_at, spk_created_at FROM key_directory WHERE user_id = $1")
+            .bind(&bob.user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(swept_kd, (created, spk_created), "exact directory times stored as the day");
+
     // The owner's WS-ticket reply now carries the NEW signed prekey, signatures
     // included, so a device that didn't publish it can tell (docs 8.2).
     let tkt: serde_json::Value = http

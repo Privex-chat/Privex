@@ -111,6 +111,7 @@ pub async fn register(
         spk_sig_ed,
         spk_sig_dil,
         kyber1024_pub: kyber,
+        // The DB keeps only the day of these (migration 0015).
         spk_created_at: now as i32,
         created_at: now as i32,
     };
