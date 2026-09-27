@@ -47,30 +47,6 @@ pub fn now_unix() -> i64 {
         .as_secs() as i64
 }
 
-/// The UTC day (its midnight, unix seconds) a key event happened on. This is the
-/// only time the server keeps about key changes: the key directory's
-/// `created_at` / `spk_created_at` and the KT log's entry timestamps. Nothing
-/// needs more than the day, and exact seconds would record when an account
-/// registered or was recovered, and when its device was online (rotations run
-/// as the device connects).
-pub fn key_event_day(now: i64) -> i32 {
-    (now - now.rem_euclid(86_400)) as i32
-}
-
-#[cfg(test)]
-mod key_event_day_tests {
-    use super::key_event_day;
-
-    #[test]
-    fn keeps_only_the_day() {
-        let midnight = 1_790_467_200; // 2026-09-27T00:00:00Z
-        assert_eq!(key_event_day(midnight), midnight as i32);
-        assert_eq!(key_event_day(midnight + 1), midnight as i32);
-        assert_eq!(key_event_day(midnight + 86_399), midnight as i32);
-        assert_eq!(key_event_day(midnight + 86_400), (midnight + 86_400) as i32);
-    }
-}
-
 fn init_redis(url: &str) -> anyhow::Result<deadpool_redis::Pool> {
     let cfg = deadpool_redis::Config::from_url(url);
     let pool = cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
@@ -97,10 +73,6 @@ pub async fn build_state_with_store(
     // truncated by an unclean shutdown (key_directory is LOGGED and survived).
     if let Err(e) = db::queries::kt_log::repair_kt_log(&db).await {
         tracing::warn!(event = "kt_log_repair_error", error = %e);
-    }
-    // Before the KT cache is first built (it starts empty, below).
-    if let Err(e) = db::queries::kt_log::round_key_event_times(&db).await {
-        tracing::warn!(event = "key_event_rounding_error", error = %e);
     }
     let redis = init_redis(&config.redis_url)?;
     Ok(AppState {
