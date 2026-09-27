@@ -1198,6 +1198,66 @@ async fn server_end_to_end() {
         "should receive a heartbeat ping"
     );
 
+    // Several connections for one account (tabs / devices): live pushes go to the
+    // newest; an OLDER one closing must not cut the newer off, and the newest
+    // closing hands live delivery back to one still open (ws/state.rs).
+    {
+        let push = |label: &str| {
+            let mut c = vec![0u8; 64];
+            getrandom::getrandom(&mut c).unwrap();
+            let body = b64.encode(&c);
+            let (http, base, token, to) = (http.clone(), base.clone(), token.clone(), bob.user_id.clone());
+            let label = label.to_string();
+            async move {
+                let r = http
+                    .post(format!("{base}/messages/send"))
+                    .header("X-Privex-Auth", &token)
+                    .json(&serde_json::json!({ "recipient_id": to, "content": body }))
+                    .send()
+                    .await
+                    .unwrap();
+                assert!(r.status().is_success(), "send {label}");
+                body
+            }
+        };
+        let settle = || tokio::time::sleep(std::time::Duration::from_millis(300));
+        // Bounded: read_until_message keeps answering pings, so a push that never
+        // comes would otherwise wait forever instead of failing.
+        let within = std::time::Duration::from_secs(10);
+        let t_older = ws_ticket(&http, &base, &bob_token).await;
+        let mut older = ws_connect(addr, &t_older).await.expect("older connects");
+        let t_newer = ws_ticket(&http, &base, &bob_token).await;
+        let mut newer = ws_connect(addr, &t_newer).await.expect("newer connects");
+        settle().await;
+
+        older.close(None).await.unwrap();
+        drop(older);
+        settle().await;
+        let sent = push("after the older closed").await;
+        let got = tokio::time::timeout(within, read_until_message(&mut newer))
+            .await
+            .expect("newer got nothing live after the older closed");
+        assert_eq!(got["content"].as_str().unwrap(), sent, "newer still live after the older closed");
+        let ack = |m: &serde_json::Value| {
+            WsMessage::Text(serde_json::json!({ "type": "ack", "message_ids": [m["message_id"]] }).to_string())
+        };
+        newer.send(ack(&got)).await.unwrap();
+
+        let t_newest = ws_ticket(&http, &base, &bob_token).await;
+        let mut newest = ws_connect(addr, &t_newest).await.expect("newest connects");
+        settle().await;
+        newest.close(None).await.unwrap();
+        drop(newest);
+        settle().await;
+        let sent = push("after the newest closed").await;
+        let got = tokio::time::timeout(within, read_until_message(&mut newer))
+            .await
+            .expect("nothing handed back live after the newest closed");
+        assert_eq!(got["content"].as_str().unwrap(), sent, "delivery handed back after the newest closed");
+        newer.send(ack(&got)).await.unwrap();
+        settle().await;
+    }
+
     // ===== Session 11: KT log + key management =====
     let kt_pub = SigningKey::from_bytes(&[9u8; 32]).verifying_key();
     let count_opks = |uid: String| {

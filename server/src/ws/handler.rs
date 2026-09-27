@@ -221,7 +221,8 @@ async fn handle_socket(socket: WebSocket, st: AppState, user_id: String) {
     }
 
     writer.abort();
-    st.online.remove(&user_id);
+    // Only THIS connection: a newer one for the account must stay live.
+    st.online.remove(&user_id, &tx);
 }
 
 fn base64_content(bytes: &[u8]) -> String {
