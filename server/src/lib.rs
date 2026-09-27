@@ -179,7 +179,6 @@ pub fn app(state: AppState) -> Router {
         .route("/auth/challenge", post(routes::auth::challenge))
         .route("/auth/verify", post(routes::auth::verify))
         .route("/auth/ws_ticket", post(routes::auth::ws_ticket))
-        .route("/auth/logout_all", post(routes::auth::logout_all))
         .route(
             "/keys/register",
             post(routes::register::register).layer(DefaultBodyLimit::max(64 * 1024)),

@@ -442,10 +442,9 @@ log {
 
 ### Session Token Security
 
-Session tokens include `spk_version`. When a user rotates their Signed Pre-Key:
-- `spk_version` increments in the database
-- All existing tokens with old `spk_version` return 401 immediately
-- This implements "log out everywhere" without storing a token revocation list
+A session token is an HMAC-signed `{user_id, issued_at, expires_at, random id}`, valid for 24 hours. The app keeps it in memory only and sends it only in the `X-Privex-Auth` header. The server keeps no session list and no revocation record.
+
+There is no "log out everywhere". Each device holds the account's keys and signs itself in with them (there's no password), so no server action could remove a device that holds them without the server keeping a list of your devices, which Privex doesn't. To take Privex off a device, use "Erase this device" on it. A lost device is protected by App Lock; if App Lock wasn't on, move to a new account.
 
 ---
 

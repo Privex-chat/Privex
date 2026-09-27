@@ -8,8 +8,7 @@
 //  - The server's one-time supply is topped up in batches when it runs low.
 //  - The signed prekey rotates every 30 ± 5 days. Each retired private half is
 //    kept for the 60-day max message TTL (+ a day), so a handshake queued against
-//    it still opens - however many rotations (incl. "log out everywhere") happen
-//    meanwhile.
+//    it still opens - however many rotations happen meanwhile.
 // Order is always: persist the new PRIVATE keys durably, then publish - the
 // server must never hand out a public key whose private half we don't hold.
 //

@@ -12,8 +12,8 @@ pub struct Config {
     /// HKDF-Expand("privex-session-token") - never the root directly (PVX-24).
     /// 32 bytes, never logged, never leaves process.
     pub token_mac_key: [u8; 32],
-    /// PRF key for Redis key namespacing (challenges, tickets, revocation,
-    /// rate-limit buckets). Derived via HKDF-Expand("privex-redis-namespace");
+    /// PRF key for Redis key namespacing (challenges, tickets, rate-limit
+    /// buckets). Derived via HKDF-Expand("privex-redis-namespace");
     /// per-purpose separation inside Redis comes from the scope string that
     /// rds::keyed() folds into each HMAC.
     pub redis_ns_key: [u8; 32],

@@ -2211,35 +2211,6 @@ async fn server_end_to_end() {
         );
     }
 
-    // Log out everywhere: the token works before, then 401s after revocation.
-    assert_eq!(
-        http.post(format!("{base}/auth/ws_ticket"))
-            .header("X-Privex-Auth", &token)
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200,
-        "token valid before logout_all"
-    );
-    let lo = http
-        .post(format!("{base}/auth/logout_all"))
-        .header("X-Privex-Auth", &token)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(lo.status(), 200);
-    assert_eq!(
-        http.post(format!("{base}/auth/ws_ticket"))
-            .header("X-Privex-Auth", &token)
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        401,
-        "token must be revoked after logout_all"
-    );
-
     // 6c. /metrics is non-vacuous now: after real registration/auth/message
     // traffic with known px_ids, the label-free counters still carry NO px_ id
     // and NO message id (PVX-04). This scrape AFTER the flows is what makes the
@@ -2850,69 +2821,6 @@ async fn rate_limit_window_resets() {
     assert!(!check_rate_limit(&pool, &key, "rltest", &who, 2, 1).await.unwrap(), "limit bites");
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     assert!(check_rate_limit(&pool, &key, "rltest", &who, 2, 1).await.unwrap(), "window reset");
-}
-
-// PVX-06: the revocation cutoff check must fail CLOSED. With Redis unreachable,
-// an otherwise-valid session token is rejected by the AuthUser extractor (500,
-// treated as transient by clients) instead of silently skipping the check.
-// Needs no Docker: lazy PG pool + a Redis pool pointing at a dead port.
-#[tokio::test]
-async fn revocation_check_fails_closed_when_redis_down() {
-    use axum::extract::FromRequestParts;
-    use privex_server::auth::extract::AuthUser;
-    use privex_server::auth::token;
-    use privex_server::state::AppState;
-    use privex_server::ws;
-
-    let key = [7u8; 32];
-    let config = Config::for_test(
-        "postgres://unused:unused@127.0.0.1:1/unused".into(),
-        "redis://127.0.0.1:1".into(), // nothing listens here
-        key,
-        8,
-    );
-    let state = AppState {
-        db: sqlx::postgres::PgPoolOptions::new()
-            .connect_lazy("postgres://unused:unused@127.0.0.1:1/unused")
-            .unwrap(),
-        redis: deadpool_redis::Config::from_url("redis://127.0.0.1:1")
-            .create_pool(Some(deadpool_redis::Runtime::Tokio1))
-            .unwrap(),
-        config: Arc::new(config),
-        store: Arc::new(MemoryStore::new()),
-        online: Arc::new(ws::state::Online::new()),
-        devlink: Arc::new(ws::devlink::DevlinkRooms::new()),
-        kt_cache: privex_server::kt_cache::KtCache::new(),
-        ready_cache: Arc::new(tokio::sync::Mutex::new(None)),
-        pow_verify_sem: Arc::new(tokio::sync::Semaphore::new(
-            privex_server::state::POW_VERIFY_MAX_CONCURRENCY,
-        )),
-    };
-
-    // Mint with the config-derived token MAC subkey (PVX-24), not the raw root.
-    let tok = token::mint(
-        &state.config.token_mac_key,
-        "px_00000000000000000000000000000001",
-        now_unix(),
-    );
-    let req = axum::http::Request::builder()
-        .header("x-privex-auth", &tok)
-        .body(())
-        .unwrap();
-    let (mut parts, _) = req.into_parts();
-
-    use axum::response::IntoResponse;
-    let err = AuthUser::from_request_parts(&mut parts, &state)
-        .await
-        .err()
-        .expect("a valid token must be REJECTED when the revocation store is unreachable");
-    // Specifically 500 (transient), NOT 401 - a 401 would read to the client as a
-    // bad token and trigger a pointless re-auth instead of a retry.
-    assert_eq!(
-        err.into_response().status(),
-        500,
-        "Redis-unreachable must map to 500 Internal Server Error, not 401"
-    );
 }
 
 // PVX-02: /health/ready must return 503 when a dependency is unreachable, so a
