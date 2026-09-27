@@ -168,8 +168,18 @@ function PasswordRecovery({ busy, onRun }: { busy: boolean; onRun: RunFn }) {
   );
 }
 
-/** bip39's errors count words from 0 and read like a stack trace. */
+/** bip39's errors count words from 0 and read like a stack trace, and a refused
+ *  sign-in only says "api 401". */
 function friendlySeedError(e: unknown): Error {
+  // A valid phrase that no account uses (e.g. one mistyped word that's another
+  // real word and still passes the checksum). The server answers every failed
+  // sign-in the same way - it never says whether an account exists - and a
+  // device clock off by over 5 minutes fails it too.
+  if (e instanceof api.ApiError && e.status === 401) {
+    return new Error(
+      "No Privex account uses these words. Check each one against your saved copy, and that this device's clock is right.",
+    );
+  }
   const msg = e instanceof Error ? e.message : String(e);
   const unknown = /unknown word \(word (\d+)\)/.exec(msg);
   if (unknown) {

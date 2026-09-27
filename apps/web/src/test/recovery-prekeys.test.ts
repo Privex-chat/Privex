@@ -33,6 +33,7 @@ vi.mock("../workers/crypto-client", async () => {
 import { initCrypto, wasm } from "../crypto/wasm";
 import { genIdentityBundle, recoverBundleFromSeed } from "../crypto/onboarding-crypto";
 import { recoverWithSeed, type RecoveryCryptoApi } from "../services/recovery";
+import { loadProgress } from "../onboarding/store";
 import * as api from "../api/client";
 import { db } from "../db";
 
@@ -68,5 +69,31 @@ describe("seed recovery re-provisions prekeys", () => {
     expect(token).toBe("tok");
     expect(replace).toBe(true); // REPLACE, not add
     expect(opks.length).toBeGreaterThan(0);
+  });
+});
+
+// A phrase that passes its checksum but belongs to no account (one mistyped word
+// that's another valid word) must leave nothing behind: a saved identity with
+// onboarding progress would be registered as a brand-new account by onboarding.
+describe("seed recovery for a phrase with no account", () => {
+  it("saves no identity and no progress, and publishes nothing", async () => {
+    await db.identity.clear();
+    await db.settings.clear();
+    const stranger = genIdentityBundle(wasm, new Uint8Array(32).fill(0x3d)); // never registered
+    const seedCrypto = {
+      seedToMasterSeed: async () => stranger.masterSeed,
+      recoverBundleFromSeed: async (s: Uint8Array) => recoverBundleFromSeed(wasm, s),
+    } as unknown as RecoveryCryptoApi;
+
+    vi.spyOn(api, "authChallenge").mockResolvedValue({ challenge: "00".repeat(32), expires_at: 0 });
+    vi.spyOn(api, "authVerify").mockRejectedValue(new api.ApiError(401)); // unknown account
+    const rotate = vi.spyOn(api, "spkRotate");
+    const replenish = vi.spyOn(api, "replenishPrekeys");
+
+    await expect(recoverWithSeed(stranger.mnemonic, seedCrypto)).rejects.toMatchObject({ status: 401 });
+    expect(await db.identity.count()).toBe(0);
+    expect((await loadProgress()).step).toBe("welcome");
+    expect(rotate).not.toHaveBeenCalled();
+    expect(replenish).not.toHaveBeenCalled();
   });
 });
