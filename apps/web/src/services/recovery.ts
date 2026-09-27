@@ -79,16 +79,20 @@ async function provisionPrekeys(bundle: IdentityBundle, token: string): Promise<
   );
 }
 
-/** Shared tail: persist the recovered identity, obtain a token (OPAQUE provides
- *  one; seed recovery signs a challenge), re-provision prekeys, enter the app. */
+/** Shared tail: prove the account (OPAQUE provides a token; seed and contact
+ *  recovery sign a challenge), THEN save the identity, re-provision prekeys and
+ *  enter the app. Nothing is saved until the server accepts these keys: a phrase
+ *  that passes its checksum but belongs to no account (a typo that happens to be
+ *  another valid word) must leave no identity behind - onboarding would pick it up
+ *  and register it as a brand-new, empty account. */
 async function completeRecovery(bundle: IdentityBundle, tokenOpt?: string): Promise<void> {
-  // provisionPrekeys publishes this bundle's signed prekey as brand new, so its
-  // first rotation is a full period away (unset = "rotate now" to prekey upkeep).
-  bundle.spkRotateAfter = nextSpkRotation(Math.floor(Date.now() / 1000));
-  await persistGeneratedIdentity(bundle);
   // No key check here: the server still has the account's old signed prekey until
   // provisionPrekeys below publishes ours.
   const token = tokenOpt ?? (await authenticateBundle(bundle)).session_token;
+  // provisionPrekeys publishes this bundle's signed prekey as brand new, so its
+  // first rotation is a full period away (unset = "rotate now" to prekey upkeep).
+  bundle.spkRotateAfter = nextSpkRotation(Math.floor(Date.now() / 1000));
+  await persistGeneratedIdentity(bundle); // saved before any of its keys are published
   useAuth.getState().setSession(token, bundle.userId);
   await provisionPrekeys(bundle, token);
   await finalizeIdentity(bundle);
@@ -374,7 +378,7 @@ export async function pollContactRecovery(
   const seed = await unsealAndReconstruct(session.rk.priv, blobs, collected, crypto);
   if (!seed) return { userId: null, posted: blobs.length };
   const bundle = await crypto.recoverBundleFromSeed(seed);
-  await completeRecovery(bundle); // persists identity, auths, re-provisions prekeys
+  await completeRecovery(bundle); // auths, then saves the identity and re-provisions prekeys
   return { userId: bundle.userId, posted: blobs.length };
 }
 
