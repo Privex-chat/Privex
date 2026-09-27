@@ -4,19 +4,25 @@
 import { useEffect, useState } from "react";
 import { dismissKeyAlert, hasKeyAlert } from "../services/key-watch";
 import { onKeyAlertChanged } from "../services/events";
+import { useAuth } from "../store/auth";
 import { WarningTriangleIcon } from "./icons";
 
 export default function KeyAlert() {
+  const userId = useAuth((s) => s.userId);
   const [shown, setShown] = useState(false);
   const [notMe, setNotMe] = useState(false);
 
   useEffect(() => {
-    const refresh = () => void hasKeyAlert().then(setShown);
+    if (!userId) {
+      setShown(false);
+      return;
+    }
+    const refresh = () => void hasKeyAlert(userId).then(setShown);
     refresh();
     return onKeyAlertChanged(refresh);
-  }, []);
+  }, [userId]);
 
-  if (!shown) return null;
+  if (!shown || !userId) return null;
 
   const btn = "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors";
   return (
@@ -36,7 +42,7 @@ export default function KeyAlert() {
             your devices — tap &ldquo;That was me&rdquo;.
           </p>
           <div className="mt-2 flex gap-2">
-            <button onClick={() => void dismissKeyAlert()} className={`${btn} bg-raised text-text-secondary hover:bg-border-strong`}>
+            <button onClick={() => void dismissKeyAlert(userId)} className={`${btn} bg-raised text-text-secondary hover:bg-border-strong`}>
               That was me
             </button>
             <button onClick={() => setNotMe(true)} className={`${btn} border border-danger text-danger hover:bg-danger-subtle`}>
@@ -56,7 +62,7 @@ export default function KeyAlert() {
             <li>When you&rsquo;re ready, move to a new account and share its ID with them the same way.</li>
             <li>If chat backup is on, turn it off in Settings → Recovery. That deletes it from our servers.</li>
           </ul>
-          <button onClick={() => void dismissKeyAlert()} className={`${btn} mt-2 bg-raised text-text-secondary hover:bg-border-strong`}>
+          <button onClick={() => void dismissKeyAlert(userId)} className={`${btn} mt-2 bg-raised text-text-secondary hover:bg-border-strong`}>
             Hide this warning
           </button>
         </>

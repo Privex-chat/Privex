@@ -37,7 +37,7 @@ describe("account key watch", () => {
     const me = genIdentityBundle(wasm, entropy(0x41));
     await checkAccountKeys(reply(me.spk.pub, me.spkSig.ed, me.spkSig.dil), deps(me));
     await checkAccountKeys(undefined, deps(me)); // a server that predates the field
-    expect(await hasKeyAlert()).toBe(false);
+    expect(await hasKeyAlert(me.userId)).toBe(false);
   });
 
   it("stays quiet mid-rotation, while the server still has the key we just retired", async () => {
@@ -46,22 +46,22 @@ describe("account key watch", () => {
     const rotated = { ...me, spk: next, spkSig: { ed: next.sigEd, dil: next.sigDil }, prevSpks: [me.spk] };
     // First check this device ever makes: the old key is known only as retired.
     await checkAccountKeys(reply(me.spk.pub, me.spkSig.ed, me.spkSig.dil), deps(rotated));
-    expect(await hasKeyAlert()).toBe(false);
+    expect(await hasKeyAlert(me.userId)).toBe(false);
   });
 
   it("warns about a key signed by this account that this device never made", async () => {
     const me = genIdentityBundle(wasm, entropy(0x42));
     const theirs = anotherDevicesKey(me);
     await checkAccountKeys(theirs, deps(me));
-    expect(await hasKeyAlert()).toBe(true);
+    expect(await hasKeyAlert(me.userId)).toBe(true);
 
     // "That was me": cleared, and that key stays trusted...
-    await dismissKeyAlert();
+    await dismissKeyAlert(me.userId);
     await checkAccountKeys(theirs, deps(me));
-    expect(await hasKeyAlert()).toBe(false);
+    expect(await hasKeyAlert(me.userId)).toBe(false);
     // ...but a different new one warns again.
     await checkAccountKeys(anotherDevicesKey(me), deps(me));
-    expect(await hasKeyAlert()).toBe(true);
+    expect(await hasKeyAlert(me.userId)).toBe(true);
   });
 
   it("can't be faked by the server: keys not signed by this account never warn", async () => {
@@ -72,7 +72,18 @@ describe("account key watch", () => {
     await checkAccountKeys(reply(k.pub, new Uint8Array(64), k.sigDil), deps(me)); // bad Ed25519 sig
     await checkAccountKeys(reply(k.pub, k.sigEd, new Uint8Array(k.sigDil.length)), deps(me)); // bad Dilithium sig
     await checkAccountKeys({ spk_x25519: "zz", spk_sig_ed: "", spk_sig_dil: "" }, deps(me)); // garbage
-    expect(await hasKeyAlert()).toBe(false);
+    expect(await hasKeyAlert(me.userId)).toBe(false);
+  });
+
+  it("keeps each account's alert to itself", async () => {
+    const me = genIdentityBundle(wasm, entropy(0x47));
+    await checkAccountKeys(anotherDevicesKey(me), deps(me));
+    expect(await hasKeyAlert(me.userId)).toBe(true);
+    // A different account restored on this device doesn't inherit it.
+    const other = genIdentityBundle(wasm, entropy(0x48));
+    expect(await hasKeyAlert(other.userId)).toBe(false);
+    await dismissKeyAlert(other.userId);
+    expect(await hasKeyAlert(me.userId)).toBe(true);
   });
 
   it("isn't fooled by the server replaying an old key of ours this device has dropped", async () => {
@@ -82,6 +93,6 @@ describe("account key watch", () => {
     const next = generateSignedSpk(wasm, me.identity.ed25519_priv, me.identity.dilithium3_priv);
     const later = { ...me, spk: next, spkSig: { ed: next.sigEd, dil: next.sigDil }, prevSpks: [] };
     await checkAccountKeys(old, deps(later)); // past its retention window, replayed
-    expect(await hasKeyAlert()).toBe(false);
+    expect(await hasKeyAlert(me.userId)).toBe(false);
   });
 });

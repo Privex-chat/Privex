@@ -17,8 +17,10 @@ import { fromHex, toHex, type IdentityBundle } from "../crypto/onboarding-crypto
 import { cryptoCall } from "../workers/crypto-client";
 import { emitKeyAlertChanged } from "./events";
 
-const KNOWN = "known_spks"; // hex signed-prekey pubs: ours, or ones the user said were theirs
-const ALERT = "key_alert"; // the unanswered foreign key (hex)
+// Per account, so an alert or trusted key never carries over to a different
+// account restored on this device.
+const knownKey = (userId: string) => `known_spks:${userId}`; // hex SPK pubs: ours, or ones the user said were theirs
+const alertKey = (userId: string) => `key_alert:${userId}`; // the unanswered foreign key (hex)
 
 export interface KeyWatchDeps {
   loadBundle(): Promise<IdentityBundle | undefined>;
@@ -36,8 +38,8 @@ const workerDeps: KeyWatchDeps = {
   verifyHybrid: (...a) => cryptoCall<boolean>("verify_hybrid", a),
 };
 
-async function knownKeys(): Promise<Set<string>> {
-  return new Set((await db.settings.get(KNOWN))?.value as string[] | undefined);
+async function knownKeys(userId: string): Promise<Set<string>> {
+  return new Set((await db.settings.get(knownKey(userId)))?.value as string[] | undefined);
 }
 
 /** Check a reply's account key. Best effort: never throws, and does nothing on a
@@ -53,11 +55,11 @@ export async function checkAccountKeys(
     // copy is never older than what the server could have from us.
     const me = await deps.loadBundle();
     if (!me) return;
-    const known = await knownKeys();
+    const known = await knownKeys(me.userId);
     const mine = [me.spk, ...(me.prevSpks ?? [])].map((k) => toHex(k.pub));
     if (mine.some((k) => !known.has(k))) {
       mine.forEach((k) => known.add(k));
-      await db.settings.put({ key: KNOWN, value: [...known] });
+      await db.settings.put({ key: knownKey(me.userId), value: [...known] });
     }
 
     const spk = reply.spk_x25519.toLowerCase();
@@ -72,27 +74,27 @@ export async function checkAccountKeys(
     // Not signed by this account: a broken or lying server, not another device
     // with our keys - nothing to warn about.
     if (!signedByUs) return;
-    if ((await db.settings.get(ALERT))?.value === spk) return;
-    await db.settings.put({ key: ALERT, value: spk });
+    if ((await db.settings.get(alertKey(me.userId)))?.value === spk) return;
+    await db.settings.put({ key: alertKey(me.userId), value: spk });
     emitKeyAlertChanged();
   } catch {
     // Malformed reply / storage hiccup: the next reply checks again.
   }
 }
 
-export async function hasKeyAlert(): Promise<boolean> {
-  return typeof (await db.settings.get(ALERT))?.value === "string";
+export async function hasKeyAlert(userId: string): Promise<boolean> {
+  return typeof (await db.settings.get(alertKey(userId)))?.value === "string";
 }
 
 /** "That was me" (or read and dismissed): remember that key as the user's and
  *  clear the alert. A different new key alerts again. */
-export async function dismissKeyAlert(): Promise<void> {
-  const spk = (await db.settings.get(ALERT))?.value;
+export async function dismissKeyAlert(userId: string): Promise<void> {
+  const spk = (await db.settings.get(alertKey(userId)))?.value;
   if (typeof spk === "string") {
-    const known = await knownKeys();
+    const known = await knownKeys(userId);
     known.add(spk);
-    await db.settings.put({ key: KNOWN, value: [...known] });
+    await db.settings.put({ key: knownKey(userId), value: [...known] });
   }
-  await db.settings.delete(ALERT);
+  await db.settings.delete(alertKey(userId));
   emitKeyAlertChanged();
 }
