@@ -98,6 +98,10 @@ pub async fn build_state_with_store(
     if let Err(e) = db::queries::kt_log::repair_kt_log(&db).await {
         tracing::warn!(event = "kt_log_repair_error", error = %e);
     }
+    // Before the KT cache is first built (it starts empty, below).
+    if let Err(e) = db::queries::kt_log::round_key_event_times(&db).await {
+        tracing::warn!(event = "key_event_rounding_error", error = %e);
+    }
     let redis = init_redis(&config.redis_url)?;
     Ok(AppState {
         db,

@@ -69,6 +69,37 @@ pub async fn get_root(pool: &PgPool) -> sqlx::Result<Option<KtRoot>> {
     .await
 }
 
+/// Keep only the DAY of stored key events (`key_event_day`). New writes are
+/// rounded as they're stored; this sweeps anything stored before that - rows
+/// from before key_event_day existed, and any that an older binary, still
+/// serving while a deploy runs, wrote after them. Runs at startup before the KT
+/// cache is built, so the leaves and root this process serves always come from
+/// rounded data.
+///
+/// KT times are inside the leaf hashes, so the first sweep rewrites the log's
+/// history and root once. Safe: clients pin no roots (each proof is checked
+/// against the freshly signed root), roots aren't published outside yet, and
+/// `prev_hash` chains bundle hashes, not times. Irreversible by design.
+/// Idempotent: only times off a day boundary are touched.
+pub async fn round_key_event_times(pool: &PgPool) -> sqlx::Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        r#"UPDATE key_directory
+              SET created_at     = created_at     - (created_at     % 86400),
+                  spk_created_at = spk_created_at - (spk_created_at % 86400)
+            WHERE created_at % 86400 <> 0 OR spk_created_at % 86400 <> 0"#,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        r#"UPDATE kt_log SET timestamp = timestamp - (timestamp % 86400)
+            WHERE timestamp % 86400 <> 0"#,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await
+}
+
 /// Repair missing KT log entries after an unclean shutdown.
 /// `kt_log` was UNLOGGED and could be truncated on crash while `key_directory`
 /// (LOGGED) survives. This rebuilds entries from `key_directory` data for any

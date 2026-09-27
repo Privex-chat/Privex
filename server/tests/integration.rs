@@ -1412,6 +1412,33 @@ async fn server_end_to_end() {
             .unwrap();
     assert_eq!((created % 86_400, spk_created % 86_400), (0, 0), "directory times are whole days");
 
+    // Rows stored with exact seconds (before key_event_day, or by an older binary
+    // still serving during a deploy) are swept to the day at startup.
+    sqlx::query("UPDATE kt_log SET timestamp = timestamp + 1234 WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE key_directory SET created_at = created_at + 5, spk_created_at = spk_created_at + 7 WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    privex_server::db::queries::kt_log::round_key_event_times(&pool).await.unwrap();
+    let swept: Vec<i32> = sqlx::query_scalar("SELECT timestamp FROM kt_log WHERE user_id = $1")
+        .bind(&bob.user_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(swept, times, "exact KT times swept back to the day");
+    let swept_kd: (i32, i32) =
+        sqlx::query_as("SELECT created_at, spk_created_at FROM key_directory WHERE user_id = $1")
+            .bind(&bob.user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(swept_kd, (created, spk_created), "exact directory times swept back to the day");
+
     // The owner's WS-ticket reply now carries the NEW signed prekey, signatures
     // included, so a device that didn't publish it can tell (docs 8.2).
     let tkt: serde_json::Value = http
